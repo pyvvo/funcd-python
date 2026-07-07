@@ -1,19 +1,21 @@
 [project]
-name = "funcd-example-hello-world"
+name = "funcd-example-kv-counter"
 version = "0.1.0"
-description = "A funcd function authored in Python against the funcd_shim typed contract, deployed with funcdctl (ADR-0049)."
+description = "A funcd function authored in Python that uses durable KV via context.kv, with a typed I/O contract (ADR-0069/0058)."
 authors = [{ name = "The funcd Authors" }]
 requires-python = ">=3.12"
-# funcd-shim is the typed authoring contract (Handler/CloudEvent/FunctionContext/Json). At deploy
-# time the artifact is just src/handler.py — the platform's curated Python image provides the shim
-# (and the build bakes the contract validator); this dependency is for local typechecking + tests only.
+# funcd-shim is the typed authoring contract (CloudEvent/FunctionContext/KVClient). At deploy time the
+# artifact is the built counter.py (handler + baked validator); this dependency is for local typecheck +
+# tests + the contract build only.
 dependencies = ["funcd-shim"]
 
 [dependency-groups]
 dev = ["mypy>=1.13", "pytest>=8.3", "ruff>=0.8"]
+# the push-time contract build (funcd_shim.build) reads FuncInput/FuncOutput via pydantic.
+build = ["pydantic>=2.13.4"]
 
 [tool.uv.sources]
-funcd-shim = { path = "../../../shim/python" }
+funcd-shim = { path = "../../../shim/python", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
