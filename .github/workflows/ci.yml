@@ -9,13 +9,35 @@ on:
       - main
   merge_group:
 
-# actions:write lets cache-nix-action list, save and purge its store caches.
+# pull-requests:read lets paths-filter list a PR's changed files. actions:write lets
+# cache-nix-action list, save and purge its store caches.
 permissions:
   contents: read
+  pull-requests: read
   actions: write
 
 jobs:
+  # A change that touches no code (only Markdown or LICENSE) skips the ci job. A skipped
+  # required job still reports success, so a docs-only PR is not blocked.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          predicate-quantifier: some-with-excludes
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+              - '!LICENSE'
+
   ci:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
