@@ -1,0 +1,23 @@
+# Git hooks, installed by the dev shell (`nix develop`). CI runs the same checks, so a commit
+# that passes here does not fail there on formatting, lint or its message.
+pre-commit:
+  commands:
+    gofmt:
+      glob: "*.go"
+      run: gofmt -w {staged_files}
+      stage_fixed: true
+    ruff:
+      glob: "*.py"
+      # --force-exclude keeps each project's excludes (the generated build outputs) on explicit paths
+      run: ruff format --force-exclude {staged_files} && ruff check --fix --force-exclude {staged_files}
+      stage_fixed: true
+
+commit-msg:
+  commands:
+    conventional:
+      run: scripts/commit-msg-lint.sh {1}
+
+pre-push:
+  commands:
+    check:
+      run: just check

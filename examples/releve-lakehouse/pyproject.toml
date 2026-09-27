@@ -45,7 +45,8 @@ testpaths = ["tests"]            # don't recurse into functions/*/bundle (vendor
 [tool.ruff]
 line-length = 110
 target-version = "py312"
-extend-exclude = ["functions/*/bundle"]   # don't lint the vendored wheel closure
+# the vendored wheel closure, and the types `funcdctl types` generates
+extend-exclude = ["functions/*/bundle", "functions/*/funcd_types.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B"]

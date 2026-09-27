@@ -67,9 +67,7 @@ def load_from_path(path: str) -> Validators:
     except (json.JSONDecodeError, ValueError) as err:
         raise ContractError(f"contract {path!r} is not valid JSON: {err}") from err
     if not isinstance(blob, dict) or "input" not in blob or "output" not in blob:
-        raise ContractError(
-            f"contract {path!r} must carry both an \"input\" and an \"output\" schema (ADR-0090)"
-        )
+        raise ContractError(f'contract {path!r} must carry both an "input" and an "output" schema (ADR-0090)')
     try:
         vin = _compile_side(blob["input"])
         vout = _compile_side(blob["output"])

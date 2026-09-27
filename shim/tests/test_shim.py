@@ -211,12 +211,24 @@ def test_runtime_compiled_validators_enforce_wire(tmp_path: Path) -> None:
     # scenario: runtime-compiles-validator — validators compiled from the delivered schema (not a
     # baked callable) enforce input→422 / output→500 / void→204, byte-identical to the baked path.
     blob = tmp_path / "c.json"
-    blob.write_text(json.dumps({
-        "input": {"type": "object", "properties": {"hello": {"type": "string"}},
-                  "required": ["hello"], "additionalProperties": False},
-        "output": {"type": "object", "properties": {"ok": {"type": "boolean"}},
-                   "required": ["ok"], "additionalProperties": False},
-    }))
+    blob.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "type": "object",
+                    "properties": {"hello": {"type": "string"}},
+                    "required": ["hello"],
+                    "additionalProperties": False,
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {"ok": {"type": "boolean"}},
+                    "required": ["ok"],
+                    "additionalProperties": False,
+                },
+            }
+        )
+    )
     validators = contract.load_from_path(str(blob))
 
     # bad input → 422 (handler not called)

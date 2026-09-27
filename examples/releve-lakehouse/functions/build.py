@@ -46,8 +46,17 @@ def _vendor(wheels: list[str], target: Path) -> None:
     """pip install --target the wheel closure inside the hermetic base image (arch/glibc-matched)."""
     target.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        ["docker", "run", "--rm", "-v", f"{target}:/out", VENDOR_IMAGE,
-         "bash", "-c", "pip install --no-compile --target /out " + " ".join(f"'{w}'" for w in wheels)],
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{target}:/out",
+            VENDOR_IMAGE,
+            "bash",
+            "-c",
+            "pip install --no-compile --target /out " + " ".join(f"'{w}'" for w in wheels),
+        ],
         check=True,
     )
 
@@ -60,7 +69,7 @@ def build(name: str) -> None:
         shutil.rmtree(bundle)
     bundle.mkdir(parents=True)
 
-    shutil.copy2(fn_dir / "handler.py", bundle / "handler.py")   # the --entry
+    shutil.copy2(fn_dir / "handler.py", bundle / "handler.py")  # the --entry
     for sql in fn_dir.glob("*.sql"):
         shutil.copy2(sql, bundle / sql.name)
 

@@ -25,9 +25,7 @@ class InvContext:
     parent_id: str  # hex16 — the traceparent span-id, "" for a root
 
 
-_current: contextvars.ContextVar[InvContext | None] = contextvars.ContextVar(
-    "funcd_inv", default=None
-)
+_current: contextvars.ContextVar[InvContext | None] = contextvars.ContextVar("funcd_inv", default=None)
 
 
 def current_inv() -> InvContext | None:

@@ -29,9 +29,7 @@ class _UnixHTTPConnection(http.client.HTTPConnection):
 def _conn() -> _UnixHTTPConnection:
     socket_path = os.environ.get("FUNCD_INVOKE_SOCKET")
     if not socket_path:
-        raise RuntimeError(
-            "context.kv: worker-node local API socket unavailable (FUNCD_INVOKE_SOCKET unset)"
-        )
+        raise RuntimeError("context.kv: worker-node local API socket unavailable (FUNCD_INVOKE_SOCKET unset)")
     return _UnixHTTPConnection(socket_path)
 
 

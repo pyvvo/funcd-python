@@ -177,6 +177,7 @@ def _discriminate(node: Any) -> None:
 def _discriminator_tag(branches: list[Any]) -> str | None:
     """The property that discriminates an ``anyOf``'s branches: present + required + single-valued
     (``const`` or one-element ``enum``) in every branch, with distinct values. Else None."""
+
     def is_record(b: Any) -> bool:
         return isinstance(b, dict) and isinstance(b.get("properties"), dict)
 

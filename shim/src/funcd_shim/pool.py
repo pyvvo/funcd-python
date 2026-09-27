@@ -152,9 +152,7 @@ def main() -> int:
         manifest = json.load(fh)
     handlers: dict[str, _Pooled] = {}
     for entry in manifest:
-        handlers[entry["name"]] = _Pooled(
-            src, entry["artifact"], entry["handler"], entry.get("contract")
-        )
+        handlers[entry["name"]] = _Pooled(src, entry["artifact"], entry["handler"], entry.get("contract"))
     for name, pooled in handlers.items():
         try:
             pooled.await_ready()

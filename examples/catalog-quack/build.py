@@ -61,7 +61,7 @@ def _vendor_hermetic() -> None:
     """pip-install the duckdb wheel closure + pre-install the extensions in the glibc-matched vendor
     image, so the vendored native closure matches the runtime's glibc/arch exactly (ADR-0089 §4)."""
     ext_installs = " && ".join(
-        f"python -c \"import duckdb; con=duckdb.connect(); "
+        f'python -c "import duckdb; con=duckdb.connect(); '
         f"con.execute('SET extension_directory=\\'/out/duckdb-ext\\''); "
         f"con.execute('INSTALL {ext}')\""
         for ext in EXTENSIONS
@@ -75,10 +75,16 @@ def _vendor_hermetic() -> None:
     )
     subprocess.run(  # noqa: S603 - fixed argv, no shell-injection surface
         [
-            "docker", "run", "--rm",
-            "-v", f"{BUNDLE}:/out",
-            "--entrypoint", "sh",
-            VENDOR_IMAGE, "-c", script,
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{BUNDLE}:/out",
+            "--entrypoint",
+            "sh",
+            VENDOR_IMAGE,
+            "-c",
+            script,
         ],
         check=True,
     )
@@ -95,8 +101,12 @@ def _vendor_host() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build the catalog-quack deployment bundle (ADR-0089).")
-    parser.add_argument("--no-hermetic", dest="hermetic", action="store_false",
-                        help="vendor via host pip instead of inside the curated image (unsafe for release)")
+    parser.add_argument(
+        "--no-hermetic",
+        dest="hermetic",
+        action="store_false",
+        help="vendor via host pip instead of inside the curated image (unsafe for release)",
+    )
     args = parser.parse_args()
 
     _reset_bundle()
