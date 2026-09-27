@@ -75,7 +75,7 @@ contract layer (`funcdctl inspect`).
   egress grant (function → catalog). Until it lands, bind the token via `spec.secrets` + the URL via a
   ConfigMap.
 
-So the live `just lima-example-duckdb` lane asserts the **provider** side end-to-end (deploy → Ready →
+So the live `just lima-example duckdb` lane asserts the **provider** side end-to-end (deploy → Ready →
 serving Quack → S3-authorized); the function-consumer round-trip lands with that one follow-up. The
 handler's logic is unit-tested now (`uv run pytest`).
 
@@ -90,7 +90,7 @@ via host `pip` for iteration (unsafe for release — see ADR-0089).
 
 ## Live status — working end-to-end (ADR-0086 + ADR-0087 + ADR-0088)
 
-Verified on real containerd (`just lima-example-duckdb`): the CatalogService deploys as an add-on
+Verified on real containerd (`just lima-example duckdb`): the CatalogService deploys as an add-on
 provider (no backing Function), the provider-runtime brings up the `duckdb` engine, it reaches **Ready**
 on its HTTP readiness probe (`curl http://<status.address>/` → `200`), and its keypair reads/writes S3
 through the F47 PEP (`HEAD` on the catalog → `404` fresh, **not** `403`).
@@ -106,7 +106,7 @@ auto-progresses to Ready.
 
 ## The e2e lane
 
-`scripts/lima-duckdb.yaml` + `e2e/duckdb.venom.yml` + `just lima-example-duckdb` are the live lane on
+funcd's `scripts/lanes.yaml` `duckdb` lane + `e2e/duckdb.venom.yml` + `just lima-example duckdb` are the live lane on
 real containerd. They assert the **provider** side end-to-end: the CatalogService deploys (no backing
 Function) → the provider-runtime brings up the `duckdb` engine → it reaches Ready → it serves Quack
 (`GET /`→`200`) and its S3 access is authorized (ADR-0088 — no `403`). The **consumer Function**

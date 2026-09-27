@@ -1,8 +1,8 @@
 # funcd-python — agent working agreement
 
 This repo holds the Python side of funcd: the Python runtime shim and the Python example
-functions. The platform itself (Go daemon, API, CLI, e2e tests, providers, ADRs) lives in the
-funcd repo.
+functions. The platform itself (Go daemon, API, CLI, e2e tests, providers, ADRs) lives in
+[pyvvo/funcd](https://github.com/pyvvo/funcd).
 
 ## ⛔ Nothing about the dev machine ever enters the repo
 
@@ -17,7 +17,7 @@ examples or grep patterns. Paths are repo-root-relative. The only identity is `g
 
 ## Decisions live in funcd
 
-Design decisions are ADRs in the funcd repo (`docs/adr/`). This repo implements them and never
+Design decisions are ADRs in funcd ([`docs/adr/`](https://github.com/pyvvo/funcd/tree/main/docs/adr)). This repo implements them and never
 decides on its own. A change to the contract between funcd and the shim (the `FUNCD_*` env vars,
 the health endpoints, the invoke socket, log capture, trace spans) needs a funcd ADR first.
 

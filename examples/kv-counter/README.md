@@ -1,7 +1,7 @@
 # kv-counter (Python) — durable KV via `context.kv` (ADR-0069)
 
 A **Python** function that maintains a per-name counter in the platform's **KV service** — the Python
-sibling of [`examples/js/kv-counter`](../../js/kv-counter). Each invoke reads the current count via
+sibling of [`examples/kv-counter` in pyvvo/funcd-typescript](https://github.com/pyvvo/funcd-typescript/tree/main/examples/kv-counter). Each invoke reads the current count via
 `context.kv`, increments it, writes it back, and returns it, so two calls return `1` then `2`:
 
 ```
@@ -61,13 +61,13 @@ curl -sS -XPOST http://127.0.0.1:3005/function/kv-counter \
 
 ## Run it (the containerd lane)
 
-Built, pushed (with its contract), and invoked alongside the JS sibling by `just lima-example-kv`: it
+Built, pushed (with its contract), and invoked alongside the JS sibling by `just lima-example kv`: it
 boots funcd in containerd mode with the durable Badger KV engine, applies both functions on their own
 runtimes (`nodejs22` + `python314`), and POSTs each twice — asserting the count goes `1 → 2` (KV
 persisted across invocations) on a real sandbox.
 
 ```bash
-nix develop -c just lima-example-kv   # builds + deploys both kv-counter functions, then invokes them
+nix develop -c just lima-example kv   # builds + deploys both kv-counter functions, then invokes them
 ```
 
 ## Develop
