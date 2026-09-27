@@ -2,7 +2,7 @@
 
 A minimal funcd function authored in **Python**, typed against the `funcd_shim` contract
 (ADR-0049) with a typed I/O contract (ADR-0058). The Python sibling of
-[`examples/js/hello-world`](../../js/hello-world) — same `handle(context, event)` contract, same
+[`examples/hello-world` in pyvvo/funcd-typescript](https://github.com/pyvvo/funcd-typescript/tree/main/examples/hello-world) — same `handle(context, event)` contract, same
 `FuncInput`/`FuncOutput` model, validated identically by the platform's Python runtime shim.
 
 ```

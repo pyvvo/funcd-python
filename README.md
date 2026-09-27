@@ -9,7 +9,7 @@ The Python runtime shim and the Python example functions for
 | `examples/` | Example functions. Small build outputs are committed, dependency bundles are not |
 
 funcd pins this repo as a Go module at a release tag, embeds the shim's modules, and runs the
-examples in its e2e lanes.
+examples in its e2e tests and lanes.
 
 ## Develop
 
@@ -25,7 +25,8 @@ message, and run the tests before a push.
 Versions follow semver and come from [release-please](https://github.com/googleapis/release-please).
 PR titles are Conventional Commits, and merging the release PR tags `vX.Y.Z`.
 
-Some example READMEs mention funcd's `just` recipes and `e2e/` suites. Those live in the funcd repo.
+Some example READMEs mention funcd's `just` recipes and `e2e/` suites. Those live in
+[pyvvo/funcd](https://github.com/pyvvo/funcd).
 
 ## License
 
