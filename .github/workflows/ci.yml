@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - main
+  merge_group:
 
 # actions:write lets cache-nix-action list, save and purge its store caches.
 permissions:
