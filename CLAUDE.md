@@ -57,7 +57,8 @@ CI runs the same checks, so never bypass a hook with `--no-verify`.
   nobody can edit the message at merge time. The queue checks that exact message again before it
   lands. `main` takes no direct pushes, and the ruleset has no bypass, not even for admins.
 - **release-please owns versions.** Never edit `version.txt` or `CHANGELOG.md` by hand, and never
-  create tags. Merging the release PR tags `vX.Y.Z`. The version in `shim/pyproject.toml` stays
+  create tags. The funcd release GitHub App opens the release PR, which goes through the merge queue
+  like any other PR. Merging it tags `vX.Y.Z`. The version in `shim/pyproject.toml` stays
   fixed on purpose: a bump would make every `uv.lock` stale, so the tag is the version.
 - **Before 1.0, a breaking change (`feat!:`) bumps the minor version.** From v2.0.0 on, Go requires
   a `/v2` module path, so stay below v2.

@@ -14,11 +14,21 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      # A PR opened with the default GITHUB_TOKEN triggers no workflows, so its checks never
-      # run. RELEASE_PLEASE_TOKEN (a PAT or app token) fixes that; until it exists an org admin
-      # merges the release PR through the ruleset bypass.
+      # A PR opened with GITHUB_TOKEN triggers no workflows, so its required checks never run and
+      # the merge queue refuses it. A token from the funcd release GitHub App does trigger them.
+      # Until the app is configured, release-please falls back to GITHUB_TOKEN.
+      - id: app-token
+        if: vars.RELEASE_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+
       - uses: googleapis/release-please-action@v5
         with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
