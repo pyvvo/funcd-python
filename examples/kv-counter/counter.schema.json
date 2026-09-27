@@ -1,0 +1,37 @@
+{
+  "input": {
+    "description": "The event payload \u2014 a closed record carrying the counter name to increment.",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "title": "FuncInput",
+    "type": "object",
+    "additionalProperties": false
+  },
+  "output": {
+    "description": "The 200 body \u2014 the name and its new count.",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string"
+      },
+      "count": {
+        "title": "Count",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "name",
+      "count"
+    ],
+    "title": "FuncOutput",
+    "type": "object",
+    "additionalProperties": false
+  }
+}
