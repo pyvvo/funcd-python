@@ -53,9 +53,9 @@ CI runs the same checks, so never bypass a hook with `--no-verify`.
   in Docker. funcd's `duckdb` lane builds the catalog-quack bundle itself.
 - **Lockfiles are exact.** CI runs `uv run --locked`, so a `pyproject.toml` change needs `uv lock`.
 - **Conventional Commits.** A PR title must be a Conventional Commit, and CI checks it. PRs are
-  squash-merged, so the PR title becomes the commit on `main`. `main` takes no direct pushes, and a
-  ruleset with no bypass rejects any commit whose message is not a Conventional Commit, including a
-  squash message edited at merge time.
+  squash-merged through a merge queue, which uses the PR title as the commit message on `main`, so
+  nobody can edit the message at merge time. The queue checks that exact message again before it
+  lands. `main` takes no direct pushes, and the ruleset has no bypass, not even for admins.
 - **release-please owns versions.** Never edit `version.txt` or `CHANGELOG.md` by hand, and never
   create tags. Merging the release PR tags `vX.Y.Z`. The version in `shim/pyproject.toml` stays
   fixed on purpose: a bump would make every `uv.lock` stale, so the tag is the version.
