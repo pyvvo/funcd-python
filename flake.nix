@@ -13,7 +13,7 @@
       pkgs = import nixpkgs { inherit system; };
     in {
       # python 3.14 so the subinterpreter pool-host tests run instead of skipping (ADR-0050)
-      default = pkgs.mkShellNoCC {
+      default = pkgs.mkShellNoCC ({
         packages = with pkgs; [
           python314
           uv
@@ -22,7 +22,10 @@
           git
         ];
         UV_PYTHON_DOWNLOADS = "never";
-      };
+      } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+        # PyPI's manylinux wheels (duckdb) link libstdc++, which Nix's python cannot find on Linux
+        LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ];
+      });
     });
   };
 }
