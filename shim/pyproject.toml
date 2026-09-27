@@ -2,12 +2,22 @@
 name = "funcd-shim"
 # Not bumped per release: a bump would make every uv.lock stale. The vX.Y.Z git tag is the version.
 version = "0.1.0"
-description = "funcd Python runtime shim — serves the runtime-shim HTTP contract and validates event.data / the result against the artifact's precompiled fastjsonschema validator (ADR-0058; generated at build from the author's FuncInput/FuncOutput pydantic model -> JSON Schema -> fastjsonschema.compile_to_code). Pure-Python, compute-agnostic (solo + subinterpreter pool)."
+description = "The funcd Python runtime shim, the types handlers are written against, and the contract build"
 authors = [{ name = "The funcd Authors" }]
+readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.12"
 dependencies = [
     "fastjsonschema>=2.21.2",
 ]
+
+[project.optional-dependencies]
+# the contract build (funcd_shim.build) reads FuncInput/FuncOutput through pydantic
+build = ["pydantic>=2.13.4"]
+
+[project.urls]
+Homepage = "https://github.com/pyvvo/funcd-python"
+Repository = "https://github.com/pyvvo/funcd-python"
 
 [project.scripts]
 funcd-shim = "funcd_shim.shim:main"
