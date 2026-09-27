@@ -1,7 +1,7 @@
 """kv-counter authored in Python (ADR-0069) with a typed I/O contract (ADR-0058).
 
 The Python sibling of ``examples/js/kv-counter``: each invoke reads a per-name counter from the KV
-binding ``py-counters`` via ``context.kv``, increments it, writes it back, and returns it — so two
+binding ``pycounters`` via ``context.kv``, increments it, writes it back, and returns it — so two
 calls return ``1`` then ``2``. It proves the function-facing **durable-KV** path from a Python
 function: ``context.kv`` → worker-node local API (UDS) → PDP-authorized Facade (ADR-0019) → durable
 Badger driver (ADR-0066).

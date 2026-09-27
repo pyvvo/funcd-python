@@ -5,7 +5,9 @@ The platform owns input/output *validation* (the push build generates the schema
 tests exercise the handler directly on already-valid input.
 """
 
-from funcd_shim import CloudEvent
+from typing import cast
+
+from funcd_shim import CloudEvent, FunctionContext
 
 from handler import FuncInput, handle
 
@@ -17,7 +19,7 @@ class _Ctx:
 
 def test_handle_greets() -> None:
     event: CloudEvent[FuncInput] = {"id": "1", "source": "s", "type": "t", "data": {"name": "world"}}
-    result = handle(_Ctx(), event)
+    result = handle(cast(FunctionContext, _Ctx()), event)
     assert result == {"greeting": "Hello, world."}
 
 

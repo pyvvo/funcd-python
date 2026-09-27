@@ -5,9 +5,9 @@ runs), so these exercise the handler directly on already-valid input, with a fak
 by an in-memory dict — proving the read-increment-write logic without a running KV service.
 """
 
-from typing import Any
+from typing import Any, cast
 
-from funcd_shim import CloudEvent
+from funcd_shim import CloudEvent, FunctionContext
 from funcd_shim.kv import KVClient
 
 from counter import FuncInput, handle
@@ -43,14 +43,14 @@ def _event(name: str) -> CloudEvent[FuncInput]:
 
 def test_counter_increments_per_name() -> None:
     ctx = _Ctx()
-    assert handle(ctx, _event("alice")) == {"name": "alice", "count": 1}
-    assert handle(ctx, _event("alice")) == {"name": "alice", "count": 2}
+    assert handle(cast(FunctionContext, ctx), _event("alice")) == {"name": "alice", "count": 1}
+    assert handle(cast(FunctionContext, ctx), _event("alice")) == {"name": "alice", "count": 2}
     # a different name counts independently
-    assert handle(ctx, _event("bob")) == {"name": "bob", "count": 1}
+    assert handle(cast(FunctionContext, ctx), _event("bob")) == {"name": "bob", "count": 1}
 
 
 def test_counter_persists_in_the_kv_binding() -> None:
     ctx = _Ctx()
-    handle(ctx, _event("alice"))
+    handle(cast(FunctionContext, ctx), _event("alice"))
     assert isinstance(ctx.kv, _KV)
-    assert ctx.kv.store[("py-counters", "alice")] == b"1"
+    assert ctx.kv.store[("pycounters", "alice")] == b"1"

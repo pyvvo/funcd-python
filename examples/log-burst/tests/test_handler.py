@@ -6,8 +6,9 @@ test_funclog.py and the Lima e2e; here we just prove the function emits the burs
 """
 
 import logging
+from typing import cast
 
-from funcd_shim import CloudEvent
+from funcd_shim import CloudEvent, FunctionContext
 
 from handler import FuncInput, handle
 
@@ -19,7 +20,7 @@ class _Ctx:
 
 def test_handle_emits_at_least_100_records() -> None:
     event: CloudEvent[FuncInput] = {"id": "1", "source": "s", "type": "t", "data": {}}
-    result = handle(_Ctx(), event)
+    result = handle(cast(FunctionContext, _Ctx()), event)
     assert result["emitted"] >= 100
 
 
@@ -39,7 +40,7 @@ def test_emitted_count_matches_records_seen_by_a_handler() -> None:
     root.setLevel(logging.INFO)
     try:
         event: CloudEvent[FuncInput] = {"id": "1", "source": "s", "type": "t", "data": {"count": 25}}
-        result = handle(_Ctx(), event)
+        result = handle(cast(FunctionContext, _Ctx()), event)
     finally:
         root.removeHandler(collector)
         root.setLevel(saved_level)
