@@ -94,7 +94,8 @@ def _start(tmp: Path, manifest: Path) -> tuple[subprocess.Popen[bytes], int]:
 
 def _post(port: int, name: str, body: str) -> tuple[int, bytes]:
     req = urllib.request.Request(
-        f"http://127.0.0.1:{port}/function/{name}", data=body.encode(),
+        f"http://127.0.0.1:{port}/function/{name}",
+        data=body.encode(),
         headers={"content-type": "application/json"},
     )
     try:
@@ -211,15 +212,27 @@ def test_pool_delivered_contract_enforces(tmp_path: Path) -> None:
     # a schema-only handler: NO __funcd_validate_* baked in — validation comes from the contract.
     art.write_text("def handle(context, event):\n    return {'echoed': event.get('data')}\n")
     cpath = tmp_path / "contract.json"
-    cpath.write_text(json.dumps({
-        "input": {"type": "object", "properties": {"hello": {"type": "string"}},
-                  "required": ["hello"], "additionalProperties": False},
-        "output": {},
-    }))
+    cpath.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "type": "object",
+                    "properties": {"hello": {"type": "string"}},
+                    "required": ["hello"],
+                    "additionalProperties": False,
+                },
+                "output": {},
+            }
+        )
+    )
     mpath = tmp_path / "m.json"
-    mpath.write_text(json.dumps([
-        {"name": "f0", "artifact": str(art), "handler": "handle", "contract": str(cpath)},
-    ]))
+    mpath.write_text(
+        json.dumps(
+            [
+                {"name": "f0", "artifact": str(art), "handler": "handle", "contract": str(cpath)},
+            ]
+        )
+    )
 
     proc, port = _start(tmp_path, mpath)
     try:
@@ -237,14 +250,28 @@ def test_pool_broken_contract_fails_closed(tmp_path: Path) -> None:
     art = tmp_path / "fn.py"
     art.write_text("def handle(context, event):\n    return None\n")
     mpath = tmp_path / "m.json"
-    mpath.write_text(json.dumps([
-        {"name": "f0", "artifact": str(art), "handler": "handle", "contract": str(tmp_path / "absent.json")},
-    ]))
+    mpath.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "f0",
+                    "artifact": str(art),
+                    "handler": "handle",
+                    "contract": str(tmp_path / "absent.json"),
+                },
+            ]
+        )
+    )
     proc = subprocess.Popen(
         [sys.executable, "-m", "funcd_shim.pool"],
-        env={"FUNCD_POOL_MANIFEST": str(mpath), "FUNCD_PORTFILE": str(tmp_path / "p"),
-             "PATH": "/usr/bin:/bin", "PYTHONPATH": SRC},
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        env={
+            "FUNCD_POOL_MANIFEST": str(mpath),
+            "FUNCD_PORTFILE": str(tmp_path / "p"),
+            "PATH": "/usr/bin:/bin",
+            "PYTHONPATH": SRC,
+        },
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     assert proc.wait(timeout=15) == 3
 
@@ -258,8 +285,13 @@ def test_pool_shape_gate(tmp_path: Path) -> None:
     mpath.write_text(json.dumps(entries))
     proc = subprocess.Popen(
         [sys.executable, "-m", "funcd_shim.pool"],
-        env={"FUNCD_POOL_MANIFEST": str(mpath), "FUNCD_PORTFILE": str(tmp_path / "p"),
-             "PATH": "/usr/bin:/bin", "PYTHONPATH": SRC},
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        env={
+            "FUNCD_POOL_MANIFEST": str(mpath),
+            "FUNCD_PORTFILE": str(tmp_path / "p"),
+            "PATH": "/usr/bin:/bin",
+            "PYTHONPATH": SRC,
+        },
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     assert proc.wait(timeout=15) == 3

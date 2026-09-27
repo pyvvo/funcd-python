@@ -49,18 +49,32 @@ fake = Faker("fr_FR")
 PAGE_W, PAGE_H = A4  # 595 × 842 pt
 
 # Column geometry the extractor keys on (must not drift from functions/extract/handler.py).
-X_DATE = 50       # date comptable (band 48-100)
-X_LIB = 110       # libellé (band 100-335)
-X_VAL = 340       # date valeur (band 335-400)
-X_DEBIT_R = 490   # debit amount right edge (< 500 ⇒ DEBIT)
+X_DATE = 50  # date comptable (band 48-100)
+X_LIB = 110  # libellé (band 100-335)
+X_VAL = 340  # date valeur (band 335-400)
+X_DEBIT_R = 490  # debit amount right edge (< 500 ⇒ DEBIT)
 X_CREDIT_R = 560  # credit amount right edge (>= 500 ⇒ CREDIT)
 FONT, SIZE = "Helvetica", 7
-TOP_Y = PAGE_H - 60      # first header line
-BOTTOM_Y = 70            # page break threshold
-ROW_DY = 16              # vertical step per printed line
+TOP_Y = PAGE_H - 60  # first header line
+BOTTOM_Y = 70  # page break threshold
+ROW_DY = 16  # vertical step per printed line
 
-MONTHS_FR = ["", "JANVIER", "FEVRIER", "MARS", "AVRIL", "MAI", "JUIN", "JUILLET", "AOUT",
-             "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DECEMBRE"]
+MONTHS_FR = [
+    "",
+    "JANVIER",
+    "FEVRIER",
+    "MARS",
+    "AVRIL",
+    "MAI",
+    "JUIN",
+    "JUILLET",
+    "AOUT",
+    "SEPTEMBRE",
+    "OCTOBRE",
+    "NOVEMBRE",
+    "DECEMBRE",
+]
+
 
 def _tok(s: str, maxlen: int = 22) -> str:
     """Bank-libellé token style: ASCII-fold (drop accents), uppercase, collapse spaces, cap length.
@@ -144,36 +158,58 @@ def _transactions(rng: random.Random, first: date, last: date, min_tx: int, max_
         txs.append({"date": d, "libelle": libelle[:52], "amount": amount, "sens": sens})
 
     # recurring, consistent month-to-month
-    add(_rand_date(rng, first, first.replace(day=min(5, last.day))),
+    add(
+        _rand_date(rng, first, first.replace(day=min(5, last.day))),
         f"VIR RECU /BEN {_ben()} /REF {rng.randint(10, 99)} SALAIRE",
-        Decimal(f"{rng.randint(1800, 3200)}.{rng.randint(0, 99):02d}"), "credit")
-    add(_rand_date(rng, first, last),
+        Decimal(f"{rng.randint(1800, 3200)}.{rng.randint(0, 99):02d}"),
+        "credit",
+    )
+    add(
+        _rand_date(rng, first, last),
         f"PRLV SEPA ID EMETTEUR/{_ics()} LOYER",
-        Decimal(f"{rng.randint(600, 1100)}.{rng.randint(0, 99):02d}"), "debit")
-    add(_rand_date(rng, first, last),
+        Decimal(f"{rng.randint(600, 1100)}.{rng.randint(0, 99):02d}"),
+        "debit",
+    )
+    add(
+        _rand_date(rng, first, last),
         f"PRLV SEPA ID EMETTEUR/{_ics()} {_merchant()}",
-        Decimal(f"{rng.randint(20, 120)}.{rng.randint(0, 99):02d}"), "debit")
+        Decimal(f"{rng.randint(20, 120)}.{rng.randint(0, 99):02d}"),
+        "debit",
+    )
 
     # random one-offs up to the cap
     n_more = max(0, rng.randint(min_tx, max_tx) - len(txs))
     for _ in range(n_more):
         kind = rng.choices(["card", "retrait", "vir_emis", "refund"], weights=[6, 2, 1, 1])[0]
         if kind == "card":
-            add(_rand_date(rng, first, last),
+            add(
+                _rand_date(rng, first, last),
                 f"FACTURE(S) CARTE {_pan()} {_merchant()}",
-                Decimal(f"{rng.randint(5, 90)}.{rng.randint(0, 99):02d}"), "debit")
+                Decimal(f"{rng.randint(5, 90)}.{rng.randint(0, 99):02d}"),
+                "debit",
+            )
         elif kind == "retrait":
             d = _rand_date(rng, first, last)
-            add(d, f"RETRAIT DAB {d.strftime('%d.%m')} {_city()}",
-                Decimal(f"{rng.randint(20, 200)}.00"), "debit")
+            add(
+                d,
+                f"RETRAIT DAB {d.strftime('%d.%m')} {_city()}",
+                Decimal(f"{rng.randint(20, 200)}.00"),
+                "debit",
+            )
         elif kind == "vir_emis":
-            add(_rand_date(rng, first, last),
+            add(
+                _rand_date(rng, first, last),
                 f"VIR EMIS /BEN {_ben()} /REF {rng.randint(10, 99)} PRET",
-                Decimal(f"{rng.randint(50, 400)}.{rng.randint(0, 99):02d}"), "debit")
+                Decimal(f"{rng.randint(50, 400)}.{rng.randint(0, 99):02d}"),
+                "debit",
+            )
         else:
-            add(_rand_date(rng, first, last),
+            add(
+                _rand_date(rng, first, last),
                 f"REMBOURST {_merchant()}",
-                Decimal(f"{rng.randint(10, 80)}.{rng.randint(0, 99):02d}"), "credit")
+                Decimal(f"{rng.randint(10, 80)}.{rng.randint(0, 99):02d}"),
+                "credit",
+            )
 
     txs.sort(key=lambda t: t["date"])
     return txs
@@ -189,9 +225,17 @@ def _draw_titles(c: canvas.Canvas, y: float) -> float:
     return y - ROW_DY
 
 
-def _render(path: Path, holder: str, iban: str, label: str,
-            ancien: Decimal, txs: list[dict], nouveau: Decimal,
-            tot_deb: Decimal, tot_cre: Decimal) -> None:
+def _render(
+    path: Path,
+    holder: str,
+    iban: str,
+    label: str,
+    ancien: Decimal,
+    txs: list[dict],
+    nouveau: Decimal,
+    tot_deb: Decimal,
+    tot_cre: Decimal,
+) -> None:
     # invariant=1 → reportlab omits the wall-clock timestamp/doc-id, so identical (seed, args) produce
     # byte-identical PDFs (no spurious diffs when the committed fixture is regenerated).
     c = canvas.Canvas(str(path), pagesize=A4, invariant=1)
@@ -202,8 +246,12 @@ def _render(path: Path, holder: str, iban: str, label: str,
             c.showPage()
             c.setFont(FONT, SIZE)
         y = TOP_Y
-        for line in (f"RELEVE DE COMPTE {'' if first_page else '(SUITE)'}",
-                     f"Titulaire : {holder}", f"IBAN : {iban}", f"PERIODE : {label}"):
+        for line in (
+            f"RELEVE DE COMPTE {'' if first_page else '(SUITE)'}",
+            f"Titulaire : {holder}",
+            f"IBAN : {iban}",
+            f"PERIODE : {label}",
+        ):
             c.drawString(X_DATE, y, line)
             y -= ROW_DY
         y -= 6
@@ -247,19 +295,20 @@ def main() -> None:
     ap.add_argument("--max-tx", type=int, default=22, help="max transactions per statement")
     ap.add_argument("--opening-balance", type=str, default="1500.00", help="first statement's ancien solde")
     ap.add_argument("--holder", default="COMPTE DEMO", help="FAKE account holder name")
-    ap.add_argument("--out-dir", default=str(Path(__file__).resolve().parent),
-                    help="output dir (default: landing/)")
+    ap.add_argument(
+        "--out-dir", default=str(Path(__file__).resolve().parent), help="output dir (default: landing/)"
+    )
     args = ap.parse_args()
 
-    rng = random.Random(args.seed)   # numeric control (counts, amounts, dates)
-    Faker.seed(args.seed)            # fake text data (names/companies/cities/PAN/ICS/IBAN) — reproducible
+    rng = random.Random(args.seed)  # numeric control (counts, amounts, dates)
+    Faker.seed(args.seed)  # fake text data (names/companies/cities/PAN/ICS/IBAN) — reproducible
     iban = fake.iban()
     balance = Decimal(args.opening_balance)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     written = 0
-    for (year, month) in _period_months(args.start, args.end, args.period_months):
+    for year, month in _period_months(args.start, args.end, args.period_months):
         first, last, label, stem = _period_dates(year, month, args.period_months)
         txs = _transactions(rng, first, last, args.min_tx, args.max_tx)
         tot_deb = sum((t["amount"] for t in txs if t["sens"] == "debit"), Decimal("0"))
@@ -268,8 +317,10 @@ def main() -> None:
         nouveau = ancien + tot_cre - tot_deb
         path = out_dir / f"synthetic-releve-{stem}.pdf"
         _render(path, args.holder, iban, label, ancien, txs, nouveau, tot_deb, tot_cre)
-        print(f"wrote {path.name}  ({len(txs)} tx | debit={_fr(tot_deb)} credit={_fr(tot_cre)} "
-              f"| ancien={_fr(ancien)} nouveau={_fr(nouveau)})")
+        print(
+            f"wrote {path.name}  ({len(txs)} tx | debit={_fr(tot_deb)} credit={_fr(tot_cre)} "
+            f"| ancien={_fr(ancien)} nouveau={_fr(nouveau)})"
+        )
         balance = nouveau
         written += 1
     print(f"— {written} statement(s), seed={args.seed}, period={args.period_months}mo")

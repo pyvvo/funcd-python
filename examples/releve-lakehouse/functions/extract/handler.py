@@ -42,7 +42,13 @@ AMT_FRAG_RE = re.compile(r"^\d{1,3}(,\d{2})?$")
 # dateless line is otherwise treated as a libellé/amount continuation, so these must flush-and-skip.
 # Kept consistent with verify's SKIP set (the two parsers must agree on what is a transaction).
 STRUCTURAL_SKIP = (
-    "TOTALDESOPERATIONS", "SOLDE", "PERIODE", "RELEVE", "TITULAIRE", "IBAN", "NATUREDESOPERATIONS",
+    "TOTALDESOPERATIONS",
+    "SOLDE",
+    "PERIODE",
+    "RELEVE",
+    "TITULAIRE",
+    "IBAN",
+    "NATUREDESOPERATIONS",
 )
 
 # Column x-bounds (Bank geometry) — the prototype's constants.
@@ -154,7 +160,7 @@ def _parse_pdf(pdf_bytes: bytes, stop: tuple[str, ...]) -> list[dict]:
 _BRONZE_SCHEMA = pa.schema(
     [
         ("date_comptable", pa.date32()),
-        ("date_valeur", pa.date32()),               # nullable — empty on the source ⇒ null
+        ("date_valeur", pa.date32()),  # nullable — empty on the source ⇒ null
         ("libelle", pa.string()),
         ("debit", pa.decimal128(12, 2)),
         ("credit", pa.decimal128(12, 2)),
@@ -204,6 +210,7 @@ def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput
         context.blob.put("bronze", f"{stem}.parquet", _to_parquet(txs))
         total_debit += sum((Decimal(t["debit"]) for t in txs if t["debit"]), Decimal("0"))
         total_credit += sum((Decimal(t["credit"]) for t in txs if t["credit"]), Decimal("0"))
-    logging.info("extract: parsed %d statement(s) → bronze (debit=%s credit=%s)",
-                 len(keys), total_debit, total_credit)
+    logging.info(
+        "extract: parsed %d statement(s) → bronze (debit=%s credit=%s)", len(keys), total_debit, total_credit
+    )
     return {"statements": len(keys), "debit": str(total_debit), "credit": str(total_credit)}

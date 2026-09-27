@@ -34,6 +34,7 @@ class Channel(Protocol):
 
     def write_line(self, line: bytes) -> None: ...
 
+
 # ADR-0081 wire: levelno -> severity token. WARNING->WARN, CRITICAL->FATAL; anything unknown -> INFO.
 _SEV_BY_LEVELNO: dict[int, str] = {
     logging.DEBUG: "DEBUG",

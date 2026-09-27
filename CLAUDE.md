@@ -31,15 +31,21 @@ the health endpoints, the invoke socket, log capture, trace spans) needs a funcd
 
 ## Toolchain
 
-`flake.nix` pins Python 3.14, uv, Go and just, and turns off uv's own Python downloads. Run
-everything through the dev shell:
+`flake.nix` pins Python 3.14, uv, ruff, Go, just and lefthook, and turns off uv's own Python
+downloads. Run everything through the dev shell:
 
 ```bash
 nix develop -c just ci
 ```
 
+The dev shell also installs the lefthook git hooks. pre-commit formats and lints staged files
+with ruff and gofmt, commit-msg enforces Conventional Commits, and pre-push runs `just check`.
+CI runs the same checks, so never bypass a hook with `--no-verify`.
+
 ## Rules
 
+- **ruff owns formatting**, from the flake so every project uses one version. Run `just fmt`
+  instead of formatting by hand. CI runs `ruff format --check`.
 - **Small built files are committed.** kv-counter and log-burst commit their handler with baked
   validators and its contract schema. After changing one, run `just build` and commit the outputs.
   CI fails when a build changes a committed file.

@@ -5,6 +5,7 @@ and raise ``AttributeError`` — uncaught, crashing the pooled worker (the gatew
 ``proxy error: EOF`` and the caller got an empty-body 502). These lock in the clean 400 + worker
 survival so we never regress that behavior.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -19,7 +20,7 @@ def loaded_worker(monkeypatch: pytest.MonkeyPatch) -> None:
     """Inject a trivial echo handler + no validators so ``invoke`` exercises only the decode guard."""
     monkeypatch.setattr(pw, "_handler", lambda ctx, event: {"echo": event.get("data")})
     monkeypatch.setattr(pw, "_validators", Validators())  # input/output both None → no contract
-    monkeypatch.setattr(pw, "_channel", open_channel())      # no-op channel (no FUNCD_LOG_FD)
+    monkeypatch.setattr(pw, "_channel", open_channel())  # no-op channel (no FUNCD_LOG_FD)
 
 
 def test_malformed_body_returns_400(loaded_worker: None) -> None:

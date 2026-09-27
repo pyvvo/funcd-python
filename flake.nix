@@ -20,8 +20,14 @@
           go
           just
           git
+          lefthook
+          ruff
         ];
         UV_PYTHON_DOWNLOADS = "never";
+        # installs the git hooks from lefthook.yml; idempotent
+        shellHook = ''
+          [ -d .git ] && lefthook install >/dev/null 2>&1 || true
+        '';
       } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
         # PyPI's manylinux wheels (duckdb) link libstdc++, which Nix's python cannot find on Linux
         LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ];

@@ -3,17 +3,31 @@
 python := "3.14"
 projects := "shim examples/catalog-quack examples/hello-world examples/kv-counter examples/log-burst"
 built := "examples/kv-counter examples/log-burst"
+# releve-lakehouse drafts its deps without a uv.lock, so it gets ruff only
+linted := projects + " examples/releve-lakehouse"
 
 default:
     @just --list
 
-# ruff, mypy and pytest for the shim and every example that has tests; --locked fails on a stale uv.lock
+# format and apply ruff's safe lint fixes across the shim and every example
+fmt:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for d in {{linted}}; do
+        (cd "$d" && ruff format . && ruff check --fix .)
+    done
+
+# ruff (the flake's single version), mypy and pytest for the shim and every example that has tests;
+# --locked fails on a stale uv.lock
 check:
     #!/usr/bin/env bash
     set -euo pipefail
+    for d in {{linted}}; do
+        (cd "$d" && ruff format --check . && ruff check .)
+    done
     for d in {{projects}}; do
         echo "== $d"
-        (cd "$d" && uv run --locked --python {{python}} ruff check . && uv run --locked --python {{python}} mypy && uv run --locked --python {{python}} pytest -q)
+        (cd "$d" && uv run --locked --python {{python}} mypy && uv run --locked --python {{python}} pytest -q)
     done
 
 # rebuild the committed example outputs: the handler with baked validators and its contract schema

@@ -81,12 +81,17 @@ def _independent(pdf_bytes: bytes) -> list[dict]:
                 amt_toks.insert(0, toks[i])
                 i -= 1
             amount = Decimal("".join(amt_toks).replace(",", "."))
-            mid = toks[1:i + 1]  # after date-comptable, up to (not including) the amount group
+            mid = toks[1 : i + 1]  # after date-comptable, up to (not including) the amount group
             if mid and re.match(r"^\d{2}\.\d{2}\.\d{2}$", mid[-1]):
                 mid = mid[:-1]  # drop the date-valeur
             txs.append(
-                {"date": _iso(*m.groups()), "amount": amount, "sens": None,
-                 "libelle": " ".join(mid), "flag": None}
+                {
+                    "date": _iso(*m.groups()),
+                    "amount": amount,
+                    "sens": None,
+                    "libelle": " ".join(mid),
+                    "flag": None,
+                }
             )
         elif txs and txs[-1]["flag"] is None:
             txs[-1]["libelle"] = txs[-1].get("libelle", "") + " " + s
@@ -126,7 +131,10 @@ def _bronze_rows(context: FunctionContext, bronze_key: str) -> list[dict]:
 
 
 def _reconcile(
-    context: FunctionContext, key: str, pdf_bytes: bytes, bronze_key: str,
+    context: FunctionContext,
+    key: str,
+    pdf_bytes: bytes,
+    bronze_key: str,
 ) -> tuple[list[str], Decimal, Decimal]:
     """Reconcile ONE statement's bronze against an independent re-parse + its printed totals. Returns the
     per-statement discrepancy messages (empty ⇒ clean) plus its debit/credit totals."""
@@ -175,9 +183,15 @@ def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput
 
     if errs:
         raise ValueError("verify GATE failed:\n  - " + "\n  - ".join(errs[:20]))
-    logging.info("verify: reconciled %d statement(s) — 0 discrepancies (debit=%s credit=%s)",
-                 len(bronze_keys), total_debit, total_credit)
+    logging.info(
+        "verify: reconciled %d statement(s) — 0 discrepancies (debit=%s credit=%s)",
+        len(bronze_keys),
+        total_debit,
+        total_credit,
+    )
     return {
-        "ok": True, "statements": len(bronze_keys),
-        "debit": str(total_debit), "credit": str(total_credit),
+        "ok": True,
+        "statements": len(bronze_keys),
+        "debit": str(total_debit),
+        "credit": str(total_credit),
     }

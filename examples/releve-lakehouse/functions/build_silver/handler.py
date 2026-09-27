@@ -39,6 +39,7 @@ RESIDUAL = [
 
 def _scrub_long(text: str) -> str:
     """Any long alphanumeric token (>=8) carrying >=4 digits → [REF]."""
+
     def repl(m: re.Match[str]) -> str:
         tok = m.group(0)
         return "[REF]" if sum(c.isdigit() for c in tok) >= 4 else tok
@@ -48,9 +49,9 @@ def _scrub_long(text: str) -> str:
 
 def _anonymize(lib: str) -> str:
     s = lib
-    s = re.sub(r"0*\d{4}[0-9X]{8}\d{4}", "****CARD", s)          # card PAN (masked/full/leading zeros)
-    s = re.sub(r"(/BEN ).*?( /REF)", r"\1BENEFICIAIRE\2", s)      # transfer beneficiary
-    s = re.sub(r"(/REFDO)\s*[0-9A-Fa-f]{12,}", r"\1", s)          # transfer reference
+    s = re.sub(r"0*\d{4}[0-9X]{8}\d{4}", "****CARD", s)  # card PAN (masked/full/leading zeros)
+    s = re.sub(r"(/BEN ).*?( /REF)", r"\1BENEFICIAIRE\2", s)  # transfer beneficiary
+    s = re.sub(r"(/REFDO)\s*[0-9A-Fa-f]{12,}", r"\1", s)  # transfer reference
     s = re.sub(r"\bM\.\s*[A-Z]{1,4}(?:\s+[A-Z]{1,4})?\b", "M. [NOM]", s)
     s = re.sub(r"\bTRF\w+", "[REF]", s)
     s = re.sub(r"ID EMETTEUR/\S+", "ID EMETTEUR/[ICS]", s)

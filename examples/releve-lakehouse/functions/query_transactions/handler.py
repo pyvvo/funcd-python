@@ -7,6 +7,7 @@ rows. It demonstrates querying a layer via the catalog query engine, not by touc
 funcd wiring: spec.catalogs `lake` (consumer) injects FUNCD_CATALOG_LAKE_URL / _TOKEN. No blob binding —
 the catalog engine does the read, using its own silver binding. Returns the top 100 transactions.
 """
+
 from __future__ import annotations
 
 import os

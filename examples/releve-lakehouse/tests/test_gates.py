@@ -25,9 +25,9 @@ def test_anonymize_scrubs_synthetic_pii() -> None:
     h = _load()
     # Synthetic libellés shaped like the real bank's, with fake PII — assert the sensitive parts are gone.
     cases = {
-        "FACTURE(S) CARTE 4396000000002168 CARREFOUR": "4396000000002168",   # card PAN
-        "VIR RECU /BEN JEAN DUPONT /REF 12345 SALAIRE": "JEAN DUPONT",         # beneficiary name
-        "PRLV SEPA ID EMETTEUR/FR12ZZZ123456 URSSAF": "FR12ZZZ123456",         # creditor id
+        "FACTURE(S) CARTE 4396000000002168 CARREFOUR": "4396000000002168",  # card PAN
+        "VIR RECU /BEN JEAN DUPONT /REF 12345 SALAIRE": "JEAN DUPONT",  # beneficiary name
+        "PRLV SEPA ID EMETTEUR/FR12ZZZ123456 URSSAF": "FR12ZZZ123456",  # creditor id
     }
     for raw, secret in cases.items():
         out = h._anonymize(raw)
