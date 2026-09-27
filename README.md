@@ -17,6 +17,9 @@ examples in its e2e lanes.
 nix develop -c just ci
 ```
 
+The dev shell also installs the git hooks. They format and lint staged files, check the commit
+message, and run the tests before a push.
+
 ## Releases
 
 Versions follow semver and come from [release-please](https://github.com/googleapis/release-please).
