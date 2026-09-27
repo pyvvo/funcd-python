@@ -99,7 +99,7 @@ spec:
       catalog: lake
 ---
 # catalog-reader — the interactive SQL surface (behind the authenticated query Route). Mirrors
-# examples/python/catalog-quack/consumer.yaml: it binds the `lake` catalog and runs read SQL over Quack.
+# examples/catalog-quack/consumer.yaml: it binds the `lake` catalog and runs read SQL over Quack.
 apiVersion: funcd.io/v1alpha1
 kind: Function
 metadata:

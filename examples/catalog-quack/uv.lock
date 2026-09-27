@@ -125,7 +125,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "duckdb", specifier = ">=1.5.4" },
-    { name = "funcd-shim", editable = "../../../shim/python" },
+    { name = "funcd-shim", editable = "../../shim" },
 ]
 
 [package.metadata.requires-dev]
@@ -139,7 +139,7 @@ dev = [
 [[package]]
 name = "funcd-shim"
 version = "0.1.0"
-source = { editable = "../../../shim/python" }
+source = { editable = "../../shim" }
 dependencies = [
     { name = "fastjsonschema" },
 ]

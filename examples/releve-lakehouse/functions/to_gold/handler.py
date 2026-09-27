@@ -1,6 +1,6 @@
 """to-gold — build the business marts in the gold DuckLake layer by driving the `lake` catalog over Quack.
 
-Mirrors examples/python/catalog-quack/consumer.py, but runs a WRITE statement: it sends the project's mart
+Mirrors examples/catalog-quack/consumer.py, but runs a WRITE statement: it sends the project's mart
 SQL (mart_depenses_mensuelles.sql) to the CatalogService, which reads the conformed `silver` Parquet (its
 own binding) and persists the result as a DuckLake table under gold/ (the catalog is gold's owner/writer —
 ADR-0087, so no gold write-binding is needed here). The catalog's Quack endpoint + token are injected by the

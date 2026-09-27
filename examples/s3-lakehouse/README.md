@@ -11,7 +11,7 @@ governed by its `spec.blob` bindings + the prefix `owner`s — **no credentials 
 | [transform.yaml](transform.yaml) | `Function transform` | **reads** `bronze`; **owns + writes** `silver` and `gold` |
 | [report.yaml](report.yaml) | `Function report` | **reads** `gold` (read-only — not the owner) |
 
-**Authorization** (mirrors KV — [ADR-0073](../../../docs/adr/0073-kv-bindings-and-subdomains.md)/[ADR-0076](../../../docs/adr/0076-cedar-kv-read-binding-grant.md)):
+**Authorization** (mirrors KV — ADR-0073 in funcd/ADR-0076 in funcd):
 a `spec.blob` binding **is** the read grant (default-deny — no binding ⇒ Forbidden); **write requires
 `caller == prefix.owner`** (declared on the `Bucket`). In-platform identity is the function's connection-scoped
 `Ref` — DuckDB uses **anonymous S3** against a sandbox-scoped endpoint, nothing issued or rotated. Only an

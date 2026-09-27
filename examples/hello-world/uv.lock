@@ -80,7 +80,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "funcd-shim", directory = "../../../shim/python" }]
+requires-dist = [{ name = "funcd-shim", directory = "../../shim" }]
 
 [package.metadata.requires-dev]
 dev = [
@@ -92,7 +92,7 @@ dev = [
 [[package]]
 name = "funcd-shim"
 version = "0.1.0"
-source = { directory = "../../../shim/python" }
+source = { directory = "../../shim" }
 dependencies = [
     { name = "fastjsonschema" },
 ]

@@ -98,13 +98,13 @@ in-editor, Pylance must find the shim source. Pylance resolves imports against t
 interpreter plus `python.analysis.extraPaths`; it ignores `pyrightconfig.json`'s `venv` key, and
 it only reads a `pyrightconfig.json` at the **workspace root**. So:
 
-- **Opening this folder as the workspace** (`code examples/python/hello-world`): the local
+- **Opening this folder as the workspace** (`code examples/hello-world`): the local
   [`pyrightconfig.json`](pyrightconfig.json) path-maps `funcd_shim` to the in-repo shim source
-  (`extraPaths: ["../../../shim/python/src"]`) — the parallel of the TS example's `tsconfig.json`
+  (`extraPaths: ["../../shim/src"]`) — the parallel of the TS example's `tsconfig.json`
   map — and typing just works (no interpreter switch, no `uv sync` needed).
 - **Opening the whole repo**: the nested config is ignored, so add the shim source to your
   *workspace* settings (`.vscode/settings.json`, which this repo gitignores):
-  `"python.analysis.extraPaths": ["shim/python/src"]`. Then it resolves under any interpreter.
+  `"python.analysis.extraPaths": ["shim/src"]`. Then it resolves under any interpreter.
 
 Without either, an interpreter that lacks `funcd_shim` shows `event: Any` (an unresolved import
 collapses the generic `TypedDict` subscript to `Any`).

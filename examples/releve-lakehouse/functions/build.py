@@ -7,7 +7,7 @@ handler. Blob I/O is native (`context.blob`, ADR-0127) — no `s3util`/boto3 to 
 
 Wheels are vendored INSIDE `python:3.14-slim-bookworm` (the base the curated runtime derives its Python
 from), so the native `.so` closure is glibc/arch-matched to what the function runs on (ADR-0089 §4). Needs
-Docker + network (inherently e2e). Mirrors examples/python/catalog-quack/build.py.
+Docker + network (inherently e2e). Mirrors examples/catalog-quack/build.py.
 
     python functions/build.py                 # build every function's bundle → functions/<fn>/bundle/
     python functions/build.py extract verify   # build only the named functions
@@ -66,7 +66,7 @@ def build(name: str) -> None:
 
     _vendor(spec["wheels"], bundle)
     # DuckDB extensions (quack/httpfs) are pre-installed offline into bundle/duckdb-ext/ — see
-    # examples/python/catalog-quack/build.py for the extension-vendoring detail (elided here).
+    # examples/catalog-quack/build.py for the extension-vendoring detail (elided here).
     if spec["ext"]:
         (bundle / "duckdb-ext").mkdir(exist_ok=True)
     print(f"  built {name} → {bundle.relative_to(HERE.parent)}  (wheels: {', '.join(spec['wheels'])})")

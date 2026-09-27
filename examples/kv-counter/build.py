@@ -9,7 +9,7 @@ from ``FuncInput``/``FuncOutput`` (pydantic, build-time only), bakes a precompil
                                 ``{"input": …, "output": …}`` doc, both sides mandatory — ADR-0090)
 
 So the contract is *enforced* (bad input → 422, bad output → 500), same as the JS sibling and
-``examples/python/hello-world``. Run from this dir with the shim toolchain resolvable:
+``examples/hello-world``. Run from this dir with the shim toolchain resolvable:
 
     uv run --group build python build.py
 """

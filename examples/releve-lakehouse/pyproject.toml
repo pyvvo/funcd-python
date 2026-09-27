@@ -25,7 +25,7 @@ build = [
 ]
 
 [tool.uv.sources]
-funcd-shim = { path = "../../../shim/python", editable = true }
+funcd-shim = { path = "../../shim", editable = true }
 
 # Each function is pushed as its own bundle (functions/build.py) — there is no importable wheel; the code is
 # authored + typechecked in place under functions/. `import s3util` resolves to functions/s3util.py.

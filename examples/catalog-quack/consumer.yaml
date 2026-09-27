@@ -6,7 +6,7 @@
 # It runs on the STOCK curated `python314` runtime — no `python-duckdb` image. The DuckDB wheel + the
 # quack/httpfs extensions travel IN the artifact as a deployment-package BUNDLE (ADR-0089): build it
 # hermetically with `python build.py` → `bundle/`, then
-#   funcdctl push examples/python/catalog-quack/bundle <ref> --entry handler.py
+#   funcdctl push examples/catalog-quack/bundle <ref> --entry handler.py
 # funcd untars the bundle into the artifact dir and sets PYTHONPATH + FUNCD_BUNDLE_DIR so `import duckdb`
 # and the offline `duckdb-ext/` extensions resolve with zero runtime changes.
 #

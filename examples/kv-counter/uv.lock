@@ -92,7 +92,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "funcd-shim", editable = "../../../shim/python" }]
+requires-dist = [{ name = "funcd-shim", editable = "../../shim" }]
 
 [package.metadata.requires-dev]
 build = [{ name = "pydantic", specifier = ">=2.13.4" }]
@@ -105,7 +105,7 @@ dev = [
 [[package]]
 name = "funcd-shim"
 version = "0.1.0"
-source = { editable = "../../../shim/python" }
+source = { editable = "../../shim" }
 dependencies = [
     { name = "fastjsonschema" },
 ]

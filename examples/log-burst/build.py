@@ -1,6 +1,6 @@
 """Contract-aware build for the Python log-burst (ADR-0081/0090).
 
-Mirrors the JS sibling's ``build.ts`` (and examples/python/kv-counter/build.py): it reads
+Mirrors the JS sibling's ``build.ts`` (and examples/kv-counter/build.py): it reads
 ``src/handler.py``, generates the closed JSON Schema from ``FuncInput``/``FuncOutput`` (pydantic /
 TypedDict, build-time only), bakes a precompiled, eval-free ``fastjsonschema`` validator into the
 runtime artifact, and writes:

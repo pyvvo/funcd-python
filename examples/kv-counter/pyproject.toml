@@ -15,7 +15,7 @@ dev = ["mypy>=1.13", "pytest>=8.3", "ruff>=0.8"]
 build = ["pydantic>=2.13.4"]
 
 [tool.uv.sources]
-funcd-shim = { path = "../../../shim/python", editable = true }
+funcd-shim = { path = "../../shim", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
@@ -36,6 +36,8 @@ pythonpath = ["src"]
 [tool.ruff]
 line-length = 110
 target-version = "py312"
+# the generated build output, not source
+extend-exclude = ["./counter.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B"]

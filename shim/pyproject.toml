@@ -1,5 +1,6 @@
 [project]
 name = "funcd-shim"
+# Not bumped per release: a bump would make every uv.lock stale. The vX.Y.Z git tag is the version.
 version = "0.1.0"
 description = "funcd Python runtime shim — serves the runtime-shim HTTP contract and validates event.data / the result against the artifact's precompiled fastjsonschema validator (ADR-0058; generated at build from the author's FuncInput/FuncOutput pydantic model -> JSON Schema -> fastjsonschema.compile_to_code). Pure-Python, compute-agnostic (solo + subinterpreter pool)."
 authors = [{ name = "The funcd Authors" }]

@@ -1,6 +1,6 @@
 {
   "include": ["src", "tests"],
-  "extraPaths": ["../../../shim/python/src"],
+  "extraPaths": ["../../shim/src"],
   "venvPath": ".",
   "venv": ".venv",
   "pythonVersion": "3.12",

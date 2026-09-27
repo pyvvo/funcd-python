@@ -13,7 +13,7 @@ dependencies = ["funcd-shim"]
 dev = ["mypy>=1.13", "pytest>=8.3", "ruff>=0.8"]
 
 [tool.uv.sources]
-funcd-shim = { path = "../../../shim/python" }
+funcd-shim = { path = "../../shim" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]

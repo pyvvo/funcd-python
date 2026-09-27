@@ -61,7 +61,7 @@ Build it hermetically (inside the curated image, so the native closure is glibc/
 
 ```bash
 python build.py                                          # → bundle/  (handler + vendored duckdb + duckdb-ext/ + __funcd_contract.json)
-funcdctl push examples/python/catalog-quack/bundle <ref> --entry handler.py
+funcdctl push examples/catalog-quack/bundle <ref> --entry handler.py
 ```
 
 funcd untars the bundle into the artifact dir and sets `PYTHONPATH` + `FUNCD_BUNDLE_DIR`, so `import duckdb`
