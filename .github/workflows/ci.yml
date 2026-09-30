@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      nonrelease: ${{ steps.filter.outputs.nonrelease }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -34,10 +35,23 @@ jobs:
               - '**'
               - '!**/*.md'
               - '!LICENSE'
+            # Anything a release PR does not touch.
+            nonrelease:
+              - '**'
+              - '!CHANGELOG.md'
+              - '!version.txt'
+              - '!.release-please-manifest.json'
 
+  # release-please's PR only bumps the version and the changelog of an already checked main,
+  # so it skips the ci job on the PR and in the merge queue. A release branch that touches
+  # any other file still runs it.
   ci:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: >-
+      needs.changes.outputs.code == 'true' &&
+      !(needs.changes.outputs.nonrelease == 'false' &&
+      (github.head_ref == 'release-please--branches--main' ||
+      startsWith(github.event.merge_group.head_commit.message, 'chore(main): release')))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
