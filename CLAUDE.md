@@ -60,6 +60,7 @@ CI runs the same checks, so never bypass a hook with `--no-verify`.
   create tags. The funcd release GitHub App opens the release PR, which goes through the merge queue
   like any other PR. Merging it tags `vX.Y.Z`. The version in `shim/pyproject.toml` stays
   fixed on purpose: a bump would make every `uv.lock` stale, so the tag is the version.
+  CI skips its `ci` job: the PR only bumps versions on an already checked `main`.
 - **Every release publishes `funcd-shim` to PyPI** from the release workflow, with PyPI trusted
   publishing (no token). The workflow stamps the tag's version into the build only. The public API
   is `funcd_shim`'s types and `funcd_shim.build` (the `build` extra): removing or changing one is
