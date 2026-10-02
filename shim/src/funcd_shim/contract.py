@@ -30,6 +30,15 @@ from .types import Validator
 #: The worker env the materializer sets to the delivered contract-blob path (ADR-0123).
 CONTRACT_ENV = "FUNCD_CONTRACT_PATH"
 
+# The ADR-0058 profile formats fastjsonschema does not ship: without them a schema inside the profile fails
+# to compile ("Unknown format"). fastjsonschema checks a format on strings only, so the number formats
+# int32/int64 get the empty pattern; every other unknown format still fails closed.
+_PROFILE_FORMATS = {
+    "uuid": r"^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\Z",
+    "int32": "",
+    "int64": "",
+}
+
 
 class ContractError(Exception):
     """The delivered contract could not be read/parsed/compiled. The worker must fail closed
@@ -41,7 +50,7 @@ def _compile_side(schema: Any) -> Validator:
     ``fastjsonschema.compile`` (returns a callable that RAISES on invalid — wrapped to the shim's
     list-of-errors shape). Pure-Python, so it behaves identically solo and in the subinterpreter pool.
     The runtime image ships ``fastjsonschema`` (ADR-0071); it is imported at module top like any dep."""
-    validate = fastjsonschema.compile(schema)
+    validate = fastjsonschema.compile(schema, formats=_PROFILE_FORMATS)
     invalid = fastjsonschema.JsonSchemaValueException
 
     def _validator(data: Any) -> list[Any]:
