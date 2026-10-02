@@ -11,9 +11,9 @@ How a function reaches the catalog (the bindings funcd injects):
 
 DuckDB travels in the artifact (ADR-0089): this handler runs on the STOCK curated `python314` runtime.
 The `duckdb` wheel + the `quack`/`httpfs` extensions are vendored into a deployment-package BUNDLE
-(`build.py` → `bundle/`), which `funcdctl push --entry handler.py` ships as one OCI layer. funcd sets
-PYTHONPATH + FUNCD_BUNDLE_DIR so `import duckdb` and the offline `duckdb-ext/` extensions resolve with no
-runtime changes — no `python-duckdb` image needed.
+(`uv run funcd-bundle` → `dist/catalog-quack/`), which `funcdctl push --entry handler.py` ships as one OCI
+layer. funcd sets PYTHONPATH + FUNCD_BUNDLE_DIR so `import duckdb` and the offline `duckdb-ext/` extensions
+resolve with no runtime changes — no `python-duckdb` image needed.
 
 DEPLOY PREREQUISITE (a follow-up, tracked on Project #4):
   * The consumer binding (`spec.catalogs`) that injects FUNCD_CATALOG_*_URL/_TOKEN + opens the egress

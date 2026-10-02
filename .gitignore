@@ -6,7 +6,5 @@ __pycache__/
 .ruff_cache/
 .direnv/
 .DS_Store
-# a vendored dependency closure (ADR-0089): native, per-architecture, rebuilt by build.py
-bundle/
 # the PyPI build (wheel + sdist), built at publish time
 dist/

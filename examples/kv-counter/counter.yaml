@@ -11,7 +11,7 @@ metadata:
 spec:
   runtime: python314
   handler: handle
-  image: oci-layout:///mnt/funcd-deps/registry:pycounter   # funcdctl push counter.py (built from src/counter.py)
+  image: oci-layout:///mnt/funcd-deps/registry:pycounter   # funcdctl push src/counter.py, its manifest beside it
   replicas: 1
   scaling:
     minReplicas: 1

@@ -6,6 +6,7 @@
 # Deploy concerns (name, namespace, scaling, placement) live on the hand-written Function CRD
 # (counter.yaml, which sits alongside this file) — this config never replaces it.
 runtime: python314
+main: src/counter.py
 handler: handle
 bindings:
   kv:
