@@ -8,8 +8,8 @@
 # build-silver dependsOn [extract, verify] with join:all — so it runs ONLY after extract wrote bronze AND
 # verify confirmed the extraction; either gate failing fails the run (fail-fast) BEFORE any confidential or
 # wrong data is conformed. Each step is a dispatched Function (ref: an existing Function, not materialized
-# from an image — the ELT functions are applied separately in functions.yaml). The run input {file: <key>}
-# is projected by the Sensor from the landed object key and passed to every step as ${{ input.file }}.
+# from an image — the ELT functions are applied separately in functions.yaml). No step takes a run input:
+# each one reads its whole layer, as in the dev copy at the example root (workflow.yaml).
 apiVersion: funcd.io/v1alpha1
 kind: Workflow
 metadata:
@@ -24,22 +24,20 @@ spec:
     - name: extract
       function:
         ref: extract                     # landing/<key>.pdf → bronze/<key>.parquet (geometric extraction)
-      input:
-        file: "${{ input.file }}"
     - name: verify
       function:
         ref: verify                      # GATE 1: independent re-extraction + printed-total reconciliation
-      dependsOn: [extract]
-      input:
-        file: "${{ input.file }}"
+      dependsOn:
+        - extract
     - name: build-silver
       function:
         ref: build-silver                # GATE 2 (PII) + type + dedup → silver DuckLake `transactions`
-      dependsOn: [extract, verify]
+      dependsOn:
+        - extract
+        - verify
       join: all                          # both extract AND verify must succeed first
-      input:
-        file: "${{ input.file }}"
     - name: to-gold
       function:
         ref: to-gold                     # mart SQL over the `lake` catalog → gold DuckLake
-      dependsOn: [build-silver]
+      dependsOn:
+        - build-silver

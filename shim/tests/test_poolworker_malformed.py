@@ -8,6 +8,8 @@ survival so we never regress that behavior.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import funcd_shim._poolworker as pw
@@ -26,7 +28,7 @@ def loaded_worker(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_malformed_body_returns_400(loaded_worker: None) -> None:
     r = pw.invoke("abc{")  # not valid JSON
     assert r["status"] == 400
-    assert "not valid JSON" in r["body"]["error"]
+    assert "not valid JSON" in json.loads(r["body"])["error"]
 
 
 @pytest.mark.parametrize("body", ["null", "[1,2]", "42", '"s"', "true"])
@@ -34,7 +36,7 @@ def test_non_object_body_returns_400(loaded_worker: None, body: str) -> None:
     # Valid JSON, but not a CloudEvent envelope (object) → clean 400, NOT an AttributeError crash.
     r = pw.invoke(body)
     assert r["status"] == 400
-    assert "CloudEvent envelope" in r["body"]["error"]
+    assert "CloudEvent envelope" in json.loads(r["body"])["error"]
 
 
 def test_contract_mismatch_422_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -48,7 +50,7 @@ def test_contract_mismatch_422_unchanged(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(pw, "_validators", Validators(input=reject))
     r = pw.invoke('{"data":123}')
     assert r["status"] == 422
-    assert r["body"]["error"] == "event data does not match the input contract"
+    assert json.loads(r["body"])["error"] == "event data does not match the input contract"
 
 
 def test_worker_survives_bad_input(loaded_worker: None) -> None:
@@ -56,4 +58,4 @@ def test_worker_survives_bad_input(loaded_worker: None) -> None:
     assert pw.invoke("null")["status"] == 400
     good = pw.invoke('{"data":{"x":1}}')
     assert good["status"] == 200
-    assert good["body"] == {"echo": {"x": 1}}
+    assert json.loads(good["body"]) == {"echo": {"x": 1}}

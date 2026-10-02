@@ -329,8 +329,14 @@ def _copy_handler(project: Path, fn: Function, out: Path) -> list[Path]:
 
         shutil.copytree(source, out, dirs_exist_ok=True, ignore=ignore)
         sources = [p for p in source.rglob("*.py") if not SKIPPED.intersection(p.relative_to(source).parts)]
-    # inside the bundle the handler sits at the root, so a `main` must name it there (funcdctl dev reads it)
-    text = MAIN_LINE.sub(f"main: {fn.handler.name}", fn.manifest.read_text())
+    # inside the bundle the handler sits at the root, so `main` must name it there (funcdctl dev reads it); a
+    # manifest without one gets one, else the bundle's generic manifest would default to handler.py
+    main = f"main: {fn.handler.name}"
+    text, found = MAIN_LINE.subn(main, fn.manifest.read_text())
+    if not found:
+        if text and not text.endswith("\n"):
+            text += "\n"
+        text += main + "\n"
     (out / GENERIC_MANIFEST).write_text(text)
     return sources
 

@@ -13,7 +13,7 @@ import logging
 import os
 import socket
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -142,3 +142,54 @@ def test_uds_channel_captures_lines(monkeypatch: Any, tmp_path: Path) -> None:
     assert rec["sev"] == "WARN"
     assert rec["funcd.source"] == "logging"
     assert rec["attrs"]["k"] == "v"
+
+
+def _capture(monkeypatch: Any, emit: Callable[[], None]) -> list[dict[str, Any]]:
+    read_fd, write_fd = os.pipe()
+    monkeypatch.delenv("FUNCD_LOG_SOCK", raising=False)
+    monkeypatch.setenv("FUNCD_LOG_FD", str(write_fd))
+    assert install_log_capture() is not None
+    emit()
+    os.close(write_fd)
+    raw = b""
+    while chunk := os.read(read_fd, 4096):
+        raw += chunk
+    os.close(read_fd)
+    return _parse_lines(raw)
+
+
+def test_issue_82_record_args_reach_attrs(monkeypatch: Any) -> None:
+    def emit() -> None:
+        logging.info("py-logging-info %s %d", "arg1", 7)
+        logging.info("%(user)s x%(n)d", {"user": "alice", "n": 2})
+        logging.error("failed: %s", ValueError("second-boom"))
+        logging.info("no args")
+
+    positional, mapping, error_arg, bare = _capture(monkeypatch, emit)
+
+    assert positional["body"] == "py-logging-info arg1 7"
+    assert json.loads(positional["attrs"]["args"]) == ["arg1", 7]
+    assert json.loads(mapping["attrs"]["args"]) == {"user": "alice", "n": 2}
+    assert json.loads(error_arg["attrs"]["args"]) == ["ValueError('second-boom')"]
+    assert "args" not in bare["attrs"]
+
+
+def test_issue_82_traceback_reaches_attrs(monkeypatch: Any) -> None:
+    def emit() -> None:
+        try:
+            raise ValueError("py-boom-detail")
+        except ValueError:
+            logging.exception("py-caught")
+        logging.error("with stack", stack_info=True)
+
+    caught, stacked = _capture(monkeypatch, emit)
+
+    assert caught["body"] == "py-caught"
+    assert caught["sev"] == "ERROR"
+    assert caught["attrs"]["exception.type"] == "ValueError"
+    assert caught["attrs"]["exception.message"] == "py-boom-detail"
+    trace = caught["attrs"]["exception.stacktrace"]
+    assert trace.startswith("Traceback (most recent call last):")
+    assert trace.endswith("ValueError: py-boom-detail")
+    assert stacked["attrs"]["code.stacktrace"].startswith("Stack (most recent call last):")
+    assert "exception.stacktrace" not in stacked["attrs"]

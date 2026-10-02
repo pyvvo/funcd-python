@@ -5,6 +5,7 @@ node-gated. Run with ``uv run --python 3.14 pytest``."""
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -55,6 +56,36 @@ CPU = (
     "        s += i * i\n"
     "    return {'ok': True}\n"
 )
+LOGGER = (
+    "import logging\n"
+    "def handle(context, event):\n"
+    "    for i in range(event['data']['lines']):\n"
+    "        logging.info('%s %d %s', event['data']['tag'], i, 'x' * 16384)\n"
+    "    return None\n"
+)
+
+FAILING = (
+    "def handle(context, event):\n"
+    "    kind = event['data']\n"
+    "    if kind == 'set':\n"
+    "        return {1}\n"
+    "    if kind == 'bytes':\n"
+    "        return b'x'\n"
+    "    if kind == 'lambda':\n"
+    "        return lambda: 0\n"
+    "    if kind == 'nan':\n"
+    "        return {'x': float('nan')}\n"
+    "    if kind == 'exit':\n"
+    "        raise SystemExit(3)\n"
+    "    raise KeyboardInterrupt\n"
+)
+
+ASYNC = (
+    "import asyncio\n"
+    "async def handle(context, event):\n"
+    "    await asyncio.sleep(0)\n"
+    "    return {'echoed': event.get('data')}\n"
+)
 
 
 def _manifest(tmp: Path, members: list[tuple[str, str]]) -> Path:
@@ -68,7 +99,9 @@ def _manifest(tmp: Path, members: list[tuple[str, str]]) -> Path:
     return mpath
 
 
-def _start(tmp: Path, manifest: Path) -> tuple[subprocess.Popen[bytes], int]:
+def _start(
+    tmp: Path, manifest: Path, env: dict[str, str] | None = None, pass_fds: tuple[int, ...] = ()
+) -> tuple[subprocess.Popen[bytes], int]:
     port_file = tmp / "pool.port"
     proc = subprocess.Popen(
         [sys.executable, "-m", "funcd_shim.pool"],
@@ -77,7 +110,9 @@ def _start(tmp: Path, manifest: Path) -> tuple[subprocess.Popen[bytes], int]:
             "FUNCD_PORTFILE": str(port_file),
             "PATH": "/usr/bin:/bin",
             "PYTHONPATH": SRC,
+            **(env or {}),
         },
+        pass_fds=pass_fds,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -121,6 +156,33 @@ def test_pool_colocates_and_contract(tmp_path: Path) -> None:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/health/readiness", timeout=5) as r:  # noqa: S310
             assert r.status == 200
         assert _post(port, "nope", "{}")[0] == 404
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_issue_131_pool_answers_unencodable_results_and_base_exceptions(tmp_path: Path) -> None:
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", FAILING)]))
+    try:
+        for kind in ("set", "bytes", "lambda", "exit", "kbint"):
+            st, body = _post(port, "f0", json.dumps({"data": kind}))
+            assert st == 500, (kind, body)
+            assert json.loads(body)["error"] is not None
+        st, body = _post(port, "f0", json.dumps({"data": "nan"}))
+        assert st == 200
+        assert json.loads(body) == {"x": None}
+        assert _post(port, "f0", '{"data": NaN}')[0] == 400
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_issue_188_pool_async_handler_is_awaited(tmp_path: Path) -> None:
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ASYNC)]))
+    try:
+        st, body = _post(port, "f0", json.dumps({"data": {"hello": "world"}}))
+        assert st == 200, body
+        assert json.loads(body) == {"echoed": {"hello": "world"}}
     finally:
         proc.terminate()
         proc.wait(timeout=5)
@@ -170,6 +232,49 @@ def test_pool_isolates(tmp_path: Path) -> None:
         proc.wait(timeout=5)
 
 
+MUTATOR = (
+    "import os\n"
+    "def handle(context, event):\n"
+    "    rejected = []\n"
+    "    for name, arg in (('chdir', '/'), ('umask', 0o077)):\n"
+    "        try:\n"
+    "            getattr(os, name)(arg)\n"
+    "        except RuntimeError:\n"
+    "            rejected.append(name)\n"
+    "    return {'rejected': rejected}\n"
+)
+OBSERVER = (
+    "import os\n"
+    "def handle(context, event):\n"
+    "    probe = os.path.join(event['data']['dir'], 'probe-' + event['data']['tag'])\n"
+    "    os.close(os.open(probe, os.O_CREAT | os.O_WRONLY, 0o666))\n"
+    "    return {'cwd': os.getcwd(), 'mode': os.stat(probe).st_mode & 0o777}\n"
+)
+
+
+def test_issue_183_chdir_umask_do_not_leak_to_siblings(tmp_path: Path) -> None:
+    # The working directory and the umask belong to the process, not to a subinterpreter, so a
+    # member that changes them would change them for every sibling. Like process.chdir/umask in a
+    # Node worker (ADR-0044), the pool refuses them.
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("mutator", MUTATOR), ("observer", OBSERVER)]))
+    try:
+
+        def observe(tag: str) -> dict[str, object]:
+            st, body = _post(port, "observer", json.dumps({"data": {"dir": str(tmp_path), "tag": tag}}))
+            assert st == 200, body
+            seen: dict[str, object] = json.loads(body)
+            return seen
+
+        before = observe("before")
+        st, body = _post(port, "mutator", "{}")
+        assert st == 200, body
+        assert observe("after") == before
+        assert json.loads(body)["rejected"] == ["chdir", "umask"]
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def test_pool_parallel(tmp_path: Path) -> None:
     # scenario: py-pool-parallel — CPU-bound handlers run on per-interpreter GILs, so two concurrent
     # requests to different handlers finish in well under 2× a single's time (a shared GIL would
@@ -202,6 +307,57 @@ def test_pool_parallel(tmp_path: Path) -> None:
     finally:
         proc.terminate()
         proc.wait(timeout=5)
+
+
+def test_issue_81_concurrent_pool_logs_keep_records_whole(tmp_path: Path) -> None:
+    # pyvvo/funcd#81: every pool worker writes its records to the one FUNCD_LOG_FD pipe, and a write
+    # longer than PIPE_BUF is not atomic, so two handlers logging at once must not splice their lines.
+    lines = 300
+    read_fd, write_fd = os.pipe()
+    received: list[bytes] = []
+
+    def drain() -> None:
+        # Start late and read slowly, so both handlers block mid-line on a full pipe and race for space.
+        time.sleep(0.2)
+        while chunk := os.read(read_fd, 512):
+            received.append(chunk)
+
+    manifest = _manifest(tmp_path, [("f0", LOGGER), ("f1", LOGGER)])
+    proc, port = _start(tmp_path, manifest, {"FUNCD_LOG_FD": str(write_fd)}, (write_fd,))
+    os.close(write_fd)
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+    statuses: list[int] = []
+
+    def hit(name: str) -> None:
+        statuses.append(_post(port, name, json.dumps({"data": {"tag": name, "lines": lines}}))[0])
+
+    try:
+        ts = [threading.Thread(target=hit, args=(n,)) for n in ("f0", "f1")]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+    reader.join(timeout=10)
+    os.close(read_fd)
+
+    assert statuses == [204, 204]
+    tags: list[str] = []
+    spliced = 0
+    for raw in b"".join(received).splitlines():
+        try:
+            rec = json.loads(raw)
+        except ValueError:
+            spliced += 1
+            continue
+        if rec.get("funcd.source") == "logging":
+            tags.append(rec["body"].split(" ", 1)[0])
+    assert spliced == 0, f"{spliced} unreadable lines on the shared log fd"
+    assert tags.count("f0") == lines
+    assert tags.count("f1") == lines
 
 
 def test_pool_delivered_contract_enforces(tmp_path: Path) -> None:

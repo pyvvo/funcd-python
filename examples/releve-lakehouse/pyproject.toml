@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["mypy>=1.13", "pytest>=8.3", "ruff>=0.8"]
+dev = ["mypy>=1.13", "pytest>=8.3", "pyyaml>=6.0.2", "ruff>=0.8", "types-pyyaml>=6.0.12"]
 # functions/build.py bakes the ADR-0058 validators at push time; it needs pydantic (build-time only).
 # faker (MIT) generates the synthetic statement fake data (landing/generate_synthetic.py) — build-time only.
 build = [

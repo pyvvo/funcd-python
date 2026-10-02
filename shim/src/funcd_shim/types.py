@@ -51,7 +51,13 @@ class FunctionContext(Protocol):
         ...
 
     def invoke(self, alias: str, payload: Any) -> Any:
-        """Synchronously invoke a linked function by its spec.links alias (ADR-0064)."""
+        """Synchronously invoke a linked function by its spec.links alias (ADR-0064).
+
+        An object *payload* with a top-level ``"data"`` or ``"specversion"`` key is taken as a full
+        CloudEvent envelope (ADR-0134): the target's ``event["data"]`` is only its ``data`` value,
+        without the other keys. Send an object that has its own ``data`` key as
+        ``{"specversion": "1.0", "data": payload}``.
+        """
         ...
 
     @property

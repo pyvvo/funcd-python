@@ -74,6 +74,36 @@ def test_missing_side_raises(tmp_path: Path) -> None:
         contract.load_from_path(_write(tmp_path, "c.json", {"input": {"type": "null"}}))  # no output
 
 
+# ---- issue 129: the ADR-0058 profile formats compile in the worker ----
+
+
+@pytest.mark.parametrize(
+    ("prop", "good", "bad"),
+    [
+        (
+            {"type": "string", "format": "uuid"},
+            "123e4567-E89B-12d3-a456-426614174000",
+            "123e4567-e89b-12d3-a456",
+        ),
+        ({"type": "integer", "format": "int32"}, 7, "7"),
+        ({"type": "integer", "format": "int64"}, 2**40, 1.5),
+    ],
+)
+def test_issue_129_profile_formats_compile(tmp_path: Path, prop: dict[str, Any], good: Any, bad: Any) -> None:
+    schema = {"type": "object", "properties": {"v": prop}, "required": ["v"], "additionalProperties": False}
+    v = contract.load_from_path(_write(tmp_path, "c.json", {"input": schema, "output": {}}))
+    assert v.input is not None
+    assert v.input({"v": good}) == []
+    assert v.input({"v": bad}), f"{bad!r} must not satisfy {prop}"
+
+
+def test_issue_129_out_of_profile_format_still_fails_closed(tmp_path: Path) -> None:
+    with pytest.raises(contract.ContractError):
+        contract.load_from_path(
+            _write(tmp_path, "c.json", {"input": {"type": "string", "format": "duration"}, "output": {}})
+        )
+
+
 # ---- contract.load(): env-driven, back-compat when unset ----
 
 

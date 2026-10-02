@@ -9,11 +9,13 @@ host puts the package dir on ``PYTHONPATH`` so the worker can import ``funcd_shi
 
 from __future__ import annotations
 
-import json
+import os
 import sys
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, NoReturn
 
-from .runtime import Validators
+from . import jsonwire
+from .runtime import Validators, call_handler
 from .types import CloudEvent, Handler
 
 if TYPE_CHECKING:
@@ -25,8 +27,34 @@ _handler: Handler | None = None
 _validators: Validators = Validators()
 _channel: Any = None  # the shared telemetry channel (ADR-0101), opened once in init()
 
+#: The working directory and the umask belong to the process, not to a subinterpreter: a member that
+#: changed them would change them for every sibling. The pool refuses them, as a Node worker refuses
+#: process.chdir/process.umask (ADR-0044/0050 isolation parity).
+_PROCESS_WIDE = ("chdir", "fchdir", "umask")
 
-def init(src: str, artifact: str, handler: str, contract_path: str | None = None) -> None:
+
+def _refuse(name: str) -> Callable[..., NoReturn]:
+    def refused(*_args: object, **_kwargs: object) -> NoReturn:
+        raise RuntimeError(
+            f"os.{name} is not supported in a pooled handler: every handler in the pool shares that state"
+        )
+
+    return refused
+
+
+def _refuse_process_wide() -> None:
+    for module in (os, sys.modules[os.name]):
+        for name in _PROCESS_WIDE:
+            setattr(module, name, _refuse(name))
+
+
+def init(
+    src: str,
+    artifact: str,
+    handler: str,
+    contract_path: str | None = None,
+    write_lock: tuple[int, int] | None = None,
+) -> None:
     """Load the handler + I/O validators into this interpreter (the materialization shape-gate,
     ADR-0058/0123). Runs once per worker; a failure breaks the pool → exit 3.
 
@@ -35,6 +63,7 @@ def init(src: str, artifact: str, handler: str, contract_path: str | None = None
     eval-free reversal + the m3 reorder. A set-but-broken path fails the worker closed. When absent,
     fall back to the module-baked ``__funcd_validate_*`` (transition back-compat)."""
     global _handler, _validators, _channel
+    _refuse_process_wide()
     if src not in sys.path:
         sys.path.insert(0, src)
     from funcd_shim import contract, runtime
@@ -42,8 +71,9 @@ def init(src: str, artifact: str, handler: str, contract_path: str | None = None
 
     # Path B capture (ADR-0081) + traces (ADR-0101): each pool worker runs in its own subinterpreter
     # with its own root logger, so open the channel + install capture here (per-interpreter), before
-    # the handler loads. One shared channel per worker. No-op unless FUNCD_LOG_FD/SOCK is set.
-    _channel = open_channel()
+    # the handler loads. One shared channel per worker. No-op unless FUNCD_LOG_FD/SOCK is set. Every
+    # worker writes to the same FUNCD_LOG_FD, so they all take the host's one *write_lock*.
+    _channel = open_channel(write_lock)
     install_log_capture(_channel)
 
     # ADR-0123: compile the delivered contract AHEAD of the handler import (m3 reorder).
@@ -81,6 +111,10 @@ class _Ctx:
         return BlobClient()
 
 
+def _reply(status: int, body: dict[str, Any]) -> dict[str, Any]:
+    return {"status": status, "body": jsonwire.encode(body)}
+
+
 def invoke(
     body: str,
     traceparent: str | None = None,
@@ -89,46 +123,44 @@ def invoke(
     links: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run one request: parse → optional input validation → handler → optional output validation →
-    a status-tagged envelope the host maps to the HTTP response (identical to the solo shim). ADR-0101:
-    a successful-past-input-validation request emits a SERVER span on the worker's channel."""
+    a status-tagged envelope the host maps to the HTTP response (identical to the solo shim). The body
+    is encoded here, so a result with no JSON form is this handler's 500 and never reaches the host.
+    ADR-0101: a successful-past-input-validation request emits a SERVER span on the worker's channel."""
     if _handler is None:  # defensive — init() always runs first
-        return {"status": 500, "body": {"error": "handler not loaded"}}
+        return _reply(500, {"error": "handler not loaded"})
     try:
-        event: CloudEvent[Any] = json.loads(body) if body else CloudEvent()
-    except (json.JSONDecodeError, ValueError):
-        return {"status": 400, "body": {"error": "request body is not valid JSON"}}
+        event: CloudEvent[Any] = jsonwire.decode(body) if body else CloudEvent()
+    except ValueError:
+        return _reply(400, {"error": "request body is not valid JSON"})
     if not isinstance(event, dict):
         # A valid-JSON but non-object body (null / array / scalar) is not a CloudEvent envelope.
         # Reject it cleanly — never let `event.get("data")` raise AttributeError and crash the pooled
         # worker (that surfaced as a gateway `proxy error: EOF` / empty-body 502).
-        return {
-            "status": 400,
-            "body": {"error": "request body must be a JSON object (CloudEvent envelope)"},
-        }
+        return _reply(400, {"error": "request body must be a JSON object (CloudEvent envelope)"})
     if _validators.input is not None:
         errors = _validators.input(event.get("data"))
         if errors:
             # ADR-0101: input-mismatch short-circuits before the handler → no invocation, no span.
-            return {
-                "status": 422,
-                "body": {"error": "event data does not match the input contract", "details": errors},
-            }
+            return _reply(422, {"error": "event data does not match the input contract", "details": errors})
     from .tracespan import InvocationSpan
 
     with InvocationSpan(_channel, fn_name, traceparent, span_id, links) as span:
         try:
-            result = _handler(_Ctx(), event)
-        except Exception as err:  # noqa: BLE001 - user handler errors become 500
+            result = call_handler(_handler, _Ctx(), event)
+        except BaseException as err:  # noqa: BLE001 - user handler errors, SystemExit too, become 500
             span.fail(str(err))
-            return {"status": 500, "body": {"error": str(err)}}
+            return _reply(500, {"error": str(err)})
         if _validators.output is not None:
             errors = _validators.output(result)
             if errors:
                 span.fail("handler result does not match the output contract")
-                return {
-                    "status": 500,
-                    "body": {"error": "handler result does not match the output contract", "details": errors},
-                }
+                return _reply(
+                    500, {"error": "handler result does not match the output contract", "details": errors}
+                )
         if result is None:
             return {"status": 204}
-        return {"status": 200, "body": result}
+        try:
+            return {"status": 200, "body": jsonwire.encode(result)}
+        except Exception as err:  # noqa: BLE001 - a result with no JSON form is a handler failure
+            span.fail(str(err))
+            return _reply(500, {"error": str(err)})
