@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/pyvvo/funcd-python/compare/v0.3.1...v0.3.2) (2026-10-02)
+
+
+### Bug Fixes
+
+* **shim:** harden replies, logging, pool isolation and async handlers ([#19](https://github.com/pyvvo/funcd-python/issues/19)) ([90e0d47](https://github.com/pyvvo/funcd-python/commit/90e0d47a965897afd3ac0fb623454a519d85d812))
+
 ## [0.3.1](https://github.com/pyvvo/funcd-python/compare/v0.3.0...v0.3.1) (2026-10-02)
 
 
