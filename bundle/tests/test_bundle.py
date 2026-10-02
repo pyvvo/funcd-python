@@ -255,6 +255,26 @@ def test_default_handler_follows_funcdctl(tmp_path: Path) -> None:
     )
 
 
+def test_issue_154_stem_manifest_without_main_names_bundled_handler(tmp_path: Path) -> None:
+    manifest = "runtime: python314\nhandler: handle\n"
+    project = tmp_path / "project"
+    _write(
+        project,
+        {
+            "pyproject.toml": '[project]\nname = "extract"\nversion = "0.1.0"\nrequires-python = ">=3.12"\n',
+            "extract.funcdctl.yaml": manifest,
+            "extract.py": "def handle(ctx, event): ...\n",
+        },
+    )
+    _uv("lock", "--offline", "--python", "3.14", cwd=project)
+    out = bundle(project, "extract", host_platform(), tmp_path / "extract", hermetic=False, check=False)
+
+    assert discover(out)["extract"].handler == out / "extract.py", (
+        "the bundle's generic manifest resolves to the bundled handler, not handler.py"
+    )
+    assert (out / "funcdctl.yaml").read_text() == manifest + "main: extract.py\n"
+
+
 def test_missing_handler_is_named(tmp_path: Path) -> None:
     _write(tmp_path, {"funcdctl.yaml": "runtime: python314\nmain: src/nope.py\n"})
     with pytest.raises(BundleError, match="nope.py"):
