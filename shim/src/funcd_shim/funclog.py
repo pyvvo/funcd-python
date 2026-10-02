@@ -133,6 +133,18 @@ def _stringify(value: object) -> str:
     return value if isinstance(value, str) else str(value)
 
 
+def _args_json(args: object) -> str:
+    """``record.args`` as compact JSON, the shape of Node's ``attrs.args``; ``repr`` stands in for a value
+    JSON cannot hold, and for the whole of ``args`` when it cannot be encoded (a cycle, a non-string key)."""
+    try:
+        return json.dumps(args, default=repr, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return repr(args)
+
+
+_FORMATTER = logging.Formatter()
+
+
 class FuncLogHandler(logging.Handler):
     """A root-logger handler that emits each record as one NDJSON line on the side channel ONLY.
 
@@ -157,6 +169,16 @@ class FuncLogHandler(logging.Handler):
             "funcName": record.funcName,
             "lineno": str(record.lineno),
         }
+        if record.args:
+            attrs["args"] = _args_json(record.args)
+        # OpenTelemetry semantic-convention names: the attrs become OTLP LogRecord attributes host-side.
+        if record.exc_info and record.exc_info[1] is not None:
+            exc = record.exc_info[1]
+            attrs["exception.type"] = type(exc).__name__
+            attrs["exception.message"] = str(exc)
+            attrs["exception.stacktrace"] = _FORMATTER.formatException(record.exc_info)
+        if record.stack_info:
+            attrs["code.stacktrace"] = record.stack_info
         # Any extra={...} fields the function attached land on the record __dict__; forward them stringified.
         for key, value in record.__dict__.items():
             if key not in _INTRINSIC_RECORD_KEYS:
