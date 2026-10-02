@@ -9,12 +9,13 @@ metadata:
   name: releve-project-config
   namespace: default
   resourceGroup: rg1
-data:
-  # Comma-separated markers that terminate/skip a line during extraction (header, footer, totals, balances,
-  # and the account number). Replace <ACCOUNT_NUMBER> with your real statement account id at deploy time.
-  STOP_KEYWORDS: "TOTALDESOPERATIONS,TOTALDES,Soldecréditeur,Soldedébiteur,RELEVEDECOMPTE,Titulaire,PERIODE,NATUREDESOPERATIONS,Soldeau,Crédit,Débit,Bank,<ACCOUNT_NUMBER>"
-  BANK: "bank"                # the parser profile (Bank geometry)
-  CLASSIFICATION: "confidential"   # medallion bronze path label + policy driver
+spec:
+  data:
+    # Comma-separated markers that terminate/skip a line during extraction (header, footer, totals, balances,
+    # and the account number). Replace <ACCOUNT_NUMBER> with your real statement account id at deploy time.
+    STOP_KEYWORDS: "TOTALDESOPERATIONS,TOTALDES,Soldecréditeur,Soldedébiteur,RELEVEDECOMPTE,Titulaire,PERIODE,NATUREDESOPERATIONS,Soldeau,Crédit,Débit,Bank,<ACCOUNT_NUMBER>"
+    BANK: "bank"                # the parser profile (Bank geometry)
+    CLASSIFICATION: "confidential"   # medallion bronze path label + policy driver
 ---
 apiVersion: funcd.io/v1alpha1
 kind: ConfigMap
@@ -22,6 +23,7 @@ metadata:
   name: lake-engine-config
   namespace: default
   resourceGroup: rg1
-data:
-  DUCKDB_THREADS: "2"
-  DUCKDB_MEMORY_LIMIT: "3GB"
+spec:
+  data:
+    DUCKDB_THREADS: "2"
+    DUCKDB_MEMORY_LIMIT: "3GB"

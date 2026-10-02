@@ -124,8 +124,8 @@ whole run **before** any confidential or wrong data is conformed.
 ```bash
 # ADR-0121: apply in ANY order — owner/binding existence is reconcile-time (no two-phase bucket-base).
 # A Function/CatalogService bound to a not-yet-applied Bucket is admitted and waits Ready=False until it
-# resolves, then converges. Apply the whole resource set at once:
-funcdctl apply -f resources/
+# resolves, then converges. funcdctl apply -f takes one file (or - for stdin), so apply each file:
+for f in resources/*.yaml; do funcdctl apply -f "$f"; done
 ```
 
 | File | Kind | Role |
@@ -135,7 +135,6 @@ funcdctl apply -f resources/
 | `resources/workflow.yaml` | `Workflow` | `releve-pipeline` — the DAG with the two gates |
 | `resources/eventsource.yaml` | `EventSource` | `releve-landed` — blob object-created on `landing/` |
 | `resources/sensor.yaml` | `Sensor` | `releve-ingest` — event → start the run with the object key |
-| `resources/egresspolicy.yaml` | `EgressPolicy` | confidential posture — no external egress (default-deny) |
 | `resources/catalogservice.yaml` | `CatalogService` | `lake` — DuckLake + Quack query surface over `gold/` |
 | `resources/routes.yaml` | `Route` | static BI site (public) + authenticated SQL query route |
 | `resources/secret.yaml` / `configmap.yaml` | `Secret`/`ConfigMap` | Quack token + engine/project config (incl. `STOP_KEYWORDS`) |
@@ -164,5 +163,6 @@ funcdctl push functions/extract/bundle registry:extract --entry handler.py
 Bank statements are `confidential`. Run this namespace with edge egress enforcement on
 (`server.network.egress: true`), and **no `EgressPolicy` grants any external destination** — so ADR-0117's
 default-deny means every worker's outbound TCP is refused at the gateway. OCR/parse/anonymize all run
-locally; nothing is sent to any external API. `resources/egresspolicy.yaml` documents this posture (and
-shows, commented, the shape you'd add *only* if a step ever needed a specific allow-listed host).
+locally; nothing is sent to any external API. So the example ships no `EgressPolicy`: one must list at
+least one allow rule, and every rule is a hole in the invariant. Add one only if a step ever needs a
+specific, audited external host.
