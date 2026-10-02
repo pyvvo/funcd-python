@@ -68,10 +68,12 @@ jobs:
 
       # pyproject.toml keeps a fixed version (a bump would stale every uv.lock), so the release
       # version is stamped here, into the build only.
-      - name: Build funcd-shim at the release version
+      - name: Build funcd-shim and funcd-bundle at the release version
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
-        run: nix develop --command sh -c 'cd shim && uv version "$VERSION" --frozen && uv build --out-dir ../dist'
+        run: |
+          nix develop --command sh -c 'cd shim && uv version "$VERSION" --frozen && uv build --out-dir ../dist'
+          nix develop --command sh -c 'cd bundle && uv version "$VERSION" --frozen && uv build --out-dir ../dist'
 
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:

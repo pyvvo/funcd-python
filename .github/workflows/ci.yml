@@ -81,5 +81,8 @@ jobs:
           key: uv-${{ runner.os }}-${{ hashFiles('**/uv.lock') }}
           restore-keys: uv-${{ runner.os }}-
 
-      - name: Run CI (ruff, mypy, pytest, build, drift check, Go)
+      # funcd-bundle's tests import-check a bundle for the other architecture under emulation.
+      - uses: docker/setup-qemu-action@v4
+
+      - name: Run CI (ruff, mypy, pytest, drift check, Go)
         run: nix develop --command just ci

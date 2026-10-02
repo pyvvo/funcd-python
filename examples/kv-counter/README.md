@@ -26,16 +26,19 @@ context.kv.delete("py-counters", name)             # DELETE
 keys = context.kv.list("py-counters", "a")         # GET  /kv/py-counters?prefix=a  (list[str])
 ```
 
-## Contract (ADR-0058/0060)
+## Contract (ADR-0122/0123)
 
-The two `TypedDict`s `FuncInput` / `FuncOutput` *are* the contract. `build.py` reads them to generate
-the closed JSON Schema, **bakes an eval-free `fastjsonschema` validator** into `counter.py`, and writes
-`counter-{input,output}.schema.json`. Those schemas are pushed as OCI metadata
-(`funcdctl push --contract-input/--contract-output`), so a malformed call is rejected (**422**) before
-the handler runs — KV functions are contract-validated, not just KV-enabled.
+The `contract` in [`funcdctl.yaml`](funcdctl.yaml) is the function's I/O contract. `funcdctl push`
+reads it from the manifest beside the handler and pushes it as OCI metadata; the shim compiles a
+validator from it when the worker starts, so a malformed call is rejected (**422**) before the handler
+runs — KV functions are contract-validated, not just KV-enabled.
+
+The handler needs no third-party package, so it needs no build: `src/counter.py` (the manifest's `main`)
+is the artifact. Push it with the manifest beside it, or bundle it with `funcd-bundle` (funcd ADR-0144):
 
 ```bash
-uv run --group build python build.py   # → counter.py (baked validators) + the I/O schemas
+uv run funcd-bundle                                      # → dist/kv-counter/ (counter.py + funcdctl.yaml)
+funcdctl push dist/kv-counter <ref> --entry counter.py
 ```
 
 ## Run it locally (`funcdctl dev`)
@@ -78,7 +81,6 @@ Managed with [uv](https://docs.astral.sh/uv/):
 uv sync                                  # create the venv, install funcd-shim + dev tools
 uv run mypy                              # strict typecheck against the funcd_shim contract
 uv run ruff check                        # lint
-uv run --group build python build.py     # generate the artifact + schemas
 ```
 
 KV is **namespace-scoped** (a function reaches the KV in its own namespace); fine-grained per-workload

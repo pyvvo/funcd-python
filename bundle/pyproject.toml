@@ -1,0 +1,49 @@
+[project]
+name = "funcd-bundle"
+# Not bumped per release: the vX.Y.Z git tag is the version, stamped into the build at publish time.
+version = "0.1.0"
+description = "Bundle a Python funcd function and its locked dependencies for the funcd runtime"
+authors = [{ name = "The funcd Authors" }]
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+dependencies = [
+    "pyyaml>=6.0.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/pyvvo/funcd-python"
+Repository = "https://github.com/pyvvo/funcd-python"
+
+[project.scripts]
+funcd-bundle = "funcd_bundle.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/funcd_bundle"]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "ruff>=0.8",
+    "types-pyyaml>=6.0.12",
+]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = ["src", "tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S603", "S607"]

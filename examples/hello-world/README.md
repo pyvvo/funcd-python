@@ -145,6 +145,6 @@ substrate + process runtime + localhost addresses); it's optional — `funcd` ru
 if omitted.
 
 The platform's curated Python image runs the shim, which loads this module, validates each
-event's `data` against the baked `FuncInput` validator, invokes `handle`, validates the result
-against `FuncOutput`, and returns the dict as the 200 JSON body. A mismatched event is rejected
+event's `data` against the validator it compiles from the pushed contract, invokes `handle`, validates
+the result against the output schema, and returns the dict as the 200 JSON body. A mismatched event is rejected
 **422** before `handle` runs.
