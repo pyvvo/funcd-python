@@ -30,6 +30,11 @@ class _UnixHTTPConnection(http.client.HTTPConnection):
 def invoke(alias: str, payload: Any) -> Any:
     """POST *payload* to ``/invoke/<alias>`` over the worker-node UDS; return the target's JSON output.
 
+    The platform builds the target's CloudEvent from *payload* (funcd ADR-0134): an object with a
+    top-level ``"data"`` or ``"specversion"`` key is taken as a full envelope, so the target's
+    ``event["data"]`` is only its ``data`` value, without the other keys. Send an object that has its
+    own ``data`` key as ``{"specversion": "1.0", "data": payload}``.
+
     Raises ``RuntimeError`` on a non-2xx (no link → 403, unknown target → 404, bad input → 422,
     target down/timeout → 503) or when the socket is unavailable.
     """
