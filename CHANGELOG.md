@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/pyvvo/funcd-python/compare/v0.3.0...v0.3.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* **bundle:** exit 2 on a usage error and check the vendored tree as built ([#14](https://github.com/pyvvo/funcd-python/issues/14)) ([ff8a410](https://github.com/pyvvo/funcd-python/commit/ff8a410bf6699d7704d7fccee6c97b8f80d20120))
+
 ## [0.3.0](https://github.com/pyvvo/funcd-python/compare/v0.2.0...v0.3.0) (2026-10-02)
 
 
