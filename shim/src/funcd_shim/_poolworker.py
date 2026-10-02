@@ -9,8 +9,10 @@ host puts the package dir on ``PYTHONPATH`` so the worker can import ``funcd_shi
 
 from __future__ import annotations
 
+import os
 import sys
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from . import jsonwire
 from .runtime import Validators
@@ -24,6 +26,26 @@ if TYPE_CHECKING:
 _handler: Handler | None = None
 _validators: Validators = Validators()
 _channel: Any = None  # the shared telemetry channel (ADR-0101), opened once in init()
+
+#: The working directory and the umask belong to the process, not to a subinterpreter: a member that
+#: changed them would change them for every sibling. The pool refuses them, as a Node worker refuses
+#: process.chdir/process.umask (ADR-0044/0050 isolation parity).
+_PROCESS_WIDE = ("chdir", "fchdir", "umask")
+
+
+def _refuse(name: str) -> Callable[..., NoReturn]:
+    def refused(*_args: object, **_kwargs: object) -> NoReturn:
+        raise RuntimeError(
+            f"os.{name} is not supported in a pooled handler: every handler in the pool shares that state"
+        )
+
+    return refused
+
+
+def _refuse_process_wide() -> None:
+    for module in (os, sys.modules[os.name]):
+        for name in _PROCESS_WIDE:
+            setattr(module, name, _refuse(name))
 
 
 def init(
@@ -41,6 +63,7 @@ def init(
     eval-free reversal + the m3 reorder. A set-but-broken path fails the worker closed. When absent,
     fall back to the module-baked ``__funcd_validate_*`` (transition back-compat)."""
     global _handler, _validators, _channel
+    _refuse_process_wide()
     if src not in sys.path:
         sys.path.insert(0, src)
     from funcd_shim import contract, runtime

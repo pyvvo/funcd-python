@@ -214,6 +214,49 @@ def test_pool_isolates(tmp_path: Path) -> None:
         proc.wait(timeout=5)
 
 
+MUTATOR = (
+    "import os\n"
+    "def handle(context, event):\n"
+    "    rejected = []\n"
+    "    for name, arg in (('chdir', '/'), ('umask', 0o077)):\n"
+    "        try:\n"
+    "            getattr(os, name)(arg)\n"
+    "        except RuntimeError:\n"
+    "            rejected.append(name)\n"
+    "    return {'rejected': rejected}\n"
+)
+OBSERVER = (
+    "import os\n"
+    "def handle(context, event):\n"
+    "    probe = os.path.join(event['data']['dir'], 'probe-' + event['data']['tag'])\n"
+    "    os.close(os.open(probe, os.O_CREAT | os.O_WRONLY, 0o666))\n"
+    "    return {'cwd': os.getcwd(), 'mode': os.stat(probe).st_mode & 0o777}\n"
+)
+
+
+def test_issue_183_chdir_umask_do_not_leak_to_siblings(tmp_path: Path) -> None:
+    # The working directory and the umask belong to the process, not to a subinterpreter, so a
+    # member that changes them would change them for every sibling. Like process.chdir/umask in a
+    # Node worker (ADR-0044), the pool refuses them.
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("mutator", MUTATOR), ("observer", OBSERVER)]))
+    try:
+
+        def observe(tag: str) -> dict[str, object]:
+            st, body = _post(port, "observer", json.dumps({"data": {"dir": str(tmp_path), "tag": tag}}))
+            assert st == 200, body
+            seen: dict[str, object] = json.loads(body)
+            return seen
+
+        before = observe("before")
+        st, body = _post(port, "mutator", "{}")
+        assert st == 200, body
+        assert observe("after") == before
+        assert json.loads(body)["rejected"] == ["chdir", "umask"]
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def test_pool_parallel(tmp_path: Path) -> None:
     # scenario: py-pool-parallel — CPU-bound handlers run on per-interpreter GILs, so two concurrent
     # requests to different handlers finish in well under 2× a single's time (a shared GIL would
