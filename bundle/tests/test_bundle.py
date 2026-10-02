@@ -7,6 +7,7 @@ Each skips with the reason when its requirement is absent. CI has both.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -18,6 +19,7 @@ import pytest
 
 from funcd_bundle import BundleError, bundle, discover, host_platform
 from funcd_bundle.bundle import _check
+from funcd_bundle.cli import main
 
 FOREIGN = {"linux/arm64": "linux/amd64", "linux/amd64": "linux/arm64"}
 ELF_MACHINE = {"linux/amd64": 0x3E, "linux/arm64": 0xB7}
@@ -176,8 +178,12 @@ def test_scenario_bundle_includes_workspace_package(workspace: Path, tmp_path: P
 def test_scenario_bundle_check_catches_mismatch(workspace: Path, tmp_path: Path) -> None:
     foreign = FOREIGN[host_platform()]
     out = bundle(workspace, "reader", foreign, tmp_path / "reader", hermetic=False, check=False)
-    with pytest.raises(BundleError, match="import check"):
+    with pytest.raises(BundleError, match="import check") as err:
         _check(out, host_platform(), ["orjson"])
+    detail = str(err.value).split("\n", 1)[1]
+    assert re.search("ModuleNotFoundError|ImportError", detail), (
+        f"the import error itself is reported: {detail}"
+    )
 
 
 # scenario: bundle-hermetic-post-install
@@ -216,6 +222,24 @@ def test_post_install_needs_hermetic(tmp_path: Path) -> None:
     )
     with pytest.raises(BundleError, match="hermetic"):
         bundle(tmp_path, tmp_path.name, host_platform(), tmp_path / "out", hermetic=False, check=False)
+
+
+def test_cli_post_install_needs_hermetic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _write(
+        tmp_path,
+        {
+            "pyproject.toml": (
+                '[project]\nname = "x"\nversion = "0"\n\n[tool.funcd-bundle]\npost-install = ["true"]\n'
+            ),
+            "funcdctl.yaml": MANIFEST,
+            "src/handler.py": "",
+        },
+    )
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exit_:
+        main(["--out", str(tmp_path / "out")])
+    assert exit_.value.code == 2, "a post-install without hermetic is a usage error"
+    assert not (tmp_path / "out").exists(), "nothing is bundled"
 
 
 def test_default_handler_follows_funcdctl(tmp_path: Path) -> None:

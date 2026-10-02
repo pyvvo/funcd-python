@@ -264,8 +264,8 @@ def _install_in_container(
     env = ["-e", "FUNCD_BUNDLE_DIR=/out", "-e", "PYTHONPATH=/out", "-w", "/src"]
     cid = _create(platform, env, ["sh", "-c", "; ".join(steps)])
     try:
-        _copy_in(cid, inputs, "/in")
-        _copy_in(cid, project, "/src")
+        _copy_in(cid, inputs, "/in", NOT_COPIED)
+        _copy_in(cid, project, "/src", NOT_COPIED)
         _start(cid, "hermetic install")
         _copy_out(cid, "/out", out)
     finally:
@@ -277,7 +277,8 @@ def _check(out: Path, platform: str, modules: list[str]) -> None:
     code = "; ".join(f"import {m}" for m in modules)
     cid = _create(platform, ["-e", "PYTHONPATH=/bundle"], ["python", "-c", code])
     try:
-        _copy_in(cid, out, "/bundle")
+        # a vendored package may hold a dist or node_modules directory of its own: check the tree as built
+        _copy_in(cid, out, "/bundle", frozenset({"__pycache__"}))
         _start(cid, f"import check ({', '.join(modules)}) on {platform}")
     finally:
         _run(["docker", "rm", "-f", cid])
@@ -294,13 +295,11 @@ def _start(cid: str, what: str) -> None:
         raise BundleError(f"{what} failed:\n{detail}")
 
 
-def _copy_in(cid: str, src: Path, dest: str) -> None:
-    """Stream src into the container at dest as a tar (no bind mount), leaving out caches and virtualenvs."""
+def _copy_in(cid: str, src: Path, dest: str, skip: frozenset[str]) -> None:
+    """Stream src into the container at dest as a tar (no bind mount), leaving out the names in skip."""
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
-        tar.add(
-            src, arcname=dest.lstrip("/"), filter=lambda ti: None if Path(ti.name).name in NOT_COPIED else ti
-        )
+        tar.add(src, arcname=dest.lstrip("/"), filter=lambda ti: None if Path(ti.name).name in skip else ti)
     _run(["docker", "cp", "-", f"{cid}:/"], stdin=buf.getvalue())
 
 

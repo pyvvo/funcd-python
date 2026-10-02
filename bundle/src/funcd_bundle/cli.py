@@ -33,7 +33,12 @@ def main(argv: list[str] | None = None) -> int:
         unknown = [n for n in args.names if n not in functions]
         if unknown:
             parser.error(f"unknown function(s) {', '.join(unknown)}; found {', '.join(functions)}")
-        hermetic = args.hermetic or settings(project).hermetic
+        conf = settings(project)
+        hermetic = args.hermetic or conf.hermetic
+        if conf.post_install and not hermetic:
+            parser.error(
+                "[tool.funcd-bundle] post-install needs a hermetic build (hermetic = true or --hermetic)"
+            )
         platforms = args.platform or [host_platform()]
         for name in args.names or list(functions):
             for platform in platforms:
