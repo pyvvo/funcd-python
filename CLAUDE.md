@@ -39,6 +39,13 @@ downloads. Run everything through the dev shell:
 nix develop -c just ci
 ```
 
+For many short commands (agents, scripts), use `scripts/agent/d <cmd>` instead: the same pinned environment
+from a cached `nix print-dev-env` (regenerated when `flake.nix` or `flake.lock` change), about 0.02 s per call
+instead of about 2 s. It caches this repo's flake; funcd and the other language repo ship the same script for their own.
+
+On macOS, run the tests with a short `TMPDIR` (`TMPDIR=/tmp scripts/agent/d just check`): pytest's default temp dir
+there is long enough to push the Unix socket paths some tests bind past the 104-byte `AF_UNIX` limit.
+
 The dev shell also installs the lefthook git hooks. pre-commit formats and lints staged files
 with ruff and gofmt, commit-msg enforces Conventional Commits, and pre-push runs `just check`.
 CI runs the same checks, so never bypass a hook with `--no-verify`.

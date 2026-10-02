@@ -8,3 +8,5 @@ __pycache__/
 .DS_Store
 # the PyPI build (wheel + sdist), built at publish time
 dist/
+# scripts/agent/d's cached dev-shell environment
+.cache/
