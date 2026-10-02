@@ -7,8 +7,8 @@ FUNCD_PORTFILE handshake and the shape-gate exit codes)."""
 
 from __future__ import annotations
 
-import datetime
 import asyncio
+import datetime
 import json
 import socket
 import subprocess
