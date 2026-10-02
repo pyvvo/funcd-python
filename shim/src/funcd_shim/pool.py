@@ -22,6 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from funcd_shim import _poolworker
+from funcd_shim.funclog import new_write_lock
 from funcd_shim.tracespan import parse_links
 
 
@@ -30,11 +31,20 @@ class _Pooled:
     one in-flight request per handler (its interpreter is single-threaded); different handlers run in
     parallel via their own interpreters (per-GIL)."""
 
-    def __init__(self, src: str, artifact: str, handler: str, contract: str | None = None) -> None:
+    def __init__(
+        self,
+        src: str,
+        artifact: str,
+        handler: str,
+        contract: str | None = None,
+        write_lock: tuple[int, int] | None = None,
+    ) -> None:
         # ADR-0123: contract is the delivered contract-blob path (from the manifest's "contract"
         # field); the worker compiles its validator from it at init, ahead of the handler import.
         self.ex = InterpreterPoolExecutor(
-            max_workers=1, initializer=_poolworker.init, initargs=(src, artifact, handler, contract)
+            max_workers=1,
+            initializer=_poolworker.init,
+            initargs=(src, artifact, handler, contract, write_lock),
         )
 
     def await_ready(self) -> None:
@@ -149,9 +159,12 @@ def main() -> int:
 
     with open(manifest_path, encoding="utf-8") as fh:
         manifest = json.load(fh)
+    write_lock = new_write_lock()
     handlers: dict[str, _Pooled] = {}
     for entry in manifest:
-        handlers[entry["name"]] = _Pooled(src, entry["artifact"], entry["handler"], entry.get("contract"))
+        handlers[entry["name"]] = _Pooled(
+            src, entry["artifact"], entry["handler"], entry.get("contract"), write_lock
+        )
     for name, pooled in handlers.items():
         try:
             pooled.await_ready()

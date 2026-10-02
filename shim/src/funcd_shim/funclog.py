@@ -23,6 +23,7 @@ import logging
 import os
 import socket
 import time
+from contextlib import AbstractContextManager, nullcontext
 from typing import Protocol
 
 from .invcontext import current_inv
@@ -51,12 +52,41 @@ _INTRINSIC_RECORD_KEYS = frozenset(
 )
 
 
+class _PipeLock:
+    """A mutex over a pipe that holds one token byte. Pool workers are subinterpreters that share no
+    Python object, only the process's fds, so this is a lock they can all take."""
+
+    def __init__(self, fds: tuple[int, int]) -> None:
+        self._read_fd, self._write_fd = fds
+
+    def __enter__(self) -> None:
+        os.read(self._read_fd, 1)
+
+    def __exit__(self, *exc: object) -> None:
+        os.write(self._write_fd, b"\0")
+
+
+def new_write_lock() -> tuple[int, int]:
+    """Create the write lock that every writer of one shared fd channel takes, as the fds of a
+    ``_PipeLock``: ints cross into each pool worker's interpreter."""
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"\0")
+    return read_fd, write_fd
+
+
 class _Channel:
     """The side channel — an fd (``os.write``) or a connected ``AF_UNIX`` socket (``sendall``)."""
 
-    def __init__(self, *, fd: int | None = None, sock: socket.socket | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fd: int | None = None,
+        sock: socket.socket | None = None,
+        lock: AbstractContextManager[None] | None = None,
+    ) -> None:
         self._fd = fd
         self._sock = sock
+        self._lock = lock or nullcontext()
 
     def write_line(self, line: bytes) -> None:
         # Synchronous, best-effort: a broken channel must never crash the user's handler.
@@ -64,24 +94,27 @@ class _Channel:
             if self._sock is not None:
                 self._sock.sendall(line)
             elif self._fd is not None:
-                os.write(self._fd, line)
+                # A pipe write longer than PIPE_BUF is not atomic: concurrent writers would splice lines.
+                with self._lock:
+                    os.write(self._fd, line)
         except OSError:
             pass
 
 
-def open_channel() -> _Channel | None:
+def open_channel(write_lock: tuple[int, int] | None = None) -> _Channel | None:
     """Resolve the telemetry channel from the env contract, or ``None`` when neither var is set.
     Public so an entrypoint opens the channel ONCE and shares it between log + trace capture
-    (ADR-0101: both signals ride the one channel; a second connect would double-capture)."""
-    return _open_channel()
+    (ADR-0101: both signals ride the one channel; a second connect would double-capture).
+    *write_lock* (from ``new_write_lock``) serializes the fd writes of every interpreter that shares it."""
+    return _open_channel(write_lock)
 
 
-def _open_channel() -> _Channel | None:
+def _open_channel(write_lock: tuple[int, int] | None = None) -> _Channel | None:
     """Resolve the channel from the env contract, or ``None`` when neither var is set."""
     fd_env = os.environ.get("FUNCD_LOG_FD")
     if fd_env:
         try:
-            return _Channel(fd=int(fd_env))
+            return _Channel(fd=int(fd_env), lock=_PipeLock(write_lock) if write_lock else None)
         except (ValueError, OSError):
             return None
     sock_path = os.environ.get("FUNCD_LOG_SOCK")

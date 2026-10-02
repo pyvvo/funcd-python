@@ -5,6 +5,7 @@ node-gated. Run with ``uv run --python 3.14 pytest``."""
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -55,6 +56,13 @@ CPU = (
     "        s += i * i\n"
     "    return {'ok': True}\n"
 )
+LOGGER = (
+    "import logging\n"
+    "def handle(context, event):\n"
+    "    for i in range(event['data']['lines']):\n"
+    "        logging.info('%s %d %s', event['data']['tag'], i, 'x' * 16384)\n"
+    "    return None\n"
+)
 
 FAILING = (
     "def handle(context, event):\n"
@@ -84,7 +92,9 @@ def _manifest(tmp: Path, members: list[tuple[str, str]]) -> Path:
     return mpath
 
 
-def _start(tmp: Path, manifest: Path) -> tuple[subprocess.Popen[bytes], int]:
+def _start(
+    tmp: Path, manifest: Path, env: dict[str, str] | None = None, pass_fds: tuple[int, ...] = ()
+) -> tuple[subprocess.Popen[bytes], int]:
     port_file = tmp / "pool.port"
     proc = subprocess.Popen(
         [sys.executable, "-m", "funcd_shim.pool"],
@@ -93,7 +103,9 @@ def _start(tmp: Path, manifest: Path) -> tuple[subprocess.Popen[bytes], int]:
             "FUNCD_PORTFILE": str(port_file),
             "PATH": "/usr/bin:/bin",
             "PYTHONPATH": SRC,
+            **(env or {}),
         },
+        pass_fds=pass_fds,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -234,6 +246,57 @@ def test_pool_parallel(tmp_path: Path) -> None:
     finally:
         proc.terminate()
         proc.wait(timeout=5)
+
+
+def test_issue_81_concurrent_pool_logs_keep_records_whole(tmp_path: Path) -> None:
+    # pyvvo/funcd#81: every pool worker writes its records to the one FUNCD_LOG_FD pipe, and a write
+    # longer than PIPE_BUF is not atomic, so two handlers logging at once must not splice their lines.
+    lines = 300
+    read_fd, write_fd = os.pipe()
+    received: list[bytes] = []
+
+    def drain() -> None:
+        # Start late and read slowly, so both handlers block mid-line on a full pipe and race for space.
+        time.sleep(0.2)
+        while chunk := os.read(read_fd, 512):
+            received.append(chunk)
+
+    manifest = _manifest(tmp_path, [("f0", LOGGER), ("f1", LOGGER)])
+    proc, port = _start(tmp_path, manifest, {"FUNCD_LOG_FD": str(write_fd)}, (write_fd,))
+    os.close(write_fd)
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+    statuses: list[int] = []
+
+    def hit(name: str) -> None:
+        statuses.append(_post(port, name, json.dumps({"data": {"tag": name, "lines": lines}}))[0])
+
+    try:
+        ts = [threading.Thread(target=hit, args=(n,)) for n in ("f0", "f1")]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+    reader.join(timeout=10)
+    os.close(read_fd)
+
+    assert statuses == [204, 204]
+    tags: list[str] = []
+    spliced = 0
+    for raw in b"".join(received).splitlines():
+        try:
+            rec = json.loads(raw)
+        except ValueError:
+            spliced += 1
+            continue
+        if rec.get("funcd.source") == "logging":
+            tags.append(rec["body"].split(" ", 1)[0])
+    assert spliced == 0, f"{spliced} unreadable lines on the shared log fd"
+    assert tags.count("f0") == lines
+    assert tags.count("f1") == lines
 
 
 def test_pool_delivered_contract_enforces(tmp_path: Path) -> None:

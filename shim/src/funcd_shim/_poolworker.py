@@ -26,7 +26,13 @@ _validators: Validators = Validators()
 _channel: Any = None  # the shared telemetry channel (ADR-0101), opened once in init()
 
 
-def init(src: str, artifact: str, handler: str, contract_path: str | None = None) -> None:
+def init(
+    src: str,
+    artifact: str,
+    handler: str,
+    contract_path: str | None = None,
+    write_lock: tuple[int, int] | None = None,
+) -> None:
     """Load the handler + I/O validators into this interpreter (the materialization shape-gate,
     ADR-0058/0123). Runs once per worker; a failure breaks the pool → exit 3.
 
@@ -42,8 +48,9 @@ def init(src: str, artifact: str, handler: str, contract_path: str | None = None
 
     # Path B capture (ADR-0081) + traces (ADR-0101): each pool worker runs in its own subinterpreter
     # with its own root logger, so open the channel + install capture here (per-interpreter), before
-    # the handler loads. One shared channel per worker. No-op unless FUNCD_LOG_FD/SOCK is set.
-    _channel = open_channel()
+    # the handler loads. One shared channel per worker. No-op unless FUNCD_LOG_FD/SOCK is set. Every
+    # worker writes to the same FUNCD_LOG_FD, so they all take the host's one *write_lock*.
+    _channel = open_channel(write_lock)
     install_log_capture(_channel)
 
     # ADR-0123: compile the delivered contract AHEAD of the handler import (m3 reorder).
