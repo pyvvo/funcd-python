@@ -7,6 +7,7 @@ FUNCD_PORTFILE handshake and the shape-gate exit codes)."""
 
 from __future__ import annotations
 
+import datetime
 import json
 import socket
 import subprocess
@@ -20,6 +21,8 @@ from contextlib import closing, contextmanager
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from funcd_shim import contract, runtime, shim
 from funcd_shim.types import CloudEvent, FunctionContext, Validator
@@ -202,6 +205,65 @@ def test_keep_alive_no_desync() -> None:
             assert json.loads(r.read())["echoed"] == 42
         finally:
             conn.close()
+
+
+def _circular() -> dict[str, Any]:
+    d: dict[str, Any] = {}
+    d["self"] = d
+    return d
+
+
+@pytest.mark.parametrize(
+    "result",
+    [{1}, datetime.datetime(2026, 1, 1), b"x", _circular(), lambda: 0],
+    ids=["set", "datetime", "bytes", "circular", "lambda"],
+)
+def test_issue_131_unencodable_result_returns_500(result: Any) -> None:
+    with serve(lambda ctx, e: result) as base:
+        status, body = post(base, "{}")
+        assert status == 500
+        assert json.loads(body)["error"]
+
+
+@pytest.mark.parametrize("exc", [SystemExit(3), KeyboardInterrupt()], ids=["SystemExit", "KeyboardInterrupt"])
+def test_issue_131_base_exception_returns_500(exc: BaseException) -> None:
+    def raising(ctx: FunctionContext, event: CloudEvent[Any]) -> Any:
+        raise exc
+
+    with serve(raising) as base:
+        status, body = post(base, "{}")
+        assert status == 500
+        assert json.loads(body) == {"error": str(exc)}
+
+
+def test_issue_131_non_finite_result_written_as_null() -> None:
+    # JSON has no NaN/Infinity; the Node shim's JSON.stringify writes null for them.
+    result = {"x": float("nan"), "y": [float("inf"), -float("inf")], "z": 1.5}
+    with serve(lambda ctx, e: result) as base:
+        status, body = post(base, "{}")
+        assert status == 200
+        assert json.loads(body) == {"x": None, "y": [None, None], "z": 1.5}
+
+
+@pytest.mark.parametrize(
+    "validators",
+    [runtime.Validators(), runtime.Validators(input=lambda data: [])],
+    ids=["no-contract", "json-contract"],
+)
+@pytest.mark.parametrize(
+    "body", ["NaN", '{"data": NaN}', '{"data": [Infinity]}', '{"data": {"v": -Infinity}}']
+)
+def test_issue_131_non_finite_request_returns_400(validators: runtime.Validators, body: str) -> None:
+    with serve(_echo, validators) as base:
+        assert post(base, body)[0] == 400
+
+
+@pytest.mark.parametrize("body", ["null", "[1, 2]", "42", '"s"', "true"])
+def test_issue_131_non_object_body_returns_400(body: str) -> None:
+    with serve(_echo, runtime.Validators(input=lambda data: [])) as base:
+        status, payload = post(base, body)
+        assert status == 400
+        assert payload == b"request body must be a JSON object (CloudEvent envelope)"
 
 
 # ---- ADR-0123: runtime-compiled validators (from FUNCD_CONTRACT_PATH) enforce the same wire ----

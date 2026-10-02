@@ -56,6 +56,22 @@ CPU = (
     "    return {'ok': True}\n"
 )
 
+FAILING = (
+    "def handle(context, event):\n"
+    "    kind = event['data']\n"
+    "    if kind == 'set':\n"
+    "        return {1}\n"
+    "    if kind == 'bytes':\n"
+    "        return b'x'\n"
+    "    if kind == 'lambda':\n"
+    "        return lambda: 0\n"
+    "    if kind == 'nan':\n"
+    "        return {'x': float('nan')}\n"
+    "    if kind == 'exit':\n"
+    "        raise SystemExit(3)\n"
+    "    raise KeyboardInterrupt\n"
+)
+
 
 def _manifest(tmp: Path, members: list[tuple[str, str]]) -> Path:
     entries = []
@@ -121,6 +137,22 @@ def test_pool_colocates_and_contract(tmp_path: Path) -> None:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/health/readiness", timeout=5) as r:  # noqa: S310
             assert r.status == 200
         assert _post(port, "nope", "{}")[0] == 404
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_issue_131_pool_answers_unencodable_results_and_base_exceptions(tmp_path: Path) -> None:
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", FAILING)]))
+    try:
+        for kind in ("set", "bytes", "lambda", "exit", "kbint"):
+            st, body = _post(port, "f0", json.dumps({"data": kind}))
+            assert st == 500, (kind, body)
+            assert json.loads(body)["error"] is not None
+        st, body = _post(port, "f0", json.dumps({"data": "nan"}))
+        assert st == 200
+        assert json.loads(body) == {"x": None}
+        assert _post(port, "f0", '{"data": NaN}')[0] == 400
     finally:
         proc.terminate()
         proc.wait(timeout=5)

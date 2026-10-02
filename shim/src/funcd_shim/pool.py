@@ -73,8 +73,7 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
         def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A002 - stdlib signature
             return
 
-        def _json(self, status: int, body: Any) -> None:
-            payload = json.dumps(body).encode()
+        def _json(self, status: int, payload: bytes) -> None:
             self.send_response(status)
             self.send_header("content-type", "application/json")
             self.send_header("content-length", str(len(payload)))

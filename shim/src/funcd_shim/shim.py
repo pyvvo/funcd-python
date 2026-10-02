@@ -25,13 +25,12 @@ Runtime dependency: fastjsonschema (the baked validator imports it); pydantic ru
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
 
-from . import contract, runtime
+from . import contract, jsonwire, runtime
 from .funclog import install_log_capture, open_channel
 from .tracespan import InvocationSpan, parse_links
 from .types import CloudEvent, FunctionContext, Handler
@@ -95,7 +94,9 @@ def make_request_handler(
             return
 
         def _send_json(self, status: int, body: dict[str, Any]) -> None:
-            payload = json.dumps(body).encode()
+            self._send_encoded(status, jsonwire.encode(body))
+
+        def _send_encoded(self, status: int, payload: bytes) -> None:
             self.send_response(status)
             self.send_header("content-type", "application/json")
             self.send_header("content-length", str(len(payload)))
@@ -132,9 +133,14 @@ def make_request_handler(
                 self._send_empty(404)
                 return
             try:
-                event: CloudEvent[Any] = json.loads(raw) if raw else CloudEvent()
-            except (json.JSONDecodeError, ValueError):
+                event: CloudEvent[Any] = jsonwire.decode(raw) if raw else CloudEvent()
+            except ValueError:
                 self._send_text(400, "invalid CloudEvent JSON")
+                return
+            if not isinstance(event, dict):
+                # Valid JSON that is not an object (null, an array, a scalar) is no CloudEvent envelope:
+                # reject it as the Node shim does, before `event.get` raises outside any handler.
+                self._send_text(400, "request body must be a JSON object (CloudEvent envelope)")
                 return
             if validators.input is not None:
                 errors = validators.input(event.get("data"))
@@ -157,7 +163,7 @@ def make_request_handler(
             ) as span:
                 try:
                     result = handler(context, event)
-                except Exception as err:  # noqa: BLE001 - user handler errors become 500
+                except BaseException as err:  # noqa: BLE001 - user handler errors, SystemExit too, become 500
                     span.fail(str(err))
                     self._send_json(500, {"error": str(err)})
                     return
@@ -172,8 +178,14 @@ def make_request_handler(
                         return
                 if result is None:
                     self._send_empty(204)
-                else:
-                    self._send_json(200, result)
+                    return
+                try:
+                    payload = jsonwire.encode(result)
+                except Exception as err:  # noqa: BLE001 - a result with no JSON form is a handler failure
+                    span.fail(str(err))
+                    self._send_json(500, {"error": str(err)})
+                    return
+                self._send_encoded(200, payload)
 
     return ShimHandler
 

@@ -9,10 +9,10 @@ host puts the package dir on ``PYTHONPATH`` so the worker can import ``funcd_shi
 
 from __future__ import annotations
 
-import json
 import sys
 from typing import TYPE_CHECKING, Any
 
+from . import jsonwire
 from .runtime import Validators
 from .types import CloudEvent, Handler
 
@@ -81,6 +81,10 @@ class _Ctx:
         return BlobClient()
 
 
+def _reply(status: int, body: dict[str, Any]) -> dict[str, Any]:
+    return {"status": status, "body": jsonwire.encode(body)}
+
+
 def invoke(
     body: str,
     traceparent: str | None = None,
@@ -89,46 +93,44 @@ def invoke(
     links: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run one request: parse → optional input validation → handler → optional output validation →
-    a status-tagged envelope the host maps to the HTTP response (identical to the solo shim). ADR-0101:
-    a successful-past-input-validation request emits a SERVER span on the worker's channel."""
+    a status-tagged envelope the host maps to the HTTP response (identical to the solo shim). The body
+    is encoded here, so a result with no JSON form is this handler's 500 and never reaches the host.
+    ADR-0101: a successful-past-input-validation request emits a SERVER span on the worker's channel."""
     if _handler is None:  # defensive — init() always runs first
-        return {"status": 500, "body": {"error": "handler not loaded"}}
+        return _reply(500, {"error": "handler not loaded"})
     try:
-        event: CloudEvent[Any] = json.loads(body) if body else CloudEvent()
-    except (json.JSONDecodeError, ValueError):
-        return {"status": 400, "body": {"error": "request body is not valid JSON"}}
+        event: CloudEvent[Any] = jsonwire.decode(body) if body else CloudEvent()
+    except ValueError:
+        return _reply(400, {"error": "request body is not valid JSON"})
     if not isinstance(event, dict):
         # A valid-JSON but non-object body (null / array / scalar) is not a CloudEvent envelope.
         # Reject it cleanly — never let `event.get("data")` raise AttributeError and crash the pooled
         # worker (that surfaced as a gateway `proxy error: EOF` / empty-body 502).
-        return {
-            "status": 400,
-            "body": {"error": "request body must be a JSON object (CloudEvent envelope)"},
-        }
+        return _reply(400, {"error": "request body must be a JSON object (CloudEvent envelope)"})
     if _validators.input is not None:
         errors = _validators.input(event.get("data"))
         if errors:
             # ADR-0101: input-mismatch short-circuits before the handler → no invocation, no span.
-            return {
-                "status": 422,
-                "body": {"error": "event data does not match the input contract", "details": errors},
-            }
+            return _reply(422, {"error": "event data does not match the input contract", "details": errors})
     from .tracespan import InvocationSpan
 
     with InvocationSpan(_channel, fn_name, traceparent, span_id, links) as span:
         try:
             result = _handler(_Ctx(), event)
-        except Exception as err:  # noqa: BLE001 - user handler errors become 500
+        except BaseException as err:  # noqa: BLE001 - user handler errors, SystemExit too, become 500
             span.fail(str(err))
-            return {"status": 500, "body": {"error": str(err)}}
+            return _reply(500, {"error": str(err)})
         if _validators.output is not None:
             errors = _validators.output(result)
             if errors:
                 span.fail("handler result does not match the output contract")
-                return {
-                    "status": 500,
-                    "body": {"error": "handler result does not match the output contract", "details": errors},
-                }
+                return _reply(
+                    500, {"error": "handler result does not match the output contract", "details": errors}
+                )
         if result is None:
             return {"status": 204}
-        return {"status": 200, "body": result}
+        try:
+            return {"status": 200, "body": jsonwire.encode(result)}
+        except Exception as err:  # noqa: BLE001 - a result with no JSON form is a handler failure
+            span.fail(str(err))
+            return _reply(500, {"error": str(err)})
