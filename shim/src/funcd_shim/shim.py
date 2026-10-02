@@ -162,7 +162,7 @@ def make_request_handler(
                 parse_links(self.headers.get("X-Funcd-Span-Links")),
             ) as span:
                 try:
-                    result = handler(context, event)
+                    result = runtime.call_handler(handler, context, event)
                 except BaseException as err:  # noqa: BLE001 - user handler errors, SystemExit too, become 500
                     span.fail(str(err))
                     self._send_json(500, {"error": str(err)})

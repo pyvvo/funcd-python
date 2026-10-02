@@ -15,7 +15,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from . import jsonwire
-from .runtime import Validators
+from .runtime import Validators, call_handler
 from .types import CloudEvent, Handler
 
 if TYPE_CHECKING:
@@ -146,7 +146,7 @@ def invoke(
 
     with InvocationSpan(_channel, fn_name, traceparent, span_id, links) as span:
         try:
-            result = _handler(_Ctx(), event)
+            result = call_handler(_handler, _Ctx(), event)
         except BaseException as err:  # noqa: BLE001 - user handler errors, SystemExit too, become 500
             span.fail(str(err))
             return _reply(500, {"error": str(err)})

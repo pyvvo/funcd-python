@@ -80,6 +80,13 @@ FAILING = (
     "    raise KeyboardInterrupt\n"
 )
 
+ASYNC = (
+    "import asyncio\n"
+    "async def handle(context, event):\n"
+    "    await asyncio.sleep(0)\n"
+    "    return {'echoed': event.get('data')}\n"
+)
+
 
 def _manifest(tmp: Path, members: list[tuple[str, str]]) -> Path:
     entries = []
@@ -165,6 +172,17 @@ def test_issue_131_pool_answers_unencodable_results_and_base_exceptions(tmp_path
         assert st == 200
         assert json.loads(body) == {"x": None}
         assert _post(port, "f0", '{"data": NaN}')[0] == 400
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_issue_188_pool_async_handler_is_awaited(tmp_path: Path) -> None:
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ASYNC)]))
+    try:
+        st, body = _post(port, "f0", json.dumps({"data": {"hello": "world"}}))
+        assert st == 200, body
+        assert json.loads(body) == {"echoed": {"hello": "world"}}
     finally:
         proc.terminate()
         proc.wait(timeout=5)

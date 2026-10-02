@@ -15,12 +15,14 @@ ADR-0050 subinterpreter pool (compute-agnostic). Exactly the shape of the Node s
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
+import inspect
 from dataclasses import dataclass
 from types import ModuleType
-from typing import cast
+from typing import Any, cast
 
-from .types import Handler, Validator
+from .types import CloudEvent, FunctionContext, Handler, Validator
 
 #: artifact exports the build bakes the precompiled validators into. Absent (or non-callable) ⇒
 #: that side is unchecked.
@@ -56,6 +58,15 @@ def resolve_handler(module: ModuleType, name: str) -> Handler:
     return cast(Handler, candidate)
 
 
+def call_handler(handler: Handler, context: FunctionContext, event: CloudEvent[Any]) -> Any:
+    """Call *handler* and return its result, running a coroutine (an ``async def`` handler) to
+    completion first: the Node shim awaits its handler, and ADR-0049 keeps the same contract."""
+    result = handler(context, event)
+    if inspect.iscoroutine(result):
+        return asyncio.run(result)
+    return result
+
+
 @dataclass
 class Validators:
     """The optional I/O validators resolved from the artifact (ADR-0058). ``None`` ⇒ that side is
@@ -79,4 +90,11 @@ def _pick(module: ModuleType, name: str) -> Validator | None:
     return cast(Validator, fn) if callable(fn) else None
 
 
-__all__ = ["ShapeError", "Validators", "load_module", "resolve_handler", "resolve_validators"]
+__all__ = [
+    "ShapeError",
+    "Validators",
+    "call_handler",
+    "load_module",
+    "resolve_handler",
+    "resolve_validators",
+]

@@ -8,6 +8,7 @@ FUNCD_PORTFILE handshake and the shape-gate exit codes)."""
 from __future__ import annotations
 
 import datetime
+import asyncio
 import json
 import socket
 import subprocess
@@ -108,6 +109,25 @@ def test_handler_raises_500() -> None:
         status, body = post(base, "{}")
         assert status == 500
         assert json.loads(body)["error"] == "kaboom"
+
+
+def test_issue_188_async_handler_is_awaited() -> None:
+    async def echo(ctx: FunctionContext, event: CloudEvent[Any]) -> dict[str, Any]:
+        await asyncio.sleep(0)
+        return {"echoed": event.get("data")}
+
+    async def boom(ctx: FunctionContext, event: CloudEvent[Any]) -> Any:
+        await asyncio.sleep(0)
+        raise RuntimeError("async kaboom")
+
+    with serve(echo) as base:
+        status, body = post(base, json.dumps({"data": {"hello": "world"}}))
+        assert status == 200
+        assert json.loads(body) == {"echoed": {"hello": "world"}}
+    with serve(boom) as base:
+        status, body = post(base, "{}")
+        assert status == 500
+        assert json.loads(body)["error"] == "async kaboom"
 
 
 def test_invalid_json_400() -> None:
