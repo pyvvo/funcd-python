@@ -6,10 +6,11 @@ correlates each request↔response, so there is no hand-rolled queue/dispatch.
 
 Reads ``FUNCD_POOL_MANIFEST`` (the SAME ``[{name, artifact, handler}]`` contract as ``pool.mjs``),
 serves ``POST /function/<name>`` by submitting the request to the named handler's interpreter — with
-the byte-identical wire contract + RFC 8927 event-data validation as the solo shim (ADR-0049) — plus
-``GET /health/{readiness,liveness}``. Bind: ``FUNCD_PORT`` → ``0.0.0.0:PORT`` (container) else
-``FUNCD_PORTFILE`` → loopback + write the port (process). A member whose handler/contract
-fails to load makes the host exit 3 (the shape-gate). Stdlib only — no runtime dependency.
+the byte-identical wire contract + JSON Schema I/O validation (ADR-0058, ADR-0123) as the solo shim
+(ADR-0049) — plus ``GET /health/{readiness,liveness}``. Bind: ``FUNCD_PORT`` → ``0.0.0.0:PORT``
+(container) else ``FUNCD_PORTFILE`` → loopback + write the port (process). A member whose
+handler/contract fails to load makes the host exit 3 (the shape-gate). Runtime dependency:
+fastjsonschema (the validators, ADR-0071).
 """
 
 from __future__ import annotations
