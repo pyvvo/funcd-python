@@ -22,8 +22,9 @@ import json
 import logging
 import os
 import socket
+import threading
 import time
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager
 from typing import Protocol
 
 from .invcontext import current_inv
@@ -86,17 +87,21 @@ class _Channel:
     ) -> None:
         self._fd = fd
         self._sock = sock
-        self._lock = lock or nullcontext()
+        # The solo shim's request threads share one channel, and spans are written outside the logging
+        # lock. Neither a pipe write longer than PIPE_BUF nor a sendall is atomic: every write holds this.
+        self._lock = lock or threading.Lock()
 
     def write_line(self, line: bytes) -> None:
         # Synchronous, best-effort: a broken channel must never crash the user's handler.
         try:
-            if self._sock is not None:
-                self._sock.sendall(line)
-            elif self._fd is not None:
-                # A pipe write longer than PIPE_BUF is not atomic: concurrent writers would splice lines.
-                with self._lock:
-                    os.write(self._fd, line)
+            with self._lock:
+                if self._sock is not None:
+                    self._sock.sendall(line)
+                elif self._fd is not None:
+                    # os.write may write only part of the line (a signal mid-write); finish it, like sendall.
+                    rest = memoryview(line)
+                    while rest:
+                        rest = rest[os.write(self._fd, rest) :]
         except OSError:
             pass
 

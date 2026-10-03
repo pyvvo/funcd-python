@@ -28,7 +28,7 @@ def loaded_worker(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_malformed_body_returns_400(loaded_worker: None) -> None:
     r = pw.invoke("abc{")  # not valid JSON
     assert r["status"] == 400
-    assert "not valid JSON" in json.loads(r["body"])["error"]
+    assert r["text"] == "invalid CloudEvent JSON"
 
 
 @pytest.mark.parametrize("body", ["null", "[1,2]", "42", '"s"', "true"])
@@ -36,7 +36,7 @@ def test_non_object_body_returns_400(loaded_worker: None, body: str) -> None:
     # Valid JSON, but not a CloudEvent envelope (object) → clean 400, NOT an AttributeError crash.
     r = pw.invoke(body)
     assert r["status"] == 400
-    assert "CloudEvent envelope" in json.loads(r["body"])["error"]
+    assert r["text"] == "request body must be a JSON object (CloudEvent envelope)"
 
 
 def test_contract_mismatch_422_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:

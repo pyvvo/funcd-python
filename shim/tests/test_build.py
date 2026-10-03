@@ -260,3 +260,30 @@ def test_build_json_input_is_empty_schema() -> None:
     assert r.input_schema == {}, "Json → the empty schema (any JSON)"
     ns = _exec(r.runtime_source)
     assert ns["__funcd_validate_input"]({"anything": [1, 2]}) == []  # accepts any JSON
+
+
+# ---- issue r23: a contract using the ADR-0058 profile formats builds ----
+
+
+@pytest.mark.parametrize(
+    ("field", "good", "bad"),
+    [
+        ("uuid.UUID", "123e4567-E89B-12d3-a456-426614174000", "123e4567-e89b-12d3-a456"),
+        ("Annotated[int, Field(json_schema_extra={'format': 'int32'})]", 7, "7"),
+        ("Annotated[int, Field(json_schema_extra={'format': 'int64'})]", 2**40, 1.5),
+    ],
+)
+def test_issue_r23_profile_formats_build(field: str, good: Any, bad: Any) -> None:
+    src = (
+        "import uuid\n"
+        "from typing import Annotated\n"
+        "from pydantic import BaseModel, Field\n"
+        "class FuncInput(BaseModel):\n"
+        f"    v: {field}\n"
+        "FuncOutput = None\n"
+        "def handle(ctx, event):\n"
+        "    return None\n"
+    )
+    vin = _exec(build(src).runtime_source)["__funcd_validate_input"]
+    assert vin({"v": good}) == []
+    assert vin({"v": bad}), f"{bad!r} must not satisfy {field}"

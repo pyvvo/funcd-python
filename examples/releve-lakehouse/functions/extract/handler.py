@@ -9,7 +9,7 @@ funcd wiring:
   * runtime  python314 (stock); pdfplumber + pyarrow travel in the ADR-0089 bundle.
   * spec.blob `landing` (read) → the dropped PDF;  `bronze` (write, owner) → the Parquet output.
   * spec.config `releve-project-config` → STOP_KEYWORDS / BANK via env.
-  * input `{ file: <object-key> }` is the landed key projected by the Sensor (${{ event.data.key }}).
+  * the run input is ignored: a run starts with none, or with the releve-ingest Sensor's event data.
 
 Reads/writes go through `context.blob` (ADR-0127) — the native, binding-gated blob accessor over the
 worker-node local API: no S3 keypair, no boto3. The PDF is fetched as raw bytes (`context.blob.get`), the
@@ -190,8 +190,8 @@ def _to_parquet(txs: list[dict]) -> bytes:
 
 
 def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput:
-    """Parse EVERY PDF in landing/ → bronze/<stem>.parquet (bronze is 1:1 with a source statement). Takes
-    NO input; returns a run summary (statement count + total debit/credit across all)."""
+    """Parse EVERY PDF in landing/ → bronze/<stem>.parquet (bronze is 1:1 with a source statement). Ignores
+    its input; returns a run summary (statement count + total debit/credit across all)."""
     stop = _stop_keywords()
     keys = sorted(k for k in context.blob.list("landing", "") if k.lower().endswith(".pdf"))
     if not keys:

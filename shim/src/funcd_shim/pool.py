@@ -137,7 +137,7 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
             if status == 204:
                 self._empty(204)
             elif status == 400:
-                self._text(400, "invalid CloudEvent JSON")
+                self._text(400, res["text"])
             else:
                 self._json(status, res["body"])
 

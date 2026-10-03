@@ -9,28 +9,79 @@ host puts the package dir on ``PYTHONPATH`` so the worker can import ``funcd_shi
 
 from __future__ import annotations
 
+import _locale
+import inspect
+import locale
 import os
+import subprocess
 import sys
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, NoReturn
+from collections.abc import Callable, MutableMapping
+from typing import Any, AnyStr, NoReturn
 
-from . import jsonwire
+from . import contract, jsonwire, runtime
+from .blob import BlobClient
+from .funclog import install_log_capture, open_channel
+from .invoke import invoke as _invoke
+from .kv import KVClient
 from .runtime import Validators, call_handler
+from .tracespan import InvocationSpan
 from .types import CloudEvent, Handler
-
-if TYPE_CHECKING:
-    from .blob import BlobClient
-    from .kv import KVClient
 
 # Per-interpreter state, set by init() and read by invoke() — isolated to this worker interpreter.
 _handler: Handler | None = None
 _validators: Validators = Validators()
 _channel: Any = None  # the shared telemetry channel (ADR-0101), opened once in init()
 
-#: The working directory and the umask belong to the process, not to a subinterpreter: a member that
-#: changed them would change them for every sibling. The pool refuses them, as a Node worker refuses
-#: process.chdir/process.umask (ADR-0044/0050 isolation parity).
-_PROCESS_WIDE = ("chdir", "fchdir", "umask")
+#: The working directory, the umask, the C environment and the C locale belong to the process, not to a
+#: subinterpreter: a member that changed them would change them for every sibling. The pool refuses them,
+#: as a Node worker refuses process.chdir/process.umask and has no API to change the locale
+#: (ADR-0044/0050 isolation parity).
+_PROCESS_WIDE = ("chdir", "fchdir", "umask", "putenv", "unsetenv")
+
+
+class _MemberEnviron(os._Environ[AnyStr]):
+    """A member's os.environ is its own copy, as process.env is in a Node worker: a write skips
+    putenv/unsetenv, so it never reaches the C environment that getenv reads and later members copy.
+    The member's child processes (subprocess, os.system, os.posix_spawn) get this copy. time.tzset()
+    still reads the process TZ: the local time zone belongs to the process, so a member cannot change it."""
+
+    _data: MutableMapping[AnyStr, AnyStr]
+
+    def __setitem__(self, key: AnyStr, value: AnyStr) -> None:
+        self._data[self.encodekey(key)] = self.encodevalue(value)
+
+    def __delitem__(self, key: AnyStr) -> None:
+        try:
+            del self._data[self.encodekey(key)]
+        except KeyError:
+            raise KeyError(key) from None
+
+
+_POPEN_SIGNATURE = inspect.signature(subprocess.Popen)
+
+
+class _MemberPopen(subprocess.Popen[Any]):
+    """A child process gets the member's os.environ, as a Node worker's child_process gets the worker's
+    process.env: without an env, subprocess would hand the child the process environment."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        bound = _POPEN_SIGNATURE.bind(*args, **kwargs)
+        if bound.arguments.get("env") is None:
+            bound.arguments["env"] = os.environ
+        super().__init__(*bound.args, **bound.kwargs)
+
+
+def _with_member_env(spawn: Callable[..., int]) -> Callable[..., int]:
+    def spawn_with_member_env(path: Any, argv: Any, env: Any, /, **kwargs: Any) -> int:
+        return spawn(path, argv, os.environ if env is None else env, **kwargs)
+
+    return spawn_with_member_env
+
+
+def _member_system(command: str | bytes) -> int:
+    """os.system with the member's environment: C system() runs /bin/sh with the process environment."""
+    pid = os.posix_spawn("/bin/sh", ["sh", "-c", command], os.environ)
+    return os.waitpid(pid, 0)[1]
 
 
 def _refuse(name: str) -> Callable[..., NoReturn]:
@@ -42,10 +93,35 @@ def _refuse(name: str) -> Callable[..., NoReturn]:
     return refused
 
 
-def _refuse_process_wide() -> None:
+def _query_only(setlocale: Callable[[int, str | None], str]) -> Callable[[int, str | None], str]:
+    # A set to the current locale changes nothing, so the stdlib's save-and-restore keeps working, and the
+    # refusal is setlocale's own locale.Error, which callers already handle (getpreferredencoding does).
+    def guarded(category: int, name: str | None = None, /) -> str:
+        current = setlocale(category, None)
+        if name is None or name == current:
+            return current
+        raise locale.Error(
+            "locale.setlocale cannot change the locale in a pooled handler: every handler shares it"
+        )
+
+    return guarded
+
+
+def _isolate_process_state() -> None:
     for module in (os, sys.modules[os.name]):
         for name in _PROCESS_WIDE:
             setattr(module, name, _refuse(name))
+        for name in ("posix_spawn", "posix_spawnp"):
+            setattr(module, name, _with_member_env(getattr(module, name)))
+        module.system = _member_system  # type: ignore[attr-defined]
+    subprocess.Popen = _MemberPopen  # type: ignore[misc]
+    # locale.setlocale reaches the C call through locale._setlocale, its import-time copy.
+    guarded = _query_only(_locale.setlocale)
+    for module, name in ((_locale, "setlocale"), (locale, "_setlocale")):
+        setattr(module, name, guarded)
+    os.environ.__class__ = _MemberEnviron
+    if os.supports_bytes_environ:
+        os.environb.__class__ = _MemberEnviron
 
 
 def init(
@@ -63,11 +139,9 @@ def init(
     eval-free reversal + the m3 reorder. A set-but-broken path fails the worker closed. When absent,
     fall back to the module-baked ``__funcd_validate_*`` (transition back-compat)."""
     global _handler, _validators, _channel
-    _refuse_process_wide()
+    _isolate_process_state()
     if src not in sys.path:
         sys.path.insert(0, src)
-    from funcd_shim import contract, runtime
-    from funcd_shim.funclog import install_log_capture, open_channel
 
     # Path B capture (ADR-0081) + traces (ADR-0101): each pool worker runs in its own subinterpreter
     # with its own root logger, so open the channel + install capture here (per-interpreter), before
@@ -94,20 +168,14 @@ class _Ctx:
         print(*args, flush=True)
 
     def invoke(self, alias: str, payload: Any) -> Any:
-        from .invoke import invoke as _invoke
-
         return _invoke(alias, payload)
 
     @property
     def kv(self) -> KVClient:
-        from .kv import KVClient
-
         return KVClient()
 
     @property
     def blob(self) -> BlobClient:
-        from .blob import BlobClient
-
         return BlobClient()
 
 
@@ -131,19 +199,17 @@ def invoke(
     try:
         event: CloudEvent[Any] = jsonwire.decode(body) if body else CloudEvent()
     except ValueError:
-        return _reply(400, {"error": "request body is not valid JSON"})
+        return {"status": 400, "text": "invalid CloudEvent JSON"}
     if not isinstance(event, dict):
         # A valid-JSON but non-object body (null / array / scalar) is not a CloudEvent envelope.
         # Reject it cleanly — never let `event.get("data")` raise AttributeError and crash the pooled
         # worker (that surfaced as a gateway `proxy error: EOF` / empty-body 502).
-        return _reply(400, {"error": "request body must be a JSON object (CloudEvent envelope)"})
+        return {"status": 400, "text": "request body must be a JSON object (CloudEvent envelope)"}
     if _validators.input is not None:
         errors = _validators.input(event.get("data"))
         if errors:
             # ADR-0101: input-mismatch short-circuits before the handler → no invocation, no span.
             return _reply(422, {"error": "event data does not match the input contract", "details": errors})
-    from .tracespan import InvocationSpan
-
     with InvocationSpan(_channel, fn_name, traceparent, span_id, links) as span:
         try:
             result = call_handler(_handler, _Ctx(), event)

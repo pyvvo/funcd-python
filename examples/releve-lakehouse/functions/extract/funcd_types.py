@@ -3,7 +3,7 @@
 from __future__ import annotations
 from typing import Literal, TypedDict
 
-FuncInput = None  # non-record contract side
+FuncInput = object  # non-record contract side
 
 class FuncOutput(TypedDict):
     credit: str

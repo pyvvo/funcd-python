@@ -32,8 +32,9 @@ curl -sS -XPOST http://127.0.0.1:3005/function/catalog-quack \
 ```bash
 # ADR-0121: apply in ANY order — owner/binding existence is reconcile-time. The CatalogService binding
 # the not-yet-applied Bucket is admitted and waits (Ready=False/BucketNotFound); the Bucket (owner: lake)
-# resolves it and the engine converges. No two-phase bucket-base.
-funcdctl apply -f configmap.yaml -f secret.yaml -f catalogservice.yaml -f bucket.yaml -f consumer.yaml
+# resolves it and the engine converges. No two-phase bucket-base. funcdctl apply -f takes one file
+# (or - for stdin), so apply each file:
+for f in configmap.yaml secret.yaml catalogservice.yaml bucket.yaml consumer.yaml; do funcdctl apply -f "$f"; done
 ```
 
 - **`bucket.yaml`** — the `lakehouse` Bucket + the `gold` prefix the catalog owns (Parquet + the

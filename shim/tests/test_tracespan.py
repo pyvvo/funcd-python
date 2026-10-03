@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import socket
 import threading
 import time
 import urllib.error
@@ -17,10 +19,13 @@ import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 
+import pytest
+
 from funcd_shim import runtime, shim
-from funcd_shim.funclog import install_log_capture
+from funcd_shim.funclog import _Channel, install_log_capture, open_channel
 from funcd_shim.tracespan import InvocationSpan, new_inv_context, parse_links, parse_traceparent
 from funcd_shim.types import CloudEvent, FunctionContext
 
@@ -153,6 +158,91 @@ def test_logs_correlated_to_span() -> None:
     assert log["trace_id"] == span["trace_id"] == TRACE
     assert log["span_id"] == span["span_id"]
     assert log["inv"] == span["inv"]
+
+
+@contextmanager
+def _solo_channel(monkeypatch: Any, tmp_path: Path, transport: str) -> Iterator[tuple[_Channel, list[bytes]]]:
+    """The telemetry channel opened the way the solo shim opens it (no write lock), drained 512 bytes at a
+    time by a reader. On exit the channel is closed and the list holds every byte written to it."""
+    received: list[bytes] = []
+    monkeypatch.delenv("FUNCD_LOG_FD", raising=False)
+    monkeypatch.delenv("FUNCD_LOG_SOCK", raising=False)
+    if transport == "fd":
+        read_fd, write_fd = os.pipe()
+        monkeypatch.setenv("FUNCD_LOG_FD", str(write_fd))
+
+        def drain() -> None:
+            while chunk := os.read(read_fd, 512):
+                received.append(chunk)
+            os.close(read_fd)
+    else:
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(tmp_path / "log.sock"))
+        server.listen(1)
+        monkeypatch.setenv("FUNCD_LOG_SOCK", str(tmp_path / "log.sock"))
+
+        def drain() -> None:
+            conn, _ = server.accept()
+            with conn:
+                while chunk := conn.recv(512):
+                    received.append(chunk)
+            server.close()
+
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+    channel = open_channel()
+    assert channel is not None
+    try:
+        yield channel, received
+    finally:
+        if channel._sock is not None:
+            channel._sock.close()
+        else:
+            os.close(write_fd)
+        reader.join(timeout=10)
+
+
+@pytest.mark.parametrize("transport", ["fd", "uds"])
+def test_issue_r25_solo_channel_keeps_span_and_log_records_whole(
+    monkeypatch: Any, tmp_path: Path, transport: str
+) -> None:
+    # pyvvo/funcd-python#25: the solo shim's request threads share one telemetry channel, and a span is
+    # written outside the logging lock, so it must not splice into a log line blocked on a full channel.
+    logs, spans = 150, 1500
+    with _solo_channel(monkeypatch, tmp_path, transport) as (channel, received):
+        handler = install_log_capture(channel)
+        assert handler is not None
+
+        def log() -> None:
+            for _ in range(logs):
+                logging.getLogger().info("x" * 40_000)
+
+        def trace() -> None:
+            for _ in range(spans):
+                with InvocationSpan(channel, "f", None):
+                    pass
+
+        writers = [threading.Thread(target=log), threading.Thread(target=trace)]
+        try:
+            for t in writers:
+                t.start()
+            for t in writers:
+                t.join()
+        finally:
+            logging.getLogger().removeHandler(handler)
+
+    signals: list[str] = []
+    spliced = 0
+    for raw in b"".join(received).splitlines():
+        try:
+            rec = json.loads(raw)
+        except ValueError:
+            spliced += 1
+            continue
+        signals.append(rec.get("funcd.signal", "logs"))
+    assert spliced == 0, f"{spliced} unreadable lines on the solo shim's {transport} channel"
+    assert signals.count("logs") == logs
+    assert signals.count("traces") == spans
 
 
 # --- server-level (make_request_handler / do_POST) ----------------------------------------------

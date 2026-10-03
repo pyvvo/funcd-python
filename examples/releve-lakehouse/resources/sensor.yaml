@@ -1,7 +1,7 @@
 # releve-ingest — the Sensor (ADR-0109) that consumes releve-landed's `arrived` event and starts a
-# releve-pipeline WorkflowRun, projecting the landed object's key into the run input via the F73
-# `${{ event.data.key }}` expression. Closes the reactive loop: PDF PUT into landing/ → the blob watcher
-# publishes `arrived` → this Sensor starts the pipeline run carrying the object key.
+# releve-pipeline WorkflowRun. Closes the reactive loop: PDF PUT into landing/ → the blob watcher publishes
+# `arrived` → this Sensor starts a pipeline run. The action has no `input`, so the run input is the event
+# data; extract ignores it and processes every PDF in landing/.
 #
 # NB: the `on` keys are QUOTED (YAML 1.1 bare-`on:` = boolean true).
 apiVersion: funcd.io/v1alpha1
@@ -19,5 +19,3 @@ spec:
     - name: run
       "on": landed
       workflow: releve-pipeline
-      input:
-        file: "${{ event.data.key }}"

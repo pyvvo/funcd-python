@@ -1,5 +1,6 @@
-# The `releves` Bucket WITH prefix owners — applied AFTER the functions + CatalogService exist (an Update on
-# bucket-base.yaml). `owner` is the single writer of a prefix (write = caller == prefix.owner, mirroring
+# The `releves` Bucket WITH prefix owners. ADR-0121: apply it in any order — owner existence is reconcile-time,
+# and a prefix whose owner does not exist yet stays un-writable (fail-closed) until it does.
+# `owner` is the single writer of a prefix (write = caller == prefix.owner, mirroring
 # KVStore.spec.tables[].owner — ADR-0073/0076); every other binder gets read-only. This is the consistency
 # invariant that makes the medallion layering safe: exactly one producer per layer.
 #   * landing — NO owner: written by an EXTERNAL SigV4 client (the human/agent dropping PDFs), read by extract+verify.

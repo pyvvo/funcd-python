@@ -31,14 +31,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
 
 from . import contract, jsonwire, runtime
+from .blob import BlobClient
 from .funclog import install_log_capture, open_channel
+from .invoke import invoke as _invoke
+from .kv import KVClient
 from .tracespan import InvocationSpan, parse_links
 from .types import CloudEvent, FunctionContext, Handler
 
 if TYPE_CHECKING:
-    from .blob import BlobClient
     from .funclog import _Channel
-    from .kv import KVClient
 
 
 class _Context:
@@ -48,20 +49,14 @@ class _Context:
         print(*args, flush=True)
 
     def invoke(self, alias: str, payload: Any) -> Any:
-        from .invoke import invoke as _invoke
-
         return _invoke(alias, payload)
 
     @property
     def kv(self) -> KVClient:
-        from .kv import KVClient
-
         return KVClient()
 
     @property
     def blob(self) -> BlobClient:
-        from .blob import BlobClient
-
         return BlobClient()
 
 

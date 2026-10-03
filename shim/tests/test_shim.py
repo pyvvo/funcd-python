@@ -265,6 +265,27 @@ def test_issue_131_non_finite_result_written_as_null() -> None:
         assert json.loads(body) == {"x": None, "y": [None, None], "z": 1.5}
 
 
+def test_issue_r21_response_json_is_written_like_json_stringify() -> None:
+    # Expected bytes are what the Node shim's JSON.stringify writes for the same values (ADR-0049 §2).
+    result = {"a": [1, 2], "s": "é", "c": "\x01\n", "u": "\udc80"}
+    with serve(lambda ctx, e: result) as base:
+        assert post(base, "{}") == (200, '{"a":[1,2],"s":"é","c":"\\u0001\\n","u":"\\udc80"}'.encode())
+    with serve(lambda ctx, e: {"x": float("nan"), "s": "é"}) as base:
+        assert post(base, "{}") == (200, '{"x":null,"s":"é"}'.encode())
+
+    def boom(ctx: FunctionContext, event: CloudEvent[Any]) -> Any:
+        raise RuntimeError("échec")
+
+    with serve(boom) as base:
+        assert post(base, "{}") == (500, '{"error":"échec"}'.encode())
+    mismatch = (
+        b'{"error":"event data does not match the input contract",'
+        b'"details":[{"msg":"hello must be a string"}]}'
+    )
+    with serve(_echo, runtime.Validators(input=hello_input)) as base:
+        assert post(base, '{"data": {"hello": 5}}') == (422, mismatch)
+
+
 @pytest.mark.parametrize(
     "validators",
     [runtime.Validators(), runtime.Validators(input=lambda data: [])],

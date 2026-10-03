@@ -49,12 +49,27 @@ COUNTER = (
     "    _count += 1\n"
     "    return {'count': _count}\n"
 )
+# Two CPU handlers meet on a FIFO (opening one end blocks until the other end is open). Then each spins,
+# writing its counter to its own byte of a shared map and counting the changes it sees in its sibling's
+# byte. Under one shared GIL a handler can see a change only after a GIL switch: a few per run.
 CPU = (
+    "import mmap\n"
+    "import os\n"
     "def handle(context, event):\n"
-    "    s = 0\n"
-    "    for i in range(3_000_000):\n"
-    "        s += i * i\n"
-    "    return {'ok': True}\n"
+    "    d = event['data']\n"
+    "    me, other = d['me'], 1 - d['me']\n"
+    "    with open(d['shared'], 'r+b') as f:\n"
+    "        mm = mmap.mmap(f.fileno(), 2)\n"
+    "    os.close(os.open(d['fifo'], os.O_WRONLY if me else os.O_RDONLY))\n"
+    "    seen, last = 0, mm[other]\n"
+    "    for i in range(1_000_000):\n"
+    "        mm[me] = i & 255\n"
+    "        cur = mm[other]\n"
+    "        if cur != last:\n"
+    "            seen += 1\n"
+    "            last = cur\n"
+    "    mm.close()\n"
+    "    return {'seen': seen}\n"
 )
 LOGGER = (
     "import logging\n"
@@ -177,6 +192,33 @@ def test_issue_131_pool_answers_unencodable_results_and_base_exceptions(tmp_path
         proc.wait(timeout=5)
 
 
+def test_issue_r21_pool_response_json_is_written_like_json_stringify(tmp_path: Path) -> None:
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ECHO)]))
+    try:
+        hello = '{"echoed":{"hello":"é"}}'.encode()
+        assert _post(port, "f0", json.dumps({"data": {"hello": "é"}})) == (200, hello)
+        mismatch = (
+            b'{"error":"event data does not match the input contract",'
+            b'"details":["data.hello must be string"]}'
+        )
+        assert _post(port, "f0", json.dumps({"data": {"hello": 5}})) == (422, mismatch)
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_issue_r22_pool_400_answers_match_the_solo_shim(tmp_path: Path) -> None:
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ECHO)]))
+    try:
+        for body in ("null", "[1]", "42", '"s"', "true"):
+            st, payload = _post(port, "f0", body)
+            assert (st, payload) == (400, b"request body must be a JSON object (CloudEvent envelope)"), body
+        assert _post(port, "f0", "abc{") == (400, b"invalid CloudEvent JSON")
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def test_issue_188_pool_async_handler_is_awaited(tmp_path: Path) -> None:
     proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ASYNC)]))
     try:
@@ -275,35 +317,166 @@ def test_issue_183_chdir_umask_do_not_leak_to_siblings(tmp_path: Path) -> None:
         proc.wait(timeout=5)
 
 
-def test_pool_parallel(tmp_path: Path) -> None:
-    # scenario: py-pool-parallel — CPU-bound handlers run on per-interpreter GILs, so two concurrent
-    # requests to different handlers finish in well under 2× a single's time (a shared GIL would
-    # serialize them ≈2×). Lenient bound to tolerate scheduling noise.
+LOCALE_MUTATOR = (
+    "import _locale\n"
+    "import locale\n"
+    "def handle(context, event):\n"
+    "    refused = []\n"
+    "    for setlocale in (locale.setlocale, _locale.setlocale):\n"
+    "        for name in ('C.UTF-8', 'en_US.UTF-8'):\n"
+    "            try:\n"
+    "                setlocale(locale.LC_NUMERIC, name)\n"
+    "            except locale.Error as err:\n"
+    "                refused.append(str(err))\n"
+    "    return {'refused': refused, 'encoding': locale.getpreferredencoding()}\n"
+)
+LOCALE_OBSERVER = (
+    "import locale\n"
+    "def handle(context, event):\n"
+    "    return {'numeric': locale.setlocale(locale.LC_NUMERIC)}\n"
+)
+
+
+def test_issue_r30_setlocale_does_not_leak_to_siblings(tmp_path: Path) -> None:
+    # The C locale belongs to the process, so the pool refuses a change as setlocale's own
+    # locale.Error. getpreferredencoding() still works: its restore of the current locale is a no-op.
+    # UTF-8 mode is off, as in a runtime image with LANG=C.UTF-8, or getpreferredencoding() would
+    # return before it saves and restores the locale.
+    members = [("mutator", LOCALE_MUTATOR), ("observer", LOCALE_OBSERVER)]
+    env = {"LANG": "C.UTF-8", "PYTHONUTF8": "0"}
+    proc, port = _start(tmp_path, _manifest(tmp_path, members), env=env)
+    try:
+        before = _post(port, "observer", "{}")
+        st, body = _post(port, "mutator", "{}")
+        assert st == 200, body
+        assert _post(port, "observer", "{}") == before
+        out = json.loads(body)
+        assert out["encoding"] == "UTF-8", out
+        assert len(out["refused"]) == 4, out
+        assert all("pooled handler" in err for err in out["refused"]), out
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+ENV_WRITER = (
+    "import os\n"
+    "os.environ['FUNCD_PROBE_LEAK'] = 'from-writer'\n"
+    "del os.environ['FUNCD_PROBE_KEEP']\n"
+    "def handle(context, event):\n"
+    "    refused = []\n"
+    "    for name, args in (('putenv', ('FUNCD_PROBE_LEAK', 'x')), ('unsetenv', ('FUNCD_PROBE_KEEP',))):\n"
+    "        try:\n"
+    "            getattr(os, name)(*args)\n"
+    "        except RuntimeError:\n"
+    "            refused.append(name)\n"
+    "    leak, keep = os.environ.get('FUNCD_PROBE_LEAK'), os.environ.get('FUNCD_PROBE_KEEP')\n"
+    "    return {'leak': leak, 'keep': keep, 'refused': refused}\n"
+)
+ENV_READER = (
+    "import ctypes\n"
+    "import os\n"
+    "_getenv = ctypes.CDLL(None).getenv\n"
+    "_getenv.restype = ctypes.c_char_p\n"
+    "def handle(context, event):\n"
+    "    seen = {}\n"
+    "    for name in ('FUNCD_PROBE_LEAK', 'FUNCD_PROBE_KEEP'):\n"
+    "        raw = _getenv(name.encode())\n"
+    "        seen[name] = [os.environ.get(name), raw.decode() if raw else None]\n"
+    "    return seen\n"
+)
+
+
+def test_issue_r31_environ_writes_stay_in_the_member(tmp_path: Path) -> None:
+    # A member's os.environ is its own copy, as process.env is in a Node worker (ADR-0044/0050): a
+    # write must not reach the process environment, which members started later copy and C getenv reads.
+    members = [("before", ENV_READER), ("writer", ENV_WRITER), ("after", ENV_READER)]
+    proc, port = _start(tmp_path, _manifest(tmp_path, members), {"FUNCD_PROBE_KEEP": "kept"})
+    try:
+        for name in ("before", "after"):
+            st, body = _post(port, name, "{}")
+            assert st == 200, body
+            assert json.loads(body) == {
+                "FUNCD_PROBE_LEAK": [None, None],
+                "FUNCD_PROBE_KEEP": ["kept", "kept"],
+            }, name
+        st, body = _post(port, "writer", "{}")
+        assert st == 200, body
+        assert json.loads(body) == {"leak": "from-writer", "keep": None, "refused": ["putenv", "unsetenv"]}
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+CHILD_SPAWNER = (
+    "import os\n"
+    "import subprocess\n"
+    "import time\n"
+    "os.environ['FUNCD_PROBE_CHILD'] = 'from-member'\n"
+    "os.environ['TZ'] = 'EST+5'\n"
+    "time.tzset()\n"
+    "ECHO = 'printf %s \"$FUNCD_PROBE_CHILD\"'\n"
+    "def run(env=None):\n"
+    "    return subprocess.run(['/bin/sh', '-c', ECHO], env=env, capture_output=True, text=True).stdout\n"
+    "def handle(context, event):\n"
+    "    out = os.path.join(event['data'], 'child-')\n"
+    "    os.system(ECHO + ' > ' + out + 'system')\n"
+    "    os.waitpid(os.posix_spawn('/bin/sh', ['sh', '-c', ECHO + ' > ' + out + 'spawn'], None), 0)\n"
+    "    seen = {tag: open(out + tag).read() for tag in ('system', 'spawn')}\n"
+    "    seen['run'] = run()\n"
+    "    seen['explicit'] = run({'FUNCD_PROBE_CHILD': 'explicit'})\n"
+    "    seen['popen'] = os.popen(ECHO).read()\n"
+    "    seen['status'] = os.system('exit 3')\n"
+    "    seen['hour'] = time.localtime(0).tm_hour\n"
+    "    return seen\n"
+)
+
+
+def test_issue_r31_member_children_get_the_member_environ(tmp_path: Path) -> None:
+    # A Node worker's child_process gets the worker's process.env copy, so a member's child processes get
+    # the member's os.environ. The local time zone stays the process's: tzset() reads the process TZ.
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("spawner", CHILD_SPAWNER)]), {"TZ": "UTC0"})
+    try:
+        st, body = _post(port, "spawner", json.dumps({"data": str(tmp_path)}))
+        assert st == 200, body
+        assert json.loads(body) == {
+            "system": "from-member",
+            "spawn": "from-member",
+            "run": "from-member",
+            "popen": "from-member",
+            "explicit": "explicit",
+            "status": 3 << 8,
+            "hour": 0,
+        }
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_issue_r27_pool_parallel_runs_handlers_at_the_same_time(tmp_path: Path) -> None:
+    # scenario: py-pool-parallel — CPU-bound handlers run on per-interpreter GILs, so two of them run on
+    # two cores at the same moments. Counting those moments, instead of comparing wall-clock times
+    # against a baseline, keeps host load and core types out of the result.
+    fifo = tmp_path / "start.fifo"
+    os.mkfifo(fifo)
+    shared = tmp_path / "shared"
+    shared.write_bytes(b"\0\0")
     proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", CPU), ("f1", CPU)]))
     try:
-        t0 = time.perf_counter()
-        _post(port, "f0", "{}")
-        single = time.perf_counter() - t0
+        replies: list[tuple[int, bytes]] = []
 
-        results: list[float] = []
-        lock = threading.Lock()
+        def hit(me: int) -> None:
+            data = {"fifo": str(fifo), "shared": str(shared), "me": me}
+            replies.append(_post(port, f"f{me}", json.dumps({"data": data})))
 
-        def hit(name: str) -> None:
-            s = time.perf_counter()
-            _post(port, name, "{}")
-            with lock:
-                results.append(time.perf_counter() - s)
-
-        t0 = time.perf_counter()
-        ts = [threading.Thread(target=hit, args=(n,)) for n in ("f0", "f1")]
+        ts = [threading.Thread(target=hit, args=(me,)) for me in (0, 1)]
         for t in ts:
             t.start()
         for t in ts:
             t.join()
-        concurrent = time.perf_counter() - t0
-        assert concurrent < 1.7 * single, (
-            f"two concurrent CPU handlers serialized: {concurrent:.3f}s vs single {single:.3f}s"
-        )
+        assert [st for st, _ in replies] == [200, 200], replies
+        seen = sum(json.loads(body)["seen"] for _, body in replies)
+        assert seen > 10_000, f"two concurrent CPU handlers saw each other run {seen} times: a shared GIL"
     finally:
         proc.terminate()
         proc.wait(timeout=5)
