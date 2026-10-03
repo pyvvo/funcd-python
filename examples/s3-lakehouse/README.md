@@ -27,8 +27,8 @@ source**, so it is **not** runnable via `funcdctl dev`. Deploy it by applying th
 platform (the containerd/Lima lane), which materializes `ingest → bronze → transform → silver/gold → report`:
 
 ```bash
-funcdctl apply -f bucket.yaml
-funcdctl apply -f ingest.yaml -f transform.yaml -f report.yaml
+# funcdctl apply -f takes one file (or - for stdin), so apply each file:
+for f in bucket.yaml ingest.yaml transform.yaml report.yaml; do funcdctl apply -f "$f"; done
 ```
 
 For a lakehouse you can run **locally from source** with `funcdctl dev`, see the DuckLake/Quack example
