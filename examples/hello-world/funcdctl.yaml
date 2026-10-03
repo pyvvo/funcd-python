@@ -3,9 +3,8 @@
 # tooling needs: the runtime, the handler, and the inline I/O contract (there are no bindings).
 # `funcdctl push . <ref>` bakes the schema-only contract + records the runtime; `funcdctl types` emits
 # a .pyi for FuncInput/FuncOutput; `funcdctl dev` (later) runs it locally.
-# Deploy concerns (name, namespace, scaling, placement) live on a hand-written Function CRD; this
-# CLI-demo example ships none — push the artifact then apply an inline Function (see README) — and this
-# config never replaces that CRD.
+# Deploy concerns (name, namespace, scaling, placement) live on the hand-written Function CRD
+# (handler.yaml, which sits alongside this file) — this config never replaces it.
 runtime: python314
 handler: handle
 contract:
