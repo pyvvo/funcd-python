@@ -49,7 +49,7 @@ export AWS_ENDPOINT_URL_S3=http://127.0.0.1:3006 AWS_REGION=us-east-1   # + the 
 aws s3 cp synthetic-releve-2025-11.pdf s3://releves/landing/synthetic-releve-2025-11.pdf
 
 export FUNCD_SERVER=http://127.0.0.1:3007 FUNCD_TOKEN=funcd-dev-token
-funcdctl workflow run releve-pipeline run1 --input '{"file": "synthetic-releve-2025-11.pdf"}'
+funcdctl workflow run releve-pipeline run1   # no input: extract processes every PDF in landing/
 funcdctl workflow describe run1        # per-step phase/attempts/errors
 
 # query the gold mart the pipeline just wrote (via the same S3 frontend the engine wrote through)
@@ -71,7 +71,7 @@ ADR-0130). The DAG is `workflow.yaml`; each step resolves to its `<step>.funcdct
                      │ EventSource (blob, Created)   │  releve-landed  — ADR-0119
                      │        → Sensor → run         │  releve-ingest  — ADR-0109
                      └──────────────┬───────────────┘
-                                    │  input: { file: ${{ event.data.key }} }
+                                    │  starts a run (extract reads all of landing/)
                      ┌──────────────▼───────────────────────────────────────────┐
                      │ Workflow: releve-pipeline (ADR-0094)                        │
                      │                                                            │
@@ -134,7 +134,7 @@ for f in resources/*.yaml; do funcdctl apply -f "$f"; done
 | `resources/functions.yaml` | `Function` ×5 | `extract` · `verify` · `build-silver` · `to-gold` · `catalog-reader` (Python, ADR-0089 bundle) |
 | `resources/workflow.yaml` | `Workflow` | `releve-pipeline` — the DAG with the two gates |
 | `resources/eventsource.yaml` | `EventSource` | `releve-landed` — blob object-created on `landing/` |
-| `resources/sensor.yaml` | `Sensor` | `releve-ingest` — event → start the run with the object key |
+| `resources/sensor.yaml` | `Sensor` | `releve-ingest` — event → start a pipeline run |
 | `resources/catalogservice.yaml` | `CatalogService` | `lake` — DuckLake + Quack query surface over `gold/` |
 | `resources/routes.yaml` | `Route` | static BI site (public) + authenticated SQL query route |
 | `resources/secret.yaml` / `configmap.yaml` | `Secret`/`ConfigMap` | Quack token + engine/project config (incl. `STOP_KEYWORDS`) |

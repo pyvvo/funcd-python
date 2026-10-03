@@ -18,10 +18,10 @@ bindings:
       prefix: bronze
 contract:
   # extract processes EVERY PDF in landing/ (bronze is 1:1 with a source file; cross-statement
-  # aggregation is build-silver's job), so it takes NO input — the workflow runs with no --input
-  # (the root step's input is the null run input). Output is a run summary, not a single-file record.
-  input:
-    type: "null"
+  # aggregation is build-silver's job), so it ignores its input. A run starts with none (`workflow run`
+  # with no --input sends null) or from the releve-ingest Sensor, whose run input is always an object
+  # (ADR-0109), so the input is the explicit Json form (ADR-0058): any value. Output is a run summary.
+  input: {}
   output:
     type: object
     additionalProperties: false
