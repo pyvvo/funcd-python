@@ -49,12 +49,27 @@ COUNTER = (
     "    _count += 1\n"
     "    return {'count': _count}\n"
 )
+# Two CPU handlers meet on a FIFO (opening one end blocks until the other end is open). Then each spins,
+# writing its counter to its own byte of a shared map and counting the changes it sees in its sibling's
+# byte. Under one shared GIL a handler can see a change only after a GIL switch: a few per run.
 CPU = (
+    "import mmap\n"
+    "import os\n"
     "def handle(context, event):\n"
-    "    s = 0\n"
-    "    for i in range(3_000_000):\n"
-    "        s += i * i\n"
-    "    return {'ok': True}\n"
+    "    d = event['data']\n"
+    "    me, other = d['me'], 1 - d['me']\n"
+    "    with open(d['shared'], 'r+b') as f:\n"
+    "        mm = mmap.mmap(f.fileno(), 2)\n"
+    "    os.close(os.open(d['fifo'], os.O_WRONLY if me else os.O_RDONLY))\n"
+    "    seen, last = 0, mm[other]\n"
+    "    for i in range(1_000_000):\n"
+    "        mm[me] = i & 255\n"
+    "        cur = mm[other]\n"
+    "        if cur != last:\n"
+    "            seen += 1\n"
+    "            last = cur\n"
+    "    mm.close()\n"
+    "    return {'seen': seen}\n"
 )
 LOGGER = (
     "import logging\n"
@@ -302,35 +317,30 @@ def test_issue_183_chdir_umask_do_not_leak_to_siblings(tmp_path: Path) -> None:
         proc.wait(timeout=5)
 
 
-def test_pool_parallel(tmp_path: Path) -> None:
-    # scenario: py-pool-parallel — CPU-bound handlers run on per-interpreter GILs, so two concurrent
-    # requests to different handlers finish in well under 2× a single's time (a shared GIL would
-    # serialize them ≈2×). Lenient bound to tolerate scheduling noise.
+def test_issue_r27_pool_parallel_runs_handlers_at_the_same_time(tmp_path: Path) -> None:
+    # scenario: py-pool-parallel — CPU-bound handlers run on per-interpreter GILs, so two of them run on
+    # two cores at the same moments. Counting those moments, instead of comparing wall-clock times
+    # against a baseline, keeps host load and core types out of the result.
+    fifo = tmp_path / "start.fifo"
+    os.mkfifo(fifo)
+    shared = tmp_path / "shared"
+    shared.write_bytes(b"\0\0")
     proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", CPU), ("f1", CPU)]))
     try:
-        t0 = time.perf_counter()
-        _post(port, "f0", "{}")
-        single = time.perf_counter() - t0
+        replies: list[tuple[int, bytes]] = []
 
-        results: list[float] = []
-        lock = threading.Lock()
+        def hit(me: int) -> None:
+            data = {"fifo": str(fifo), "shared": str(shared), "me": me}
+            replies.append(_post(port, f"f{me}", json.dumps({"data": data})))
 
-        def hit(name: str) -> None:
-            s = time.perf_counter()
-            _post(port, name, "{}")
-            with lock:
-                results.append(time.perf_counter() - s)
-
-        t0 = time.perf_counter()
-        ts = [threading.Thread(target=hit, args=(n,)) for n in ("f0", "f1")]
+        ts = [threading.Thread(target=hit, args=(me,)) for me in (0, 1)]
         for t in ts:
             t.start()
         for t in ts:
             t.join()
-        concurrent = time.perf_counter() - t0
-        assert concurrent < 1.7 * single, (
-            f"two concurrent CPU handlers serialized: {concurrent:.3f}s vs single {single:.3f}s"
-        )
+        assert [st for st, _ in replies] == [200, 200], replies
+        seen = sum(json.loads(body)["seen"] for _, body in replies)
+        assert seen > 10_000, f"two concurrent CPU handlers saw each other run {seen} times: a shared GIL"
     finally:
         proc.terminate()
         proc.wait(timeout=5)
