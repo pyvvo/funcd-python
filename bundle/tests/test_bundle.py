@@ -16,6 +16,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import yaml
 
 from funcd_bundle import BundleError, bundle, discover, host_platform
 from funcd_bundle.bundle import _check
@@ -299,6 +300,35 @@ def test_issue_r29_main_key_is_rewritten_not_duplicated(tmp_path: Path, main: st
 
     assert (out / "funcdctl.yaml").read_text() == "runtime: python314\nmain: handler.py\nhandler: handle\n", (
         "the manifest's one main names the bundled handler"
+    )
+
+
+@pytest.mark.parametrize(
+    ("manifest", "want"),
+    [
+        ("{runtime: python314, handler: handle}\n", {"runtime": "python314", "handler": "handle"}),
+        ("!!map &m {\n  runtime: python314,\n}\n", {"runtime": "python314"}),
+        ("{}\n", {}),
+    ],
+    ids=["one-line", "tagged-multi-line", "empty"],
+)
+def test_issue_r49_flow_mapping_manifest_gets_main(
+    tmp_path: Path, manifest: str, want: dict[str, str]
+) -> None:
+    project = tmp_path / "reader"
+    _write(
+        project,
+        {
+            "pyproject.toml": '[project]\nname = "reader"\nversion = "0.1.0"\nrequires-python = ">=3.12"\n',
+            "funcdctl.yaml": manifest,
+            "handler.py": "def handle(ctx, event): ...\n",
+        },
+    )
+    _uv("lock", "--offline", "--python", "3.14", cwd=project)
+    out = bundle(project, "reader", host_platform(), tmp_path / "out", hermetic=False, check=False)
+
+    assert yaml.safe_load((out / "funcdctl.yaml").read_text()) == want | {"main": "handler.py"}, (
+        "the bundle's manifest is valid YAML whose main names the bundled handler"
     )
 
 

@@ -350,6 +350,15 @@ def _with_main(text: str, handler: str) -> str:
                 if text[start:end].endswith("\n"):
                     entry += "\n"
                 return text[:start] + entry + text[end:]
+        if root.flow_style:
+            # a block line after a flow mapping is a second root: the key goes inside, after its brace
+            brace = next(
+                t
+                for t in yaml.scan(text, Loader=yaml.SafeLoader)
+                if isinstance(t, yaml.FlowMappingStartToken)
+            )
+            at = brace.end_mark.index
+            return text[:at] + entry + (", " if root.value else "") + text[at:]
     if text and not text.endswith("\n"):
         text += "\n"
     return text + entry + "\n"
