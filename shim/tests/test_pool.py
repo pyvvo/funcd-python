@@ -164,7 +164,7 @@ def test_pool_colocates_and_contract(tmp_path: Path) -> None:
             st, body = _post(port, name, json.dumps({"data": {"hello": "world"}}))
             assert st == 200, body
             assert json.loads(body) == {"echoed": {"hello": "world"}}
-        # input-contract mismatch → 422 (the per-handler pydantic validator, ADR-0058)
+        # input-contract mismatch → 422 (the baked fastjsonschema validator, ADR-0058/0060)
         st, body = _post(port, "f0", json.dumps({"data": {"hello": 5}}))
         assert st == 422
         assert json.loads(body)["error"] == "event data does not match the input contract"
