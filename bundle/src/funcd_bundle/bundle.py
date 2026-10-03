@@ -84,7 +84,10 @@ def discover(project: Path) -> dict[str, Function]:
         defaults = {project.resolve().name: DEFAULT_HANDLER}
     functions = {}
     for name, manifest in manifests.items():
-        data = yaml.safe_load(manifest.read_text()) or {}
+        try:
+            data = yaml.safe_load(manifest.read_text()) or {}
+        except yaml.YAMLError as err:
+            raise BundleError(f"{manifest}: {err}") from err
         if not isinstance(data, dict):
             raise BundleError(f"{manifest} is not a mapping")
         main = data.get("main") or defaults[name]

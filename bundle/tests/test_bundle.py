@@ -306,3 +306,16 @@ def test_missing_handler_is_named(tmp_path: Path) -> None:
     _write(tmp_path, {"funcdctl.yaml": "runtime: python314\nmain: src/nope.py\n"})
     with pytest.raises(BundleError, match="nope.py"):
         bundle(tmp_path, tmp_path.name, host_platform(), tmp_path / "out", hermetic=False, check=False)
+
+
+def test_issue_r48_invalid_manifest_yaml_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write(tmp_path, {"funcdctl.yaml": "runtime: [\n", "handler.py": ""})
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["--no-check", "--out", str(tmp_path / "out")]) == 1, "a manifest that does not parse fails"
+    err = capsys.readouterr().err
+    assert err.startswith(f"funcd-bundle: {tmp_path / 'funcdctl.yaml'}: "), err
+    assert "while parsing a flow node" in err, "the parser message names the problem"
+    assert "Traceback" not in err
