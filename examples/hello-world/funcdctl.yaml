@@ -6,6 +6,7 @@
 # Deploy concerns (name, namespace, scaling, placement) live on the hand-written Function CRD
 # (handler.yaml, which sits alongside this file) — this config never replaces it.
 runtime: python314
+main: src/handler.py
 handler: handle
 contract:
   input:
