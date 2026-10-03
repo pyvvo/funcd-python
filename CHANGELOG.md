@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.5](https://github.com/pyvvo/funcd-python/compare/v0.3.4...v0.3.5) (2026-10-03)
+
+
+### Bug Fixes
+
+* **shim:** keep identical silver rows, name hello-world handler ([#56](https://github.com/pyvvo/funcd-python/issues/56)) ([3c7d184](https://github.com/pyvvo/funcd-python/commit/3c7d1847c07d127548d392d88a12b7f532ca7d43))
+
 ## [0.3.4](https://github.com/pyvvo/funcd-python/compare/v0.3.3...v0.3.4) (2026-10-03)
 
 
