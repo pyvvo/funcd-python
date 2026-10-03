@@ -60,6 +60,18 @@ class _Context:
         return BlobClient()
 
 
+def read_body(request: BaseHTTPRequestHandler) -> bytes | None:
+    """Read the request body its Content-Length frames (none: empty). A Content-Length that is not one
+    1*DIGIT value leaves the framing unrecoverable (RFC 9112 §6.3): answer 400 and close, as Node's HTTP
+    parser does, and return None."""
+    lengths = request.headers.get_all("content-length") or ["0"]
+    length = lengths[0].strip(" \t")
+    if len(lengths) > 1 or not (length.isascii() and length.isdigit()):
+        request.send_error(400, "invalid Content-Length")
+        return None
+    return request.rfile.read(int(length))
+
+
 def make_request_handler(
     handler: Handler,
     validators: runtime.Validators,
@@ -122,8 +134,9 @@ def make_request_handler(
         def do_POST(self) -> None:  # noqa: N802 - stdlib signature
             # Drain the request body FIRST, before any early return — with HTTP/1.1 keep-alive an
             # unread body would desync the next request on the connection.
-            length = int(self.headers.get("content-length") or 0)
-            raw = self.rfile.read(length) if length else b""
+            raw = read_body(self)
+            if raw is None:
+                return
             if self.path != "/":
                 self._send_empty(404)
                 return

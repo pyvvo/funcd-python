@@ -84,6 +84,21 @@ def get(base: str, path: str) -> int:
         return int(err.code)
 
 
+def post_framed(host: str, path: str, lengths: list[str], body: bytes = b"") -> tuple[int, str | None]:
+    """POST *body* under hand-written Content-Length headers; returns the status and Connection header."""
+    conn = http.client.HTTPConnection(host, timeout=5)
+    try:
+        conn.putrequest("POST", path)
+        for value in lengths:
+            conn.putheader("Content-Length", value)
+        conn.endheaders(body)
+        resp = conn.getresponse()
+        resp.read()
+        return resp.status, resp.getheader("connection")
+    finally:
+        conn.close()
+
+
 def _echo(context: FunctionContext, event: CloudEvent[Any]) -> dict[str, Any]:
     return {"echoed": event.get("data")}
 
@@ -224,6 +239,20 @@ def test_keep_alive_no_desync() -> None:
             assert json.loads(r.read())["echoed"] == 42
         finally:
             conn.close()
+
+
+@pytest.mark.parametrize(
+    "lengths",
+    [["abc"], ["-1"], ["+2"], ["1_0"], [""], ["\u00b2"], ["2", "2"]],
+    ids=["text", "negative", "signed", "underscore", "empty", "superscript", "repeated"],
+)
+def test_issue_r50_malformed_content_length_returns_400(lengths: list[str]) -> None:
+    # RFC 9112 §6.3: a Content-Length that is not 1*DIGIT leaves the framing unrecoverable, so the shim
+    # answers 400 and closes, as Node's HTTP parser does, instead of dropping the connection or waiting.
+    with serve(_echo) as base:
+        host = base.removeprefix("http://")
+        assert post_framed(host, "/", lengths) == (400, "close")
+        assert post_framed(host, "/", ["2 "], b"{}")[0] == 200
 
 
 def _circular() -> dict[str, Any]:

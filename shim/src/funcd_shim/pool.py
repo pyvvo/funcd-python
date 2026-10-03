@@ -24,6 +24,7 @@ from typing import Any
 
 from funcd_shim import _poolworker
 from funcd_shim.funclog import new_write_lock
+from funcd_shim.shim import read_body
 from funcd_shim.tracespan import parse_links
 
 
@@ -115,8 +116,9 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
         def do_POST(self) -> None:  # noqa: N802 - stdlib signature
             # Drain the request body FIRST, before any early return — with HTTP/1.1 keep-alive an
             # unread body would desync the next request on the connection.
-            length = int(self.headers.get("content-length") or 0)
-            raw = self.rfile.read(length) if length else b""
+            raw = read_body(self)
+            if raw is None:
+                return
             if not self.path.startswith("/function/"):
                 self._empty(404)
                 return

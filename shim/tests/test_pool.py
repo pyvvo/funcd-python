@@ -229,6 +229,26 @@ def test_issue_r38_pool_answers_a_non_utf8_body_with_400(tmp_path: Path) -> None
         proc.wait(timeout=5)
 
 
+def test_issue_r50_pool_malformed_content_length_returns_400(tmp_path: Path) -> None:
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ECHO)]))
+    try:
+        for value in ("abc", "-1"):
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            try:
+                conn.putrequest("POST", "/function/f0")
+                conn.putheader("Content-Length", value)
+                conn.endheaders()
+                r = conn.getresponse()
+                r.read()
+                assert (r.status, r.getheader("connection")) == (400, "close"), value
+            finally:
+                conn.close()
+        assert _post(port, "f0", json.dumps({"data": {"hello": "x"}}))[0] == 200
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def test_issue_188_pool_async_handler_is_awaited(tmp_path: Path) -> None:
     proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ASYNC)]))
     try:
