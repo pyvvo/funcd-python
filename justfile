@@ -1,9 +1,9 @@
 # Run every recipe through the pinned dev shell: `nix develop -c just <recipe>`.
 
 python := "3.14"
-projects := "shim bundle examples/catalog-quack examples/hello-world examples/kv-counter examples/log-burst"
-# releve-lakehouse drafts its deps without a uv.lock, so it gets ruff only
-linted := projects + " examples/releve-lakehouse"
+# releve-lakehouse's handlers do not pass mypy --strict yet, so mypy skips it
+typed := "shim bundle examples/catalog-quack examples/hello-world examples/kv-counter examples/log-burst"
+projects := typed + " examples/releve-lakehouse"
 
 default:
     @just --list
@@ -12,7 +12,7 @@ default:
 fmt:
     #!/usr/bin/env bash
     set -euo pipefail
-    for d in {{linted}}; do
+    for d in {{projects}}; do
         (cd "$d" && ruff format . && ruff check --fix .)
     done
 
@@ -21,12 +21,16 @@ fmt:
 check:
     #!/usr/bin/env bash
     set -euo pipefail
-    for d in {{linted}}; do
+    for d in {{projects}}; do
         (cd "$d" && ruff format --check . && ruff check .)
     done
+    for d in {{typed}}; do
+        echo "== mypy $d"
+        (cd "$d" && uv run --locked --python {{python}} mypy)
+    done
     for d in {{projects}}; do
-        echo "== $d"
-        (cd "$d" && uv run --locked --python {{python}} mypy && uv run --locked --python {{python}} pytest -q)
+        echo "== pytest $d"
+        (cd "$d" && uv run --locked --python {{python}} pytest -q)
     done
 
 # the Go embed package funcd imports

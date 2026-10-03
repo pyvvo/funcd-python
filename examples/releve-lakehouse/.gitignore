@@ -14,9 +14,6 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# uv.lock — commit once deps are pinned; ignored while drafting.
-uv.lock
-
 # ADR-0089 build output (vendored wheels — rebuilt by functions/build.py)
 functions/*/bundle/
 
