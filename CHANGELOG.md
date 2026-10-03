@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3](https://github.com/pyvvo/funcd-python/compare/v0.3.2...v0.3.3) (2026-10-03)
+
+
+### Bug Fixes
+
+* **shim:** match Node wire bytes, isolate pool members, fix examples ([#36](https://github.com/pyvvo/funcd-python/issues/36)) ([709249d](https://github.com/pyvvo/funcd-python/commit/709249de74e6c35ffc155669614c65539099d135))
+
 ## [0.3.2](https://github.com/pyvvo/funcd-python/compare/v0.3.1...v0.3.2) (2026-10-02)
 
 
