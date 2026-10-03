@@ -92,7 +92,8 @@ The deliverable is `src/handler.py`. Push it and apply [`handler.yaml`](handler.
 (`runtime: python314`, `handler: handle`):
 
 ```bash
-funcd --config ../../funcdconfig.yaml &   # start the daemon (zero-infra dev config, ADR-0061)
+curl -fsSLO https://raw.githubusercontent.com/pyvvo/funcd/main/examples/funcdconfig.yaml
+funcd --config funcdconfig.yaml &         # start the daemon (zero-infra dev config, ADR-0061)
 funcdctl push src/handler.py
 funcdctl apply -f handler.yaml
 ```

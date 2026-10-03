@@ -1,4 +1,4 @@
-"""The example READMEs' `funcdctl apply` commands must work as written. This checks every example,
+"""The example READMEs' commands and links must work as written. This checks every example,
 because s3-lakehouse is CRD-only and has no test project of its own."""
 
 from __future__ import annotations
@@ -60,3 +60,18 @@ def test_issue_r39_readmes_name_the_runtime_of_their_funcdctl_yaml() -> None:
     assert not stale, (
         f"a README or the manifest it applies names a runtime its funcdctl.yaml does not: {stale}"
     )
+
+
+def test_issue_r40_readme_paths_resolve() -> None:
+    missing: list[str] = []
+    for readme in sorted(_EXAMPLES.glob("*/README.md")):
+        text = readme.read_text()
+        for target in re.findall(r"\]\(([^)\s#]+)(?:#[^)]*)?\)", text):
+            if "://" not in target and not (readme.parent / target).exists():
+                missing.append(f"{readme.relative_to(_EXAMPLES)}: link {target}")
+        for block in re.findall(r"```[^\n]*\n(.*?)```", text, re.S):
+            fetched = {url.rsplit("/", 1)[-1] for url in re.findall(r"curl\s+-\w*O\w*\s+(\S+)", block)}
+            for config in re.findall(r"\bfuncd\s+--config\s+(\S+)", block):
+                if config not in fetched and not (readme.parent / config).is_file():
+                    missing.append(f"{readme.relative_to(_EXAMPLES)}: funcd --config {config}")
+    assert not missing, f"an example README names a path this repo does not have: {missing}"

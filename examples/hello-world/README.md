@@ -136,14 +136,15 @@ The deliverable is `src/handler.py` itself. Push it to the image that [`handler.
 names, then apply it (`runtime: python314`, `handler: handle`):
 
 ```bash
-funcd --config ../../funcdconfig.yaml &   # start the daemon (zero-infra dev config, ADR-0061)
+curl -fsSLO https://raw.githubusercontent.com/pyvvo/funcd/main/examples/funcdconfig.yaml
+funcd --config funcdconfig.yaml &         # start the daemon (zero-infra dev config, ADR-0061)
 funcdctl push src/handler.py oci-layout:///tmp/funcd-demo/layout:hello-world
 funcdctl apply -f handler.yaml
 ```
 
-[`examples/funcdconfig.yaml`](../../funcdconfig.yaml) is the shared daemon config (in-memory
-substrate + process runtime + localhost addresses); it's optional — `funcd` runs with all defaults
-if omitted.
+[`examples/funcdconfig.yaml`](https://github.com/pyvvo/funcd/blob/main/examples/funcdconfig.yaml) in
+pyvvo/funcd is the shared daemon config (in-memory substrate + process runtime + localhost
+addresses); it's optional — `funcd` runs with all defaults if omitted.
 
 The platform's curated Python image runs the shim, which loads this module, validates each
 event's `data` against the validator it compiles from the pushed contract, invokes `handle`, validates
