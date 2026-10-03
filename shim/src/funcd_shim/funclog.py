@@ -98,7 +98,10 @@ class _Channel:
                 if self._sock is not None:
                     self._sock.sendall(line)
                 elif self._fd is not None:
-                    os.write(self._fd, line)
+                    # os.write may write only part of the line (a signal mid-write); finish it, like sendall.
+                    rest = memoryview(line)
+                    while rest:
+                        rest = rest[os.write(self._fd, rest) :]
         except OSError:
             pass
 

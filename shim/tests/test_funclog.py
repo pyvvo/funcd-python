@@ -13,7 +13,7 @@ import logging
 import os
 import socket
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Buffer, Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -193,3 +193,22 @@ def test_issue_82_traceback_reaches_attrs(monkeypatch: Any) -> None:
     assert trace.endswith("ValueError: py-boom-detail")
     assert stacked["attrs"]["code.stacktrace"].startswith("Stack (most recent call last):")
     assert "exception.stacktrace" not in stacked["attrs"]
+
+
+def test_issue_r26_short_write_keeps_record_whole(monkeypatch: Any) -> None:
+    real_write = os.write
+
+    def short_write(fd: int, data: Buffer) -> int:
+        # write(2) on a pipe returns a short count when a signal interrupts it after some bytes went out.
+        return real_write(fd, memoryview(data)[:16])
+
+    monkeypatch.setattr(os, "write", short_write)
+
+    def emit() -> None:
+        logging.info("first %s", "x" * 64)
+        logging.info("second")
+
+    first, second = _capture(monkeypatch, emit)
+
+    assert first["body"] == "first " + "x" * 64
+    assert second["body"] == "second"
