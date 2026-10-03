@@ -12,6 +12,7 @@ import yaml
 from funcd_shim.contract import load_from_path
 
 _ROOT = Path(__file__).resolve().parent.parent
+_REPO = _ROOT.parent.parent
 _ENVELOPE = {"apiVersion", "kind", "metadata", "spec"}
 # funcd's WorkflowStep fields: a step's static input overlay is `params`, there is no `input`.
 _STEP_FIELDS = {"name", "function", "builtin", "workflow", "dependsOn", "join", "when", "params"}
@@ -108,3 +109,13 @@ def test_issue_r17_readme_applies_one_file_at_a_time() -> None:
     assert targets, "the README must say how to apply resources/"
     for target in targets:
         assert not (_ROOT / target).is_dir(), f"funcdctl apply -f takes a file, not the directory {target}"
+
+
+def test_issue_r35_resources_name_only_existing_files() -> None:
+    missing = [
+        f"{path.name} names {ref}"
+        for path in sorted((_ROOT / "resources").glob("*.yaml"))
+        for ref in re.findall(r"[\w./-]+\.yaml\b", path.read_text())
+        if not any((base / ref).exists() for base in (path.parent, _ROOT, _REPO))
+    ]
+    assert not missing
