@@ -318,14 +318,16 @@ def test_issue_183_chdir_umask_do_not_leak_to_siblings(tmp_path: Path) -> None:
 
 
 LOCALE_MUTATOR = (
+    "import _locale\n"
     "import locale\n"
     "def handle(context, event):\n"
     "    refused = []\n"
-    "    for name in ('C.UTF-8', 'en_US.UTF-8'):\n"
-    "        try:\n"
-    "            locale.setlocale(locale.LC_NUMERIC, name)\n"
-    "        except locale.Error as err:\n"
-    "            refused.append(str(err))\n"
+    "    for setlocale in (locale.setlocale, _locale.setlocale):\n"
+    "        for name in ('C.UTF-8', 'en_US.UTF-8'):\n"
+    "            try:\n"
+    "                setlocale(locale.LC_NUMERIC, name)\n"
+    "            except locale.Error as err:\n"
+    "                refused.append(str(err))\n"
     "    return {'refused': refused, 'encoding': locale.getpreferredencoding()}\n"
 )
 LOCALE_OBSERVER = (
@@ -338,16 +340,20 @@ LOCALE_OBSERVER = (
 def test_issue_r30_setlocale_does_not_leak_to_siblings(tmp_path: Path) -> None:
     # The C locale belongs to the process, so the pool refuses a change as setlocale's own
     # locale.Error. getpreferredencoding() still works: its restore of the current locale is a no-op.
+    # UTF-8 mode is off, as in a runtime image with LANG=C.UTF-8, or getpreferredencoding() would
+    # return before it saves and restores the locale.
     members = [("mutator", LOCALE_MUTATOR), ("observer", LOCALE_OBSERVER)]
-    proc, port = _start(tmp_path, _manifest(tmp_path, members))
+    env = {"LANG": "C.UTF-8", "PYTHONUTF8": "0"}
+    proc, port = _start(tmp_path, _manifest(tmp_path, members), env=env)
     try:
         before = _post(port, "observer", "{}")
         st, body = _post(port, "mutator", "{}")
         assert st == 200, body
         assert _post(port, "observer", "{}") == before
-        refused = json.loads(body)["refused"]
-        assert len(refused) == 2
-        assert all("pooled handler" in err for err in refused), refused
+        out = json.loads(body)
+        assert out["encoding"] == "UTF-8", out
+        assert len(out["refused"]) == 4, out
+        assert all("pooled handler" in err for err in out["refused"]), out
     finally:
         proc.terminate()
         proc.wait(timeout=5)
