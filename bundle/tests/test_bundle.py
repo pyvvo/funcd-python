@@ -25,6 +25,7 @@ from funcd_bundle.cli import main
 FOREIGN = {"linux/arm64": "linux/amd64", "linux/amd64": "linux/arm64"}
 ELF_MACHINE = {"linux/amd64": 0x3E, "linux/arm64": 0xB7}
 MANIFEST = "runtime: python314\nhandler: handle\nmain: src/handler.py\n"
+EXAMPLES = Path(__file__).resolve().parents[2] / "examples"
 
 
 def _online() -> bool:
@@ -254,6 +255,18 @@ def test_default_handler_follows_funcdctl(tmp_path: Path) -> None:
     assert discover(tmp_path / "g")["g"].handler == tmp_path / "g" / "handler.py", (
         "the generic default is handler.py"
     )
+
+
+def test_issue_r54_every_example_manifest_names_a_handler_it_ships() -> None:
+    examples = sorted({m.parent for m in EXAMPLES.glob("*/*funcdctl.yaml")})
+    assert examples, f"no example manifests under {EXAMPLES}"
+    missing = []
+    for example in examples:
+        try:
+            discover(example)
+        except BundleError as err:
+            missing.append(str(err))
+    assert not missing, f"funcdctl dev and funcd-bundle cannot find these handlers: {missing}"
 
 
 def test_issue_154_stem_manifest_without_main_names_bundled_handler(tmp_path: Path) -> None:

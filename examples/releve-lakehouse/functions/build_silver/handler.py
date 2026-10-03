@@ -66,20 +66,23 @@ def _anonymize(lib: str) -> str:
 def _conform(context: FunctionContext, con: duckdb.DuckDBPyConnection) -> list[dict[str, Any]]:
     """Type + dedup the WHOLE bronze layer. Reads every bronze Parquet via context.blob (ADR-0127) into
     one in-memory Arrow table, registers it, and lets DuckDB conform over it. Overlapping statements share
-    transactions, so dedup on the business key (date/amount/raw-libelle), keeping one — the ROADMAP's
-    GROUP-BY-ALL rebuild. No httpfs, no S3 keypair: the binding is the grant."""
+    transactions, so silver keeps a business key (date/amount/raw-libelle) as many times as the statement
+    that lists it most: copies across statements collapse, identical transactions on one statement (two
+    same-day ATM withdrawals) all stay. No httpfs, no S3 keypair: the binding is the grant."""
     tables = []
     for key in context.blob.list("bronze", ""):
         if not key.endswith(".parquet"):
             continue
         data = context.blob.get("bronze", key)
         if data is not None:
-            tables.append(pq.read_table(io.BytesIO(data)))
+            table = pq.read_table(io.BytesIO(data))
+            tables.append(table.append_column("statement", pa.repeat(key, table.num_rows)))
     if not tables:
         return []
     con.register("bronze_all", pa.concat_tables(tables))
     # Bronze already carries the real types (date32 dates, decimal128 amounts), so silver INHERITS them —
     # no casts needed. Silver's job here is dedup: collapse rows duplicated by overlapping statements.
+    # Numbering each key's occurrences within its statement keeps the n-th copy distinct from the first.
     rows = con.execute(
         """
         SELECT date_comptable,
@@ -88,8 +91,18 @@ def _conform(context: FunctionContext, con: duckdb.DuckDBPyConnection) -> list[d
                debit,
                credit,
                montant
-        FROM bronze_all
-        GROUP BY ALL                       -- collapse duplicated rows from overlapping statements
+        FROM (
+            SELECT DISTINCT date_comptable,
+                   date_valeur,
+                   libelle,
+                   debit,
+                   credit,
+                   montant,
+                   row_number() OVER (
+                       PARTITION BY statement, date_comptable, date_valeur, libelle, debit, credit, montant
+                   ) AS occurrence
+            FROM bronze_all
+        )
         ORDER BY date_comptable, montant
         """
     ).fetchall()
