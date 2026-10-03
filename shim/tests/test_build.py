@@ -13,6 +13,9 @@ import pytest
 
 from funcd_shim.build import build
 
+if sys.version_info >= (3, 14):
+    from concurrent import interpreters  # type: ignore[attr-defined]
+
 _SRC = (
     "from pydantic import BaseModel\n"
     "from funcd_shim import CloudEvent, FunctionContext\n"
@@ -91,15 +94,12 @@ def test_built_artifact_validates_in_both_compute_modes() -> None:
     exec(compile(checks, "<solo>", "exec"), {})  # noqa: S102 - exercising the generated artifact
 
     # POOLED (subinterpreter): run the SAME artifact in a fresh subinterpreter (ADR-0050, 3.14+).
-    if sys.version_info < (3, 14):
-        return  # concurrent.interpreters is 3.14+ (the node-pool equivalent is similarly gated)
-    from concurrent import interpreters  # type: ignore[attr-defined]  # 3.14+, runtime-guarded above
-
-    interp = interpreters.create()
-    try:
-        interp.exec(checks)  # raises into the parent if any assert fails inside the subinterpreter
-    finally:
-        interp.close()
+    if sys.version_info >= (3, 14):
+        interp = interpreters.create()
+        try:
+            interp.exec(checks)  # raises into the parent if any assert fails inside the subinterpreter
+        finally:
+            interp.close()
 
 
 def test_runtime_artifact_strips_pydantic_and_bakes_validators() -> None:

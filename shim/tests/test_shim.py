@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import http.client
 import json
 import socket
 import subprocess
@@ -204,8 +205,6 @@ def test_no_contract_unvalidated() -> None:
 def test_keep_alive_no_desync() -> None:
     # HTTP/1.1 keep-alive: many requests on ONE connection, including a 404 POST WITH a body, must
     # not desync — the body is drained before the early return, so the next request lines up.
-    import http.client
-
     with serve(_echo) as base:
         conn = http.client.HTTPConnection(base.removeprefix("http://"), timeout=5)
         try:

@@ -4,6 +4,7 @@ node-gated. Run with ``uv run --python 3.14 pytest``."""
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import subprocess
@@ -242,8 +243,6 @@ def test_issue_188_pool_async_handler_is_awaited(tmp_path: Path) -> None:
 def test_pool_keep_alive_no_desync(tmp_path: Path) -> None:
     # HTTP/1.1 keep-alive on the pool host: requests on ONE connection, incl. a 404 POST with a body
     # (an unknown /function/<name>), must not desync — the body is drained before the early return.
-    import http.client
-
     proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ECHO)]))
     try:
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
