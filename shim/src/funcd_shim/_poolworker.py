@@ -9,6 +9,8 @@ host puts the package dir on ``PYTHONPATH`` so the worker can import ``funcd_shi
 
 from __future__ import annotations
 
+import _locale
+import locale
 import os
 import sys
 from collections.abc import Callable
@@ -28,9 +30,9 @@ _handler: Handler | None = None
 _validators: Validators = Validators()
 _channel: Any = None  # the shared telemetry channel (ADR-0101), opened once in init()
 
-#: The working directory and the umask belong to the process, not to a subinterpreter: a member that
-#: changed them would change them for every sibling. The pool refuses them, as a Node worker refuses
-#: process.chdir/process.umask (ADR-0044/0050 isolation parity).
+#: The working directory, the umask and the C locale belong to the process, not to a subinterpreter: a
+#: member that changed them would change them for every sibling. The pool refuses them, as a Node worker
+#: refuses process.chdir/process.umask and has no API to change the locale (ADR-0044/0050 isolation parity).
 _PROCESS_WIDE = ("chdir", "fchdir", "umask")
 
 
@@ -43,10 +45,28 @@ def _refuse(name: str) -> Callable[..., NoReturn]:
     return refused
 
 
+def _query_only(setlocale: Callable[[int, str | None], str]) -> Callable[[int, str | None], str]:
+    # A set to the current locale changes nothing, so the stdlib's save-and-restore keeps working, and the
+    # refusal is setlocale's own locale.Error, which callers already handle (getpreferredencoding does).
+    def guarded(category: int, name: str | None = None, /) -> str:
+        current = setlocale(category, None)
+        if name is None or name == current:
+            return current
+        raise locale.Error(
+            "locale.setlocale cannot change the locale in a pooled handler: every handler shares it"
+        )
+
+    return guarded
+
+
 def _refuse_process_wide() -> None:
     for module in (os, sys.modules[os.name]):
         for name in _PROCESS_WIDE:
             setattr(module, name, _refuse(name))
+    # locale.setlocale reaches the C call through locale._setlocale, its import-time copy.
+    guarded = _query_only(_locale.setlocale)
+    for module, name in ((_locale, "setlocale"), (locale, "_setlocale")):
+        setattr(module, name, guarded)
 
 
 def init(

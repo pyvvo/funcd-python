@@ -317,6 +317,42 @@ def test_issue_183_chdir_umask_do_not_leak_to_siblings(tmp_path: Path) -> None:
         proc.wait(timeout=5)
 
 
+LOCALE_MUTATOR = (
+    "import locale\n"
+    "def handle(context, event):\n"
+    "    refused = []\n"
+    "    for name in ('C.UTF-8', 'en_US.UTF-8'):\n"
+    "        try:\n"
+    "            locale.setlocale(locale.LC_NUMERIC, name)\n"
+    "        except locale.Error as err:\n"
+    "            refused.append(str(err))\n"
+    "    return {'refused': refused, 'encoding': locale.getpreferredencoding()}\n"
+)
+LOCALE_OBSERVER = (
+    "import locale\n"
+    "def handle(context, event):\n"
+    "    return {'numeric': locale.setlocale(locale.LC_NUMERIC)}\n"
+)
+
+
+def test_issue_r30_setlocale_does_not_leak_to_siblings(tmp_path: Path) -> None:
+    # The C locale belongs to the process, so the pool refuses a change as setlocale's own
+    # locale.Error. getpreferredencoding() still works: its restore of the current locale is a no-op.
+    members = [("mutator", LOCALE_MUTATOR), ("observer", LOCALE_OBSERVER)]
+    proc, port = _start(tmp_path, _manifest(tmp_path, members))
+    try:
+        before = _post(port, "observer", "{}")
+        st, body = _post(port, "mutator", "{}")
+        assert st == 200, body
+        assert _post(port, "observer", "{}") == before
+        refused = json.loads(body)["refused"]
+        assert len(refused) == 2
+        assert all("pooled handler" in err for err in refused), refused
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def test_issue_r27_pool_parallel_runs_handlers_at_the_same_time(tmp_path: Path) -> None:
     # scenario: py-pool-parallel — CPU-bound handlers run on per-interpreter GILs, so two of them run on
     # two cores at the same moments. Counting those moments, instead of comparing wall-clock times
