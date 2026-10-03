@@ -192,6 +192,18 @@ def test_issue_r21_pool_response_json_is_written_like_json_stringify(tmp_path: P
         proc.wait(timeout=5)
 
 
+def test_issue_r22_pool_400_answers_match_the_solo_shim(tmp_path: Path) -> None:
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ECHO)]))
+    try:
+        for body in ("null", "[1]", "42", '"s"', "true"):
+            st, payload = _post(port, "f0", body)
+            assert (st, payload) == (400, b"request body must be a JSON object (CloudEvent envelope)"), body
+        assert _post(port, "f0", "abc{") == (400, b"invalid CloudEvent JSON")
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def test_issue_188_pool_async_handler_is_awaited(tmp_path: Path) -> None:
     proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ASYNC)]))
     try:
