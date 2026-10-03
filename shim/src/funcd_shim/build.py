@@ -27,6 +27,8 @@ from typing import Any, cast
 import fastjsonschema
 from pydantic import TypeAdapter
 
+from .contract import _PROFILE_FORMATS
+
 _CONTRACT = ("FuncInput", "FuncOutput")
 
 _build_seq = 0  # makes each synthetic contract module's name unique (avoids pydantic's type cache)
@@ -238,7 +240,7 @@ def _validator_source(schema: dict[str, Any], export: str, prefix: str) -> str:
     """fastjsonschema-compile *schema* and wrap it as ``export(d) -> list`` ([] ⇒ valid). The
     generated functions are AST-renamed with a per-side prefix so baking input AND output never
     collide on fastjsonschema's fixed ``validate`` name."""
-    tree = ast.parse(fastjsonschema.compile_to_code(schema))
+    tree = ast.parse(fastjsonschema.compile_to_code(schema, formats=_PROFILE_FORMATS))
     names = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
     _Prefixer(names, f"_funcd_{prefix}_").visit(tree)
     renamed = ast.unparse(ast.fix_missing_locations(tree))
