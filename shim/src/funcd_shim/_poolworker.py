@@ -32,9 +32,10 @@ _handler: Handler | None = None
 _validators: Validators = Validators()
 _channel: Any = None  # the shared telemetry channel (ADR-0101), opened once in init()
 
-#: The working directory, the umask and the C environment and the C locale belong to the process, not to a
+#: The working directory, the umask, the C environment and the C locale belong to the process, not to a
 #: subinterpreter: a member that changed them would change them for every sibling. The pool refuses them,
-#: as a Node worker refuses process.chdir/process.umask and has no API to change the locale (ADR-0044/0050 isolation parity).
+#: as a Node worker refuses process.chdir/process.umask and has no API to change the locale
+#: (ADR-0044/0050 isolation parity).
 _PROCESS_WIDE = ("chdir", "fchdir", "umask", "putenv", "unsetenv")
 
 
