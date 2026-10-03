@@ -12,15 +12,16 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import Any, NoReturn
 
-from . import jsonwire
+from . import contract, jsonwire, runtime
+from .blob import BlobClient
+from .funclog import install_log_capture, open_channel
+from .invoke import invoke as _invoke
+from .kv import KVClient
 from .runtime import Validators, call_handler
+from .tracespan import InvocationSpan
 from .types import CloudEvent, Handler
-
-if TYPE_CHECKING:
-    from .blob import BlobClient
-    from .kv import KVClient
 
 # Per-interpreter state, set by init() and read by invoke() — isolated to this worker interpreter.
 _handler: Handler | None = None
@@ -66,8 +67,6 @@ def init(
     _refuse_process_wide()
     if src not in sys.path:
         sys.path.insert(0, src)
-    from funcd_shim import contract, runtime
-    from funcd_shim.funclog import install_log_capture, open_channel
 
     # Path B capture (ADR-0081) + traces (ADR-0101): each pool worker runs in its own subinterpreter
     # with its own root logger, so open the channel + install capture here (per-interpreter), before
@@ -94,20 +93,14 @@ class _Ctx:
         print(*args, flush=True)
 
     def invoke(self, alias: str, payload: Any) -> Any:
-        from .invoke import invoke as _invoke
-
         return _invoke(alias, payload)
 
     @property
     def kv(self) -> KVClient:
-        from .kv import KVClient
-
         return KVClient()
 
     @property
     def blob(self) -> BlobClient:
-        from .blob import BlobClient
-
         return BlobClient()
 
 
@@ -142,8 +135,6 @@ def invoke(
         if errors:
             # ADR-0101: input-mismatch short-circuits before the handler → no invocation, no span.
             return _reply(422, {"error": "event data does not match the input contract", "details": errors})
-    from .tracespan import InvocationSpan
-
     with InvocationSpan(_channel, fn_name, traceparent, span_id, links) as span:
         try:
             result = call_handler(_handler, _Ctx(), event)
