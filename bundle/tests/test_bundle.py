@@ -275,6 +275,33 @@ def test_issue_154_stem_manifest_without_main_names_bundled_handler(tmp_path: Pa
     assert (out / "funcdctl.yaml").read_text() == manifest + "main: extract.py\n"
 
 
+@pytest.mark.parametrize(
+    "main",
+    [
+        '"main": src/handler.py\n',
+        "'main': src/handler.py\n",
+        "main:\n  src/handler.py\n",
+    ],
+    ids=["double-quoted-key", "single-quoted-key", "value-on-next-line"],
+)
+def test_issue_r29_main_key_is_rewritten_not_duplicated(tmp_path: Path, main: str) -> None:
+    project = tmp_path / "reader"
+    _write(
+        project,
+        {
+            "pyproject.toml": '[project]\nname = "reader"\nversion = "0.1.0"\nrequires-python = ">=3.12"\n',
+            "funcdctl.yaml": "runtime: python314\n" + main + "handler: handle\n",
+            "src/handler.py": "def handle(ctx, event): ...\n",
+        },
+    )
+    _uv("lock", "--offline", "--python", "3.14", cwd=project)
+    out = bundle(project, "reader", host_platform(), tmp_path / "out", hermetic=False, check=False)
+
+    assert (out / "funcdctl.yaml").read_text() == "runtime: python314\nmain: handler.py\nhandler: handle\n", (
+        "the manifest's one main names the bundled handler"
+    )
+
+
 def test_missing_handler_is_named(tmp_path: Path) -> None:
     _write(tmp_path, {"funcdctl.yaml": "runtime: python314\nmain: src/nope.py\n"})
     with pytest.raises(BundleError, match="nope.py"):

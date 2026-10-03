@@ -16,7 +16,6 @@ import csv
 import io
 import os
 import platform as host
-import re
 import shlex
 import shutil
 import subprocess
@@ -38,7 +37,6 @@ DEFAULT_HANDLER = "handler.py"
 RUNTIME_PACKAGE = "funcd-shim"
 PLATFORMS = {"linux/amd64": "x86_64", "linux/arm64": "aarch64"}
 SKIPPED = {"__pycache__", "tests"}
-MAIN_LINE = re.compile(r"^main:.*$", re.MULTILINE)
 # never streamed into a container: caches, virtualenvs and build outputs
 NOT_COPIED = frozenset(
     {".venv", ".git", "node_modules", "__pycache__", "dist", ".mypy_cache", ".pytest_cache", ".ruff_cache"}
@@ -331,14 +329,27 @@ def _copy_handler(project: Path, fn: Function, out: Path) -> list[Path]:
         sources = [p for p in source.rglob("*.py") if not SKIPPED.intersection(p.relative_to(source).parts)]
     # inside the bundle the handler sits at the root, so `main` must name it there (funcdctl dev reads it); a
     # manifest without one gets one, else the bundle's generic manifest would default to handler.py
-    main = f"main: {fn.handler.name}"
-    text, found = MAIN_LINE.subn(main, fn.manifest.read_text())
-    if not found:
-        if text and not text.endswith("\n"):
-            text += "\n"
-        text += main + "\n"
-    (out / GENERIC_MANIFEST).write_text(text)
+    (out / GENERIC_MANIFEST).write_text(_with_main(fn.manifest.read_text(), fn.handler.name))
     return sources
+
+
+def _with_main(text: str, handler: str) -> str:
+    """The manifest with its top-level `main` set to handler. The YAML parser finds the key, however it is
+    written; the rest stays as written, since a PyYAML dump would re-resolve YAML 1.1 scalars funcd reads as
+    YAML 1.2 text."""
+    entry = f"main: {handler}"
+    root = yaml.compose(text, Loader=yaml.SafeLoader)
+    if isinstance(root, yaml.MappingNode):
+        for key, value in root.value:
+            if isinstance(key, yaml.ScalarNode) and key.value == "main":
+                start, end = key.start_mark.index, value.end_mark.index
+                # a block scalar's span ends past its line break
+                if text[start:end].endswith("\n"):
+                    entry += "\n"
+                return text[:start] + entry + text[end:]
+    if text and not text.endswith("\n"):
+        text += "\n"
+    return text + entry + "\n"
 
 
 def _top_level_modules(out: Path) -> set[str]:
