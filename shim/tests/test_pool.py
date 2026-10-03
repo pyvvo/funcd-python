@@ -177,6 +177,21 @@ def test_issue_131_pool_answers_unencodable_results_and_base_exceptions(tmp_path
         proc.wait(timeout=5)
 
 
+def test_issue_r21_pool_response_json_is_written_like_json_stringify(tmp_path: Path) -> None:
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ECHO)]))
+    try:
+        hello = '{"echoed":{"hello":"é"}}'.encode()
+        assert _post(port, "f0", json.dumps({"data": {"hello": "é"}})) == (200, hello)
+        mismatch = (
+            b'{"error":"event data does not match the input contract",'
+            b'"details":["data.hello must be string"]}'
+        )
+        assert _post(port, "f0", json.dumps({"data": {"hello": 5}})) == (422, mismatch)
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def test_issue_188_pool_async_handler_is_awaited(tmp_path: Path) -> None:
     proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ASYNC)]))
     try:

@@ -22,10 +22,16 @@ def encode(body: Any) -> bytes:
     """Encode a response body, writing ``null`` for NaN and ±Infinity. Raises ``TypeError`` or
     ``ValueError`` when *body* has no JSON form (a set, bytes, a circular reference)."""
     try:
-        return json.dumps(body, allow_nan=False).encode()
+        return _stringify(body, allow_nan=False)
     except ValueError:
         json.dumps(body)  # re-raises a circular reference, so only non-finite floats get past it
-        return json.dumps(_finite(body)).encode()
+        return _stringify(_finite(body), allow_nan=True)
+
+
+def _stringify(body: Any, *, allow_nan: bool) -> bytes:
+    text = json.dumps(body, allow_nan=allow_nan, ensure_ascii=False, separators=(",", ":"))
+    # a lone surrogate has no UTF-8 form: JSON.stringify and backslashreplace both write it as \uXXXX
+    return text.encode("utf-8", "backslashreplace")
 
 
 def _finite(value: Any) -> Any:
