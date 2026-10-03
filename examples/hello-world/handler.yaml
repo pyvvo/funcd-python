@@ -1,0 +1,15 @@
+# The Function the README's Deploy section applies. The image is the ref its `funcdctl push` pushes to,
+# without a digest: the platform pins the digest into the Revision (ADR-0035).
+apiVersion: funcd.io/v1alpha1
+kind: Function
+metadata:
+  name: hello-world
+  namespace: default
+  resourceGroup: rg1
+spec:
+  runtime: python314
+  handler: handle
+  image: oci-layout:///tmp/funcd-demo/layout:hello-world
+  replicas: 1
+  scaling:
+    minReplicas: 1

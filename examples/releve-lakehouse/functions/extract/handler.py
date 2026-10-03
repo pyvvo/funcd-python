@@ -24,6 +24,7 @@ import os
 import re
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 import pdfplumber
 import pyarrow as pa
@@ -58,6 +59,8 @@ X_VAL_MIN, X_VAL_MAX = 335, 400
 X_AMT_MIN = 400
 X_DEBIT_CREDIT_SPLIT = 500
 
+Word = dict[str, Any]
+
 
 def _stop_keywords() -> tuple[str, ...]:
     """Header/footer/balance/account markers to skip — from the ConfigMap, so the real account number
@@ -71,9 +74,11 @@ def _iso_date(d: str) -> str:
     return f"{2000 + int(yy)}-{mm}-{dd}"
 
 
-def _group_lines(words, ytol=4):
+def _group_lines(words: list[Word], ytol: float = 4) -> list[list[Word]]:
     words = sorted(words, key=lambda w: w["top"])
-    lines, cur, cur_top = [], [], None
+    lines: list[list[Word]] = []
+    cur: list[Word] = []
+    cur_top: float | None = None
     for w in words:
         if cur_top is None or abs(w["top"] - cur_top) <= ytol:
             cur.append(w)
@@ -88,7 +93,7 @@ def _group_lines(words, ytol=4):
     return lines
 
 
-def _extract_amount(line):
+def _extract_amount(line: list[Word]) -> tuple[str | None, bool | None]:
     frags = [w for w in line if w["x0"] >= X_AMT_MIN and AMT_FRAG_RE.match(w["text"])]
     if not frags:
         return None, None
@@ -98,22 +103,22 @@ def _extract_amount(line):
     return value, is_credit
 
 
-def _parse_pdf(pdf_bytes: bytes, stop: tuple[str, ...]) -> list[dict]:
-    transactions: list[dict] = []
-    cur: dict | None = None
+def _parse_pdf(pdf_bytes: bytes, stop: tuple[str, ...]) -> list[dict[str, Any]]:
+    transactions: list[dict[str, Any]] = []
+    cur: dict[str, Any] | None = None
 
-    def flush():
+    def flush() -> None:
         nonlocal cur
         if cur is not None:
             cur["libelle"] = " ".join(cur["libelle"]).strip()
             transactions.append(cur)
             cur = None
 
-    def is_stop(line) -> bool:
+    def is_stop(line: list[Word]) -> bool:
         txt = "".join(w["text"] for w in line)
         return any(k and k in txt for k in stop)
 
-    def is_structural(line) -> bool:
+    def is_structural(line: list[Word]) -> bool:
         txt = "".join(w["text"] for w in line).upper().replace(" ", "")
         return any(k in txt for k in STRUCTURAL_SKIP)
 
@@ -169,7 +174,7 @@ _BRONZE_SCHEMA = pa.schema(
 )
 
 
-def _to_parquet(txs: list[dict]) -> bytes:
+def _to_parquet(txs: list[dict[str, Any]]) -> bytes:
     def amt(s: str) -> Decimal:
         return Decimal(s) if s else Decimal("0")
 

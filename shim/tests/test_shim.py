@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import http.client
 import json
 import socket
 import subprocess
@@ -81,6 +82,21 @@ def get(base: str, path: str) -> int:
             return int(resp.status)
     except urllib.error.HTTPError as err:
         return int(err.code)
+
+
+def post_framed(host: str, path: str, lengths: list[str], body: bytes = b"") -> tuple[int, str | None]:
+    """POST *body* under hand-written Content-Length headers; returns the status and Connection header."""
+    conn = http.client.HTTPConnection(host, timeout=5)
+    try:
+        conn.putrequest("POST", path)
+        for value in lengths:
+            conn.putheader("Content-Length", value)
+        conn.endheaders(body)
+        resp = conn.getresponse()
+        resp.read()
+        return resp.status, resp.getheader("connection")
+    finally:
+        conn.close()
 
 
 def _echo(context: FunctionContext, event: CloudEvent[Any]) -> dict[str, Any]:
@@ -204,8 +220,6 @@ def test_no_contract_unvalidated() -> None:
 def test_keep_alive_no_desync() -> None:
     # HTTP/1.1 keep-alive: many requests on ONE connection, including a 404 POST WITH a body, must
     # not desync — the body is drained before the early return, so the next request lines up.
-    import http.client
-
     with serve(_echo) as base:
         conn = http.client.HTTPConnection(base.removeprefix("http://"), timeout=5)
         try:
@@ -225,6 +239,20 @@ def test_keep_alive_no_desync() -> None:
             assert json.loads(r.read())["echoed"] == 42
         finally:
             conn.close()
+
+
+@pytest.mark.parametrize(
+    "lengths",
+    [["abc"], ["-1"], ["+2"], ["1_0"], [""], ["\u00b2"], ["2", "2"]],
+    ids=["text", "negative", "signed", "underscore", "empty", "superscript", "repeated"],
+)
+def test_issue_r50_malformed_content_length_returns_400(lengths: list[str]) -> None:
+    # RFC 9112 §6.3: a Content-Length that is not 1*DIGIT leaves the framing unrecoverable, so the shim
+    # answers 400 and closes, as Node's HTTP parser does, instead of dropping the connection or waiting.
+    with serve(_echo) as base:
+        host = base.removeprefix("http://")
+        assert post_framed(host, "/", lengths) == (400, "close")
+        assert post_framed(host, "/", ["2 "], b"{}")[0] == 200
 
 
 def _circular() -> dict[str, Any]:
@@ -284,6 +312,16 @@ def test_issue_r21_response_json_is_written_like_json_stringify() -> None:
     )
     with serve(_echo, runtime.Validators(input=hello_input)) as base:
         assert post(base, '{"data": {"hello": 5}}') == (422, mismatch)
+
+
+def test_issue_r43_response_floats_are_written_like_json_stringify() -> None:
+    # Expected bytes are what the Node shim's JSON.stringify writes for the same values (ADR-0049 §2).
+    floats = [1.0, -0.0, 1e-05, 1e-07, 1e16, 1.2345678901234568e20, 1e21, 0.1, -2.5, 1.5e-10]
+    with serve(lambda ctx, e: {"v": floats, "n": 3}) as base:
+        assert post(base, "{}") == (
+            200,
+            b'{"v":[1,0,0.00001,1e-7,10000000000000000,123456789012345680000,1e+21,0.1,-2.5,1.5e-10],"n":3}',
+        )
 
 
 @pytest.mark.parametrize(

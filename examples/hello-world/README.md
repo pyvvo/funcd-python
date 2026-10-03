@@ -8,6 +8,7 @@ A minimal funcd function authored in **Python**, typed against the `funcd_shim` 
 ```
 src/handler.py        # the function: handle(context, event) + the FuncInput/FuncOutput contract
 tests/test_handler.py # the author's unit tests (no platform needed)
+handler.yaml          # the Function manifest (runtime: python314, handler: handle)
 pyproject.toml        # uv project; depends on funcd-shim for the typed contract
 ```
 
@@ -131,18 +132,19 @@ curl -sS -XPOST http://127.0.0.1:3005/function/hello-world \
 
 ## Deploy
 
-The deliverable is `src/handler.py` itself. Push it and apply a `Function` with
-`runtime: python312` and `handler: handle`:
+The deliverable is `src/handler.py` itself. Push it to the image that [`handler.yaml`](handler.yaml)
+names, then apply it (`runtime: python314`, `handler: handle`):
 
 ```bash
-funcd --config ../../funcdconfig.yaml &   # start the daemon (zero-infra dev config, ADR-0061)
-funcdctl push src/handler.py
-funcdctl apply -f function.yaml           # spec.runtime: python312, spec.handler: handle
+curl -fsSLO https://raw.githubusercontent.com/pyvvo/funcd/main/examples/funcdconfig.yaml
+funcd --config funcdconfig.yaml &         # start the daemon (zero-infra dev config, ADR-0061)
+funcdctl push src/handler.py oci-layout:///tmp/funcd-demo/layout:hello-world
+funcdctl apply -f handler.yaml
 ```
 
-[`examples/funcdconfig.yaml`](../../funcdconfig.yaml) is the shared daemon config (in-memory
-substrate + process runtime + localhost addresses); it's optional — `funcd` runs with all defaults
-if omitted.
+[`examples/funcdconfig.yaml`](https://github.com/pyvvo/funcd/blob/main/examples/funcdconfig.yaml) in
+pyvvo/funcd is the shared daemon config (in-memory substrate + process runtime + localhost
+addresses); it's optional — `funcd` runs with all defaults if omitted.
 
 The platform's curated Python image runs the shim, which loads this module, validates each
 event's `data` against the validator it compiles from the pushed contract, invokes `handle`, validates

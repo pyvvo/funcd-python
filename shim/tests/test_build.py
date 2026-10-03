@@ -13,6 +13,9 @@ import pytest
 
 from funcd_shim.build import build
 
+if sys.version_info >= (3, 14):
+    from concurrent import interpreters  # type: ignore[attr-defined]
+
 _SRC = (
     "from pydantic import BaseModel\n"
     "from funcd_shim import CloudEvent, FunctionContext\n"
@@ -91,15 +94,12 @@ def test_built_artifact_validates_in_both_compute_modes() -> None:
     exec(compile(checks, "<solo>", "exec"), {})  # noqa: S102 - exercising the generated artifact
 
     # POOLED (subinterpreter): run the SAME artifact in a fresh subinterpreter (ADR-0050, 3.14+).
-    if sys.version_info < (3, 14):
-        return  # concurrent.interpreters is 3.14+ (the node-pool equivalent is similarly gated)
-    from concurrent import interpreters  # type: ignore[attr-defined]  # 3.14+, runtime-guarded above
-
-    interp = interpreters.create()
-    try:
-        interp.exec(checks)  # raises into the parent if any assert fails inside the subinterpreter
-    finally:
-        interp.close()
+    if sys.version_info >= (3, 14):
+        interp = interpreters.create()
+        try:
+            interp.exec(checks)  # raises into the parent if any assert fails inside the subinterpreter
+        finally:
+            interp.close()
 
 
 def test_runtime_artifact_strips_pydantic_and_bakes_validators() -> None:
@@ -287,3 +287,26 @@ def test_issue_r23_profile_formats_build(field: str, good: Any, bad: Any) -> Non
     vin = _exec(build(src).runtime_source)["__funcd_validate_input"]
     assert vin({"v": good}) == []
     assert vin({"v": bad}), f"{bad!r} must not satisfy {field}"
+
+
+# ---- issue r44: both sides baking regexes keep their own patterns ----
+
+
+def test_issue_r44_each_side_keeps_its_regex_patterns() -> None:
+    src = (
+        "import datetime\n"
+        "from typing import Annotated\n"
+        "from pydantic import BaseModel, Field\n"
+        "class FuncInput(BaseModel):\n"
+        "    code: Annotated[str, Field(pattern='^[A-Z]+$')]\n"
+        "class FuncOutput(BaseModel):\n"
+        "    at: datetime.datetime\n"
+        "def handle(ctx, event):\n"
+        "    return None\n"
+    )
+    ns = _exec(build(src).runtime_source)
+    vin, vout = ns["__funcd_validate_input"], ns["__funcd_validate_output"]
+    assert vin({"code": "ABC"}) == []
+    assert vin({"code": "abc"}), "abc must not match ^[A-Z]+$"
+    assert vout({"at": "2026-10-03T12:00:00Z"}) == []
+    assert vout({"at": "yesterday"}), "yesterday is not a date-time"

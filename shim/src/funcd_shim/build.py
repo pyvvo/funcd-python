@@ -238,10 +238,12 @@ def _close_records(node: dict[str, Any]) -> dict[str, Any]:
 
 def _validator_source(schema: dict[str, Any], export: str, prefix: str) -> str:
     """fastjsonschema-compile *schema* and wrap it as ``export(d) -> list`` ([] ⇒ valid). The
-    generated functions are AST-renamed with a per-side prefix so baking input AND output never
-    collide on fastjsonschema's fixed ``validate`` name."""
+    generated functions and module globals are AST-renamed with a per-side prefix so baking input AND
+    output never collide on fastjsonschema's fixed names (``validate``, ``REGEX_PATTERNS``)."""
     tree = ast.parse(fastjsonschema.compile_to_code(schema, formats=_PROFILE_FORMATS))
+    assigned = (t for n in tree.body if isinstance(n, ast.Assign) for t in n.targets)
     names = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
+    names |= {t.id for t in assigned if isinstance(t, ast.Name)}
     _Prefixer(names, f"_funcd_{prefix}_").visit(tree)
     renamed = ast.unparse(ast.fix_missing_locations(tree))
     wrapper = (
@@ -256,7 +258,7 @@ def _validator_source(schema: dict[str, Any], export: str, prefix: str) -> str:
 
 
 class _Prefixer(ast.NodeTransformer):
-    """Renames a fixed set of top-level function names (and their references) with a prefix."""
+    """Renames a fixed set of top-level names (and their references) with a prefix."""
 
     def __init__(self, names: set[str], prefix: str) -> None:
         self._names = names

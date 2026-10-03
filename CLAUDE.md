@@ -25,7 +25,7 @@ the health endpoints, the invoke socket, log capture, trace spans) needs a funcd
 
 | Path | What |
 |---|---|
-| `shim/` | The `funcd_shim` package, stdlib-only. `embed.go` is the Go package funcd imports. It lists every module by name, and `embed_test.go` fails when a module is missing |
+| `shim/` | The `funcd_shim` package. Its one runtime dependency is fastjsonschema (funcd ADR-0071); pydantic is only in the `build` extra. `embed.go` is the Go package funcd imports. It lists every module by name, and `embed_test.go` fails when a module is missing |
 | `bundle/` | The `funcd-bundle` package (funcd ADR-0144): `uv run funcd-bundle` bundles a function and its locked dependencies for the runtime's Linux platform |
 | `examples/*` | Example functions, each its own uv project with a path dependency on `../../shim` |
 | `go.mod` | This repo is also a Go module. funcd pins it by git tag |

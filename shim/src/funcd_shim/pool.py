@@ -6,10 +6,11 @@ correlates each request↔response, so there is no hand-rolled queue/dispatch.
 
 Reads ``FUNCD_POOL_MANIFEST`` (the SAME ``[{name, artifact, handler}]`` contract as ``pool.mjs``),
 serves ``POST /function/<name>`` by submitting the request to the named handler's interpreter — with
-the byte-identical wire contract + RFC 8927 event-data validation as the solo shim (ADR-0049) — plus
-``GET /health/{readiness,liveness}``. Bind: ``FUNCD_PORT`` → ``0.0.0.0:PORT`` (container) else
-``FUNCD_PORTFILE`` → loopback + write the port (process). A member whose handler/contract
-fails to load makes the host exit 3 (the shape-gate). Stdlib only — no runtime dependency.
+the byte-identical wire contract + JSON Schema I/O validation (ADR-0058, ADR-0123) as the solo shim
+(ADR-0049) — plus ``GET /health/{readiness,liveness}``. Bind: ``FUNCD_PORT`` → ``0.0.0.0:PORT``
+(container) else ``FUNCD_PORTFILE`` → loopback + write the port (process). A member whose
+handler/contract fails to load makes the host exit 3 (the shape-gate). Runtime dependency:
+fastjsonschema (the validators, ADR-0071).
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from typing import Any
 
 from funcd_shim import _poolworker
 from funcd_shim.funclog import new_write_lock
+from funcd_shim.shim import read_body
 from funcd_shim.tracespan import parse_links
 
 
@@ -60,7 +62,7 @@ class _Pooled:
         links: list[str] | None = None,
     ) -> dict[str, Any]:
         result: dict[str, Any] = self.ex.submit(
-            _poolworker.invoke, body.decode(), traceparent, fn_name, span_id, links
+            _poolworker.invoke, body, traceparent, fn_name, span_id, links
         ).result()
         return result
 
@@ -114,8 +116,9 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
         def do_POST(self) -> None:  # noqa: N802 - stdlib signature
             # Drain the request body FIRST, before any early return — with HTTP/1.1 keep-alive an
             # unread body would desync the next request on the connection.
-            length = int(self.headers.get("content-length") or 0)
-            raw = self.rfile.read(length) if length else b""
+            raw = read_body(self)
+            if raw is None:
+                return
             if not self.path.startswith("/function/"):
                 self._empty(404)
                 return

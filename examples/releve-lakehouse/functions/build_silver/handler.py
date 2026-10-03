@@ -18,6 +18,7 @@ from __future__ import annotations
 import io
 import logging
 import re
+from typing import Any
 
 import duckdb
 import pyarrow as pa
@@ -62,7 +63,7 @@ def _anonymize(lib: str) -> str:
     return re.sub(r"\s{2,}", " ", s).strip()
 
 
-def _conform(context: FunctionContext, con: duckdb.DuckDBPyConnection) -> list[dict]:
+def _conform(context: FunctionContext, con: duckdb.DuckDBPyConnection) -> list[dict[str, Any]]:
     """Type + dedup the WHOLE bronze layer. Reads every bronze Parquet via context.blob (ADR-0127) into
     one in-memory Arrow table, registers it, and lets DuckDB conform over it. Overlapping statements share
     transactions, so dedup on the business key (date/amount/raw-libelle), keeping one — the ROADMAP's

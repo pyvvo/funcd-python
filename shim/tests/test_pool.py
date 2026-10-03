@@ -4,6 +4,7 @@ node-gated. Run with ``uv run --python 3.14 pytest``."""
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import subprocess
@@ -142,10 +143,10 @@ def _start(
     raise RuntimeError("pool host never wrote its port")
 
 
-def _post(port: int, name: str, body: str) -> tuple[int, bytes]:
+def _post(port: int, name: str, body: str | bytes) -> tuple[int, bytes]:
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/function/{name}",
-        data=body.encode(),
+        data=body if isinstance(body, bytes) else body.encode(),
         headers={"content-type": "application/json"},
     )
     try:
@@ -163,7 +164,7 @@ def test_pool_colocates_and_contract(tmp_path: Path) -> None:
             st, body = _post(port, name, json.dumps({"data": {"hello": "world"}}))
             assert st == 200, body
             assert json.loads(body) == {"echoed": {"hello": "world"}}
-        # input-contract mismatch → 422 (the per-handler pydantic validator, ADR-0058)
+        # input-contract mismatch → 422 (the baked fastjsonschema validator, ADR-0058/0060)
         st, body = _post(port, "f0", json.dumps({"data": {"hello": 5}}))
         assert st == 422
         assert json.loads(body)["error"] == "event data does not match the input contract"
@@ -219,6 +220,35 @@ def test_issue_r22_pool_400_answers_match_the_solo_shim(tmp_path: Path) -> None:
         proc.wait(timeout=5)
 
 
+def test_issue_r38_pool_answers_a_non_utf8_body_with_400(tmp_path: Path) -> None:
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ECHO)]))
+    try:
+        assert _post(port, "f0", b'{"data":"\xff"}') == (400, b"invalid CloudEvent JSON")
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_issue_r50_pool_malformed_content_length_returns_400(tmp_path: Path) -> None:
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ECHO)]))
+    try:
+        for value in ("abc", "-1"):
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            try:
+                conn.putrequest("POST", "/function/f0")
+                conn.putheader("Content-Length", value)
+                conn.endheaders()
+                r = conn.getresponse()
+                r.read()
+                assert (r.status, r.getheader("connection")) == (400, "close"), value
+            finally:
+                conn.close()
+        assert _post(port, "f0", json.dumps({"data": {"hello": "x"}}))[0] == 200
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def test_issue_188_pool_async_handler_is_awaited(tmp_path: Path) -> None:
     proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ASYNC)]))
     try:
@@ -233,8 +263,6 @@ def test_issue_188_pool_async_handler_is_awaited(tmp_path: Path) -> None:
 def test_pool_keep_alive_no_desync(tmp_path: Path) -> None:
     # HTTP/1.1 keep-alive on the pool host: requests on ONE connection, incl. a 404 POST with a body
     # (an unknown /function/<name>), must not desync — the body is drained before the early return.
-    import http.client
-
     proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ECHO)]))
     try:
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)

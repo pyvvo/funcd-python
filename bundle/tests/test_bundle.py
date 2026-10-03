@@ -16,6 +16,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import yaml
 
 from funcd_bundle import BundleError, bundle, discover, host_platform
 from funcd_bundle.bundle import _check
@@ -302,7 +303,49 @@ def test_issue_r29_main_key_is_rewritten_not_duplicated(tmp_path: Path, main: st
     )
 
 
+@pytest.mark.parametrize(
+    ("manifest", "want"),
+    [
+        ("{runtime: python314, handler: handle}\n", {"runtime": "python314", "handler": "handle"}),
+        ("!!map &m {\n  runtime: python314,\n}\n", {"runtime": "python314"}),
+        ("{}\n", {}),
+    ],
+    ids=["one-line", "tagged-multi-line", "empty"],
+)
+def test_issue_r49_flow_mapping_manifest_gets_main(
+    tmp_path: Path, manifest: str, want: dict[str, str]
+) -> None:
+    project = tmp_path / "reader"
+    _write(
+        project,
+        {
+            "pyproject.toml": '[project]\nname = "reader"\nversion = "0.1.0"\nrequires-python = ">=3.12"\n',
+            "funcdctl.yaml": manifest,
+            "handler.py": "def handle(ctx, event): ...\n",
+        },
+    )
+    _uv("lock", "--offline", "--python", "3.14", cwd=project)
+    out = bundle(project, "reader", host_platform(), tmp_path / "out", hermetic=False, check=False)
+
+    assert yaml.safe_load((out / "funcdctl.yaml").read_text()) == want | {"main": "handler.py"}, (
+        "the bundle's manifest is valid YAML whose main names the bundled handler"
+    )
+
+
 def test_missing_handler_is_named(tmp_path: Path) -> None:
     _write(tmp_path, {"funcdctl.yaml": "runtime: python314\nmain: src/nope.py\n"})
     with pytest.raises(BundleError, match="nope.py"):
         bundle(tmp_path, tmp_path.name, host_platform(), tmp_path / "out", hermetic=False, check=False)
+
+
+def test_issue_r48_invalid_manifest_yaml_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write(tmp_path, {"funcdctl.yaml": "runtime: [\n", "handler.py": ""})
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["--no-check", "--out", str(tmp_path / "out")]) == 1, "a manifest that does not parse fails"
+    err = capsys.readouterr().err
+    assert err.startswith(f"funcd-bundle: {tmp_path / 'funcdctl.yaml'}: "), err
+    assert "while parsing a flow node" in err, "the parser message names the problem"
+    assert "Traceback" not in err

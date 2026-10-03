@@ -184,7 +184,7 @@ def _reply(status: int, body: dict[str, Any]) -> dict[str, Any]:
 
 
 def invoke(
-    body: str,
+    body: bytes | str,
     traceparent: str | None = None,
     fn_name: str = "invoke",
     span_id: str | None = None,
