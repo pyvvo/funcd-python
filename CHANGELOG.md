@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.4](https://github.com/pyvvo/funcd-python/compare/v0.3.3...v0.3.4) (2026-10-03)
+
+
+### Bug Fixes
+
+* **shim:** harden pool, bundler and examples (14 reviewed fixes) ([#52](https://github.com/pyvvo/funcd-python/issues/52)) ([d436641](https://github.com/pyvvo/funcd-python/commit/d436641505835995437eb2d095a61094d65e9433))
+
 ## [0.3.3](https://github.com/pyvvo/funcd-python/compare/v0.3.2...v0.3.3) (2026-10-03)
 
 
