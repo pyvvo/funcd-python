@@ -18,6 +18,7 @@ import logging
 import os
 import re
 from decimal import Decimal
+from typing import Any
 
 import pdfplumber
 import pyarrow.parquet as pq
@@ -33,7 +34,7 @@ AMT_IN_TEXT = re.compile(r"\d[\d ]*,\d{2}")
 SKIP = ("TOTALDESOPERATIONS", "Solde", "PERIODE", "RELEVE", "Titulaire")
 
 
-def _iso(dd, mm, yy):
+def _iso(dd: str, mm: str, yy: str) -> str:
     return f"20{yy}-{mm}-{dd}"
 
 
@@ -53,12 +54,12 @@ def _classify(libelle: str) -> str | None:
     return None
 
 
-def _independent(pdf_bytes: bytes) -> list[dict]:
+def _independent(pdf_bytes: bytes) -> list[dict[str, Any]]:
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         lines: list[str] = []
         for p in pdf.pages:
             lines += (p.extract_text() or "").splitlines()
-    txs: list[dict] = []
+    txs: list[dict[str, Any]] = []
     for raw in lines:
         s = raw.strip()
         if not s:
@@ -101,7 +102,7 @@ def _independent(pdf_bytes: bytes) -> list[dict]:
     return txs
 
 
-def _printed_totals(pdf_bytes: bytes):
+def _printed_totals(pdf_bytes: bytes) -> tuple[Decimal | None, Decimal | None]:
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         full = "\n".join(p.extract_text() or "" for p in pdf.pages)
     for line in full.splitlines():
@@ -113,7 +114,7 @@ def _printed_totals(pdf_bytes: bytes):
     return None, None
 
 
-def _bronze_rows(context: FunctionContext, bronze_key: str) -> list[dict]:
+def _bronze_rows(context: FunctionContext, bronze_key: str) -> list[dict[str, Any]]:
     data = context.blob.get("bronze", bronze_key)
     if data is None:
         raise ValueError(f"verify: bronze object {bronze_key!r} not found")

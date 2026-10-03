@@ -57,9 +57,12 @@ def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput
         "SELECT * FROM quack_query(?, ?, disable_ssl := true, token := ?)",
         [uri, f"USE lakehouse;\n{mart_sql}\nCHECKPOINT lakehouse;", token],
     )
-    rows = con.execute(
+    count = con.execute(
         "SELECT * FROM quack_query(?, ?, disable_ssl := true, token := ?)",
         [uri, "SELECT count(*) FROM lakehouse.main.mart_depenses_mensuelles", token],
-    ).fetchone()[0]
+    ).fetchone()
+    if count is None:
+        raise RuntimeError("to-gold: the catalog returned no row for the mart count")
+    rows = count[0]
     logging.info("to-gold: mart_depenses_mensuelles — %s month(s)", rows)
     return {"gold": "mart_depenses_mensuelles", "rows": rows}

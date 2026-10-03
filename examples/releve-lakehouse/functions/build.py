@@ -27,13 +27,14 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 HERE = Path(__file__).parent
 VENDOR_IMAGE = "python:3.14-slim-bookworm"
 
 # Per-function wheel closures + DuckDB extensions. extract/verify parse PDFs (pdfplumber) and write Parquet
 # (pyarrow); build_silver conforms with DuckDB over in-memory Arrow; to_gold talks to the catalog over Quack.
-FUNCTIONS: dict[str, dict] = {
+FUNCTIONS: dict[str, dict[str, Any]] = {
     # extract/verify/build_silver reach blob NATIVELY via context.blob (ADR-0127) — no boto3, no S3 keypair.
     "extract": {"wheels": ["pdfplumber>=0.11", "pyarrow>=17"], "ext": ()},
     "verify": {"wheels": ["pdfplumber>=0.11", "pyarrow>=17"], "ext": ()},
