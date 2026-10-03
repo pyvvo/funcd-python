@@ -408,6 +408,51 @@ def test_issue_r31_environ_writes_stay_in_the_member(tmp_path: Path) -> None:
         proc.wait(timeout=5)
 
 
+CHILD_SPAWNER = (
+    "import os\n"
+    "import subprocess\n"
+    "import time\n"
+    "os.environ['FUNCD_PROBE_CHILD'] = 'from-member'\n"
+    "os.environ['TZ'] = 'EST+5'\n"
+    "time.tzset()\n"
+    "ECHO = 'printf %s \"$FUNCD_PROBE_CHILD\"'\n"
+    "def run(env=None):\n"
+    "    return subprocess.run(['/bin/sh', '-c', ECHO], env=env, capture_output=True, text=True).stdout\n"
+    "def handle(context, event):\n"
+    "    out = os.path.join(event['data'], 'child-')\n"
+    "    os.system(ECHO + ' > ' + out + 'system')\n"
+    "    os.waitpid(os.posix_spawn('/bin/sh', ['sh', '-c', ECHO + ' > ' + out + 'spawn'], None), 0)\n"
+    "    seen = {tag: open(out + tag).read() for tag in ('system', 'spawn')}\n"
+    "    seen['run'] = run()\n"
+    "    seen['explicit'] = run({'FUNCD_PROBE_CHILD': 'explicit'})\n"
+    "    seen['popen'] = os.popen(ECHO).read()\n"
+    "    seen['status'] = os.system('exit 3')\n"
+    "    seen['hour'] = time.localtime(0).tm_hour\n"
+    "    return seen\n"
+)
+
+
+def test_issue_r31_member_children_get_the_member_environ(tmp_path: Path) -> None:
+    # A Node worker's child_process gets the worker's process.env copy, so a member's child processes get
+    # the member's os.environ. The local time zone stays the process's: tzset() reads the process TZ.
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("spawner", CHILD_SPAWNER)]), {"TZ": "UTC0"})
+    try:
+        st, body = _post(port, "spawner", json.dumps({"data": str(tmp_path)}))
+        assert st == 200, body
+        assert json.loads(body) == {
+            "system": "from-member",
+            "spawn": "from-member",
+            "run": "from-member",
+            "popen": "from-member",
+            "explicit": "explicit",
+            "status": 3 << 8,
+            "hour": 0,
+        }
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def test_issue_r27_pool_parallel_runs_handlers_at_the_same_time(tmp_path: Path) -> None:
     # scenario: py-pool-parallel — CPU-bound handlers run on per-interpreter GILs, so two of them run on
     # two cores at the same moments. Counting those moments, instead of comparing wall-clock times

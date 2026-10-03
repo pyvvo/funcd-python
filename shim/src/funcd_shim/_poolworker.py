@@ -10,8 +10,10 @@ host puts the package dir on ``PYTHONPATH`` so the worker can import ``funcd_shi
 from __future__ import annotations
 
 import _locale
+import inspect
 import locale
 import os
+import subprocess
 import sys
 from collections.abc import Callable, MutableMapping
 from typing import Any, AnyStr, NoReturn
@@ -38,7 +40,9 @@ _PROCESS_WIDE = ("chdir", "fchdir", "umask", "putenv", "unsetenv")
 
 class _MemberEnviron(os._Environ[AnyStr]):
     """A member's os.environ is its own copy, as process.env is in a Node worker: a write skips
-    putenv/unsetenv, so it never reaches the C environment that getenv reads and later members copy."""
+    putenv/unsetenv, so it never reaches the C environment that getenv reads and later members copy.
+    The member's child processes (subprocess, os.system, os.posix_spawn) get this copy. time.tzset()
+    still reads the process TZ: the local time zone belongs to the process, so a member cannot change it."""
 
     _data: MutableMapping[AnyStr, AnyStr]
 
@@ -50,6 +54,33 @@ class _MemberEnviron(os._Environ[AnyStr]):
             del self._data[self.encodekey(key)]
         except KeyError:
             raise KeyError(key) from None
+
+
+_POPEN_SIGNATURE = inspect.signature(subprocess.Popen)
+
+
+class _MemberPopen(subprocess.Popen[Any]):
+    """A child process gets the member's os.environ, as a Node worker's child_process gets the worker's
+    process.env: without an env, subprocess would hand the child the process environment."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        bound = _POPEN_SIGNATURE.bind(*args, **kwargs)
+        if bound.arguments.get("env") is None:
+            bound.arguments["env"] = os.environ
+        super().__init__(*bound.args, **bound.kwargs)
+
+
+def _with_member_env(spawn: Callable[..., int]) -> Callable[..., int]:
+    def spawn_with_member_env(path: Any, argv: Any, env: Any, /, **kwargs: Any) -> int:
+        return spawn(path, argv, os.environ if env is None else env, **kwargs)
+
+    return spawn_with_member_env
+
+
+def _member_system(command: str | bytes) -> int:
+    """os.system with the member's environment: C system() runs /bin/sh with the process environment."""
+    pid = os.posix_spawn("/bin/sh", ["sh", "-c", command], os.environ)
+    return os.waitpid(pid, 0)[1]
 
 
 def _refuse(name: str) -> Callable[..., NoReturn]:
@@ -79,6 +110,10 @@ def _isolate_process_state() -> None:
     for module in (os, sys.modules[os.name]):
         for name in _PROCESS_WIDE:
             setattr(module, name, _refuse(name))
+        for name in ("posix_spawn", "posix_spawnp"):
+            setattr(module, name, _with_member_env(getattr(module, name)))
+        module.system = _member_system  # type: ignore[attr-defined]
+    subprocess.Popen = _MemberPopen  # type: ignore[misc]
     # locale.setlocale reaches the C call through locale._setlocale, its import-time copy.
     guarded = _query_only(_locale.setlocale)
     for module, name in ((_locale, "setlocale"), (locale, "_setlocale")):
