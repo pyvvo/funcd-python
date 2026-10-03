@@ -7,6 +7,7 @@ pure `_anonymize` + `RESIDUAL` scan on SYNTHETIC libellés — never real statem
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from types import ModuleType
 
@@ -17,7 +18,13 @@ def _load() -> ModuleType:
     spec = importlib.util.spec_from_file_location("build_silver_handler", _HANDLER)
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    # The runtime puts the bundle root, the handler's own directory, on PYTHONPATH (ADR-0089): that is where
+    # the handler finds the funcd_types.py generated beside it.
+    sys.path.insert(0, str(_HANDLER.parent))
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.path.remove(str(_HANDLER.parent))
     return mod
 
 
@@ -43,3 +50,9 @@ def test_residual_scan_flags_leftover_pii() -> None:
 
     clean = h._anonymize("FACTURE(S) CARTE ****CARD CARREFOUR 12,00 EUR")
     assert not any(rx.search(clean) for rx, _ in h.RESIDUAL), "clean libellé must pass the residual scan"
+
+
+def test_issue_r34_handler_imports_its_generated_types() -> None:
+    h = _load()
+    generated = sys.modules[h.FuncOutput.__module__]
+    assert generated.__file__ == str(_HANDLER.parent / "funcd_types.py")
