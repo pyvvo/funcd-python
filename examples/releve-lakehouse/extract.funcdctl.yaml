@@ -1,6 +1,6 @@
 # extract — dev manifest (ADR-0122/0124/0125). Runs functions/extract/handler.py IN PLACE via `main`
-# (its own dir is the bundle root, so `import s3util` + siblings resolve and FUNCD_BUNDLE_DIR points
-# there). Bindings mirror the extract Function spec in resources/functions.yaml: config
+# (its own dir is the bundle root, so the generated funcd_types.py beside it resolves and FUNCD_BUNDLE_DIR
+# points there). Bindings mirror the extract Function spec in resources/functions.yaml: config
 # releve-project-config, blob landing (read the dropped PDF) + bronze (write the Parquet). Contract is
 # the handler's FuncInput/FuncOutput TypedDicts.
 runtime: python314

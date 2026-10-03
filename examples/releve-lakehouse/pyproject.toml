@@ -28,7 +28,7 @@ build = [
 funcd-shim = { path = "../../shim", editable = true }
 
 # Each function is pushed as its own bundle (functions/build.py) — there is no importable wheel; the code is
-# authored + typechecked in place under functions/. `import s3util` resolves to functions/s3util.py.
+# authored + typechecked in place under functions/.
 [tool.mypy]
 strict = true
 python_version = "3.12"
@@ -39,7 +39,6 @@ namespace_packages = true
 exclude = ['functions/.*/bundle/']   # vendored wheels (build.py output) are not ours to typecheck
 
 [tool.pytest.ini_options]
-pythonpath = ["functions"]       # so `import s3util` resolves in the handlers under test
 testpaths = ["tests"]            # don't recurse into functions/*/bundle (vendored wheels from build.py)
 
 [tool.ruff]

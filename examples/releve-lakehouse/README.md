@@ -24,10 +24,9 @@ gold DuckLake mart included); the **containerd/prod deploy is not yet**.
   the centime) and the PII gate (`build_silver` anonymize → **0 residual**). `uv run pytest` green; `uv run
   ruff check` clean.
 - ✅ **ADR-0089 bundle** builds (`functions/build.py extract` → glibc/arch-matched wheel closure).
-- ✅ **Binding env confirmed** (ADR-0085): a `spec.blob` function is injected a **SigV4 keypair + endpoint**
-  (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION`/`AWS_ENDPOINT_URL_S3`) — `s3util` uses boto3 (SigV4,
-  path-style) and `build_silver` configures DuckDB's httpfs from the same env. (An earlier draft wrongly
-  assumed anonymous HTTP; corrected.)
+- ✅ **Native blob I/O** (ADR-0127): `extract`, `verify` and `build_silver` read and write their `spec.blob`
+  bindings through `context.blob` over the worker-node local API — no S3 client, no keypair, no httpfs. The
+  SigV4 keypair (ADR-0085) is for S3 tools only: the drop into `landing/` and the `aws s3` commands below.
 - ✅ **Full medallion pipeline runs end-to-end under `funcdctl dev`** (from source): landing → bronze →
   silver → **gold**, including the **DuckLake/catalog round-trip** (`to_gold` drives the mart SQL over the
   `lake` catalog via Quack — ADR-0130), with the catalog durable across a restart under `--persist` (ADR-0131).

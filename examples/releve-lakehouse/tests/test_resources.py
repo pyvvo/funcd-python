@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
+import tomllib
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -119,3 +122,67 @@ def test_issue_r35_resources_name_only_existing_files() -> None:
         if not any((base / ref).exists() for base in (path.parent, _ROOT, _REPO))
     ]
     assert not missing
+
+
+def _words(node: Any) -> Iterator[str]:
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from _words(key)
+            yield from _words(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _words(item)
+    elif isinstance(node, str):
+        yield from re.findall(r"\w+", node)
+
+
+def _shipped_names() -> set[str]:
+    """Every name the example's code, manifests and file layout use, comments and docstrings left out."""
+    names: set[str] = set()
+    for path in _ROOT.rglob("*"):
+        rel = path.relative_to(_ROOT)
+        if rel.parts[0] == "tests" or any(p == "bundle" or p.startswith(".") for p in rel.parts):
+            continue
+        names.update(_words(path.name))
+        if path.suffix == ".py":
+            tree = ast.parse(path.read_text())
+            docstrings = {
+                ast.get_docstring(node, clean=False)
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Name):
+                    names.add(node.id)
+                elif isinstance(node, ast.Attribute):
+                    names.add(node.attr)
+                elif isinstance(node, ast.alias):
+                    names.update(node.name.split("."))
+                elif isinstance(node, ast.Constant) and node.value not in docstrings:
+                    names.update(_words(node.value))
+        elif path.suffix == ".yaml":
+            for doc in yaml.safe_load_all(path.read_text()):
+                names.update(_words(doc))
+        elif path.suffix == ".toml":
+            names.update(_words(tomllib.loads(path.read_text())))
+        elif path.suffix == ".sql":
+            names.update(_words(path.read_text()))
+    return names
+
+
+def test_issue_r42_docs_name_only_modules_the_example_has() -> None:
+    shipped = _shipped_names()
+    stale = []
+    docs = [
+        _ROOT / "README.md",
+        _ROOT / "landing" / "README.md",
+        _ROOT / "pyproject.toml",
+        *_ROOT.glob("*.yaml"),
+    ]
+    for path in docs:
+        text = path.read_text()
+        names = re.findall(r"`import (\w+)", text)
+        if path.suffix == ".md":
+            names += re.findall(r"`([a-z_][a-z0-9_]*)`", text)
+        stale += [f"{path.relative_to(_ROOT)} names {name}" for name in names if name not in shipped]
+    assert not stale
