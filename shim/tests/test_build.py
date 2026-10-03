@@ -287,3 +287,26 @@ def test_issue_r23_profile_formats_build(field: str, good: Any, bad: Any) -> Non
     vin = _exec(build(src).runtime_source)["__funcd_validate_input"]
     assert vin({"v": good}) == []
     assert vin({"v": bad}), f"{bad!r} must not satisfy {field}"
+
+
+# ---- issue r44: both sides baking regexes keep their own patterns ----
+
+
+def test_issue_r44_each_side_keeps_its_regex_patterns() -> None:
+    src = (
+        "import datetime\n"
+        "from typing import Annotated\n"
+        "from pydantic import BaseModel, Field\n"
+        "class FuncInput(BaseModel):\n"
+        "    code: Annotated[str, Field(pattern='^[A-Z]+$')]\n"
+        "class FuncOutput(BaseModel):\n"
+        "    at: datetime.datetime\n"
+        "def handle(ctx, event):\n"
+        "    return None\n"
+    )
+    ns = _exec(build(src).runtime_source)
+    vin, vout = ns["__funcd_validate_input"], ns["__funcd_validate_output"]
+    assert vin({"code": "ABC"}) == []
+    assert vin({"code": "abc"}), "abc must not match ^[A-Z]+$"
+    assert vout({"at": "2026-10-03T12:00:00Z"}) == []
+    assert vout({"at": "yesterday"}), "yesterday is not a date-time"
