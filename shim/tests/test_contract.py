@@ -104,6 +104,35 @@ def test_issue_129_out_of_profile_format_still_fails_closed(tmp_path: Path) -> N
         )
 
 
+# ---- issue r24: int32 enforces -2**31..2**31-1, as ajv-formats does on nodejs22 ----
+
+_INT32 = {"type": "integer", "format": "int32"}
+
+
+def test_issue_r24_int32_format_enforces_its_range(tmp_path: Path) -> None:
+    # "default" is a field name that is also a data keyword: its subschema must still be bounded.
+    schema = {
+        "type": "object",
+        "properties": {
+            "default": _INT32,
+            "list": {"type": "array", "items": {"type": ["integer", "null"], "format": "int32"}},
+            "positive": {**_INT32, "minimum": 0},
+        },
+        "additionalProperties": False,
+    }
+    v = contract.load_from_path(_write(tmp_path, "c.json", {"input": schema, "output": {}}))
+    assert v.input is not None
+    assert v.input({"default": 2**31 - 1, "list": [-(2**31), None], "positive": 0}) == []
+    for bad in (
+        {"default": 3_000_000_000},
+        {"default": 2**31},
+        {"list": [-(2**31) - 1]},
+        {"positive": -1},
+        {"positive": 2**31},
+    ):
+        assert v.input(bad), f"{bad} must not satisfy the int32 contract"
+
+
 # ---- contract.load(): env-driven, back-compat when unset ----
 
 
