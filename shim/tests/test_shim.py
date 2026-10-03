@@ -286,6 +286,16 @@ def test_issue_r21_response_json_is_written_like_json_stringify() -> None:
         assert post(base, '{"data": {"hello": 5}}') == (422, mismatch)
 
 
+def test_issue_r43_response_floats_are_written_like_json_stringify() -> None:
+    # Expected bytes are what the Node shim's JSON.stringify writes for the same values (ADR-0049 §2).
+    floats = [1.0, -0.0, 1e-05, 1e-07, 1e16, 1.2345678901234568e20, 1e21, 0.1, -2.5, 1.5e-10]
+    with serve(lambda ctx, e: {"v": floats, "n": 3}) as base:
+        assert post(base, "{}") == (
+            200,
+            b'{"v":[1,0,0.00001,1e-7,10000000000000000,123456789012345680000,1e+21,0.1,-2.5,1.5e-10],"n":3}',
+        )
+
+
 @pytest.mark.parametrize(
     "validators",
     [runtime.Validators(), runtime.Validators(input=lambda data: [])],
