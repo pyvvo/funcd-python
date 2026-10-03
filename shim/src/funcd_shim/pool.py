@@ -60,7 +60,7 @@ class _Pooled:
         links: list[str] | None = None,
     ) -> dict[str, Any]:
         result: dict[str, Any] = self.ex.submit(
-            _poolworker.invoke, body.decode(), traceparent, fn_name, span_id, links
+            _poolworker.invoke, body, traceparent, fn_name, span_id, links
         ).result()
         return result
 

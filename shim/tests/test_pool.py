@@ -142,10 +142,10 @@ def _start(
     raise RuntimeError("pool host never wrote its port")
 
 
-def _post(port: int, name: str, body: str) -> tuple[int, bytes]:
+def _post(port: int, name: str, body: str | bytes) -> tuple[int, bytes]:
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/function/{name}",
-        data=body.encode(),
+        data=body if isinstance(body, bytes) else body.encode(),
         headers={"content-type": "application/json"},
     )
     try:
@@ -214,6 +214,15 @@ def test_issue_r22_pool_400_answers_match_the_solo_shim(tmp_path: Path) -> None:
             st, payload = _post(port, "f0", body)
             assert (st, payload) == (400, b"request body must be a JSON object (CloudEvent envelope)"), body
         assert _post(port, "f0", "abc{") == (400, b"invalid CloudEvent JSON")
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_issue_r38_pool_answers_a_non_utf8_body_with_400(tmp_path: Path) -> None:
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ECHO)]))
+    try:
+        assert _post(port, "f0", b'{"data":"\xff"}') == (400, b"invalid CloudEvent JSON")
     finally:
         proc.terminate()
         proc.wait(timeout=5)
