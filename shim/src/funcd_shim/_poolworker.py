@@ -13,8 +13,8 @@ import _locale
 import locale
 import os
 import sys
-from collections.abc import Callable
-from typing import Any, NoReturn
+from collections.abc import Callable, MutableMapping
+from typing import Any, AnyStr, NoReturn
 
 from . import contract, jsonwire, runtime
 from .blob import BlobClient
@@ -30,10 +30,26 @@ _handler: Handler | None = None
 _validators: Validators = Validators()
 _channel: Any = None  # the shared telemetry channel (ADR-0101), opened once in init()
 
-#: The working directory, the umask and the C locale belong to the process, not to a subinterpreter: a
-#: member that changed them would change them for every sibling. The pool refuses them, as a Node worker
-#: refuses process.chdir/process.umask and has no API to change the locale (ADR-0044/0050 isolation parity).
-_PROCESS_WIDE = ("chdir", "fchdir", "umask")
+#: The working directory, the umask and the C environment and the C locale belong to the process, not to a
+#: subinterpreter: a member that changed them would change them for every sibling. The pool refuses them,
+#: as a Node worker refuses process.chdir/process.umask and has no API to change the locale (ADR-0044/0050 isolation parity).
+_PROCESS_WIDE = ("chdir", "fchdir", "umask", "putenv", "unsetenv")
+
+
+class _MemberEnviron(os._Environ[AnyStr]):
+    """A member's os.environ is its own copy, as process.env is in a Node worker: a write skips
+    putenv/unsetenv, so it never reaches the C environment that getenv reads and later members copy."""
+
+    _data: MutableMapping[AnyStr, AnyStr]
+
+    def __setitem__(self, key: AnyStr, value: AnyStr) -> None:
+        self._data[self.encodekey(key)] = self.encodevalue(value)
+
+    def __delitem__(self, key: AnyStr) -> None:
+        try:
+            del self._data[self.encodekey(key)]
+        except KeyError:
+            raise KeyError(key) from None
 
 
 def _refuse(name: str) -> Callable[..., NoReturn]:
@@ -59,7 +75,7 @@ def _query_only(setlocale: Callable[[int, str | None], str]) -> Callable[[int, s
     return guarded
 
 
-def _refuse_process_wide() -> None:
+def _isolate_process_state() -> None:
     for module in (os, sys.modules[os.name]):
         for name in _PROCESS_WIDE:
             setattr(module, name, _refuse(name))
@@ -67,6 +83,9 @@ def _refuse_process_wide() -> None:
     guarded = _query_only(_locale.setlocale)
     for module, name in ((_locale, "setlocale"), (locale, "_setlocale")):
         setattr(module, name, guarded)
+    os.environ.__class__ = _MemberEnviron
+    if os.supports_bytes_environ:
+        os.environb.__class__ = _MemberEnviron
 
 
 def init(
@@ -84,7 +103,7 @@ def init(
     eval-free reversal + the m3 reorder. A set-but-broken path fails the worker closed. When absent,
     fall back to the module-baked ``__funcd_validate_*`` (transition back-compat)."""
     global _handler, _validators, _channel
-    _refuse_process_wide()
+    _isolate_process_state()
     if src not in sys.path:
         sys.path.insert(0, src)
 

@@ -359,6 +359,55 @@ def test_issue_r30_setlocale_does_not_leak_to_siblings(tmp_path: Path) -> None:
         proc.wait(timeout=5)
 
 
+ENV_WRITER = (
+    "import os\n"
+    "os.environ['FUNCD_PROBE_LEAK'] = 'from-writer'\n"
+    "del os.environ['FUNCD_PROBE_KEEP']\n"
+    "def handle(context, event):\n"
+    "    refused = []\n"
+    "    for name, args in (('putenv', ('FUNCD_PROBE_LEAK', 'x')), ('unsetenv', ('FUNCD_PROBE_KEEP',))):\n"
+    "        try:\n"
+    "            getattr(os, name)(*args)\n"
+    "        except RuntimeError:\n"
+    "            refused.append(name)\n"
+    "    leak, keep = os.environ.get('FUNCD_PROBE_LEAK'), os.environ.get('FUNCD_PROBE_KEEP')\n"
+    "    return {'leak': leak, 'keep': keep, 'refused': refused}\n"
+)
+ENV_READER = (
+    "import ctypes\n"
+    "import os\n"
+    "_getenv = ctypes.CDLL(None).getenv\n"
+    "_getenv.restype = ctypes.c_char_p\n"
+    "def handle(context, event):\n"
+    "    seen = {}\n"
+    "    for name in ('FUNCD_PROBE_LEAK', 'FUNCD_PROBE_KEEP'):\n"
+    "        raw = _getenv(name.encode())\n"
+    "        seen[name] = [os.environ.get(name), raw.decode() if raw else None]\n"
+    "    return seen\n"
+)
+
+
+def test_issue_r31_environ_writes_stay_in_the_member(tmp_path: Path) -> None:
+    # A member's os.environ is its own copy, as process.env is in a Node worker (ADR-0044/0050): a
+    # write must not reach the process environment, which members started later copy and C getenv reads.
+    members = [("before", ENV_READER), ("writer", ENV_WRITER), ("after", ENV_READER)]
+    proc, port = _start(tmp_path, _manifest(tmp_path, members), {"FUNCD_PROBE_KEEP": "kept"})
+    try:
+        for name in ("before", "after"):
+            st, body = _post(port, name, "{}")
+            assert st == 200, body
+            assert json.loads(body) == {
+                "FUNCD_PROBE_LEAK": [None, None],
+                "FUNCD_PROBE_KEEP": ["kept", "kept"],
+            }, name
+        st, body = _post(port, "writer", "{}")
+        assert st == 200, body
+        assert json.loads(body) == {"leak": "from-writer", "keep": None, "refused": ["putenv", "unsetenv"]}
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def test_issue_r27_pool_parallel_runs_handlers_at_the_same_time(tmp_path: Path) -> None:
     # scenario: py-pool-parallel — CPU-bound handlers run on per-interpreter GILs, so two of them run on
     # two cores at the same moments. Counting those moments, instead of comparing wall-clock times
