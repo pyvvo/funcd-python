@@ -7,9 +7,15 @@ pure `_anonymize` + `RESIDUAL` scan on SYNTHETIC libellés — never real statem
 from __future__ import annotations
 
 import importlib.util
+import io
 import sys
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from types import ModuleType
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 _HANDLER = Path(__file__).resolve().parent.parent / "functions" / "build_silver" / "handler.py"
 
@@ -56,3 +62,57 @@ def test_issue_r34_handler_imports_its_generated_types() -> None:
     h = _load()
     generated = sys.modules[h.FuncOutput.__module__]
     assert generated.__file__ == str(_HANDLER.parent / "funcd_types.py")
+
+
+class _Blob:
+    def __init__(self, objects: dict[str, bytes]) -> None:
+        self.objects = objects
+
+    def list(self, binding: str, prefix: str = "") -> list[str]:
+        return [k.removeprefix(f"{binding}/") for k in self.objects if k.startswith(f"{binding}/{prefix}")]
+
+    def get(self, binding: str, key: str) -> bytes | None:
+        return self.objects.get(f"{binding}/{key}")
+
+    def put(self, binding: str, key: str, data: bytes) -> None:
+        self.objects[f"{binding}/{key}"] = data
+
+
+class _Ctx:
+    def __init__(self, blob: _Blob) -> None:
+        self.blob = blob
+
+
+def _bronze_statement(debits: list[tuple[str, str]]) -> bytes:
+    """A synthetic bronze statement: (libelle, debit) rows, all booked on one day."""
+    day = date(2026, 2, 3)
+    amounts = [Decimal(d) for _, d in debits]
+    table = pa.table(
+        {
+            "date_comptable": pa.array([day] * len(debits), pa.date32()),
+            "date_valeur": pa.array([day] * len(debits), pa.date32()),
+            "libelle": pa.array([lib for lib, _ in debits], pa.string()),
+            "debit": pa.array(amounts, pa.decimal128(12, 2)),
+            "credit": pa.array([Decimal("0")] * len(debits), pa.decimal128(12, 2)),
+            "montant": pa.array([-a for a in amounts], pa.decimal128(12, 2)),
+        }
+    )
+    buf = io.BytesIO()
+    pq.write_table(table, buf)
+    return buf.getvalue()
+
+
+def test_issue_r55_silver_keeps_identical_transactions_of_one_statement() -> None:
+    h = _load()
+    atm = ("RETRAIT DAB 03.02 LYON", "40.00")
+    # The two statements overlap on 3 Feb, and each lists that day's two identical ATM withdrawals.
+    blob = _Blob(
+        {
+            "bronze/jan.parquet": _bronze_statement([atm, atm, ("CB BOULANGERIE", "4.20")]),
+            "bronze/feb.parquet": _bronze_statement([atm, atm, ("CB LIBRAIRIE", "12.00")]),
+        }
+    )
+    out = h.handle(_Ctx(blob), {})
+    silver = pq.read_table(io.BytesIO(blob.objects["silver/transactions.parquet"])).column("libelle")
+    assert silver.to_pylist().count(atm[0]) == 2
+    assert out["rows"] == 4
