@@ -106,8 +106,8 @@ def test_severity_mapping(monkeypatch: Any) -> None:
     assert sevs == ["INFO", "WARN", "ERROR", "FATAL"]
 
 
-def test_uds_channel_captures_lines(monkeypatch: Any, tmp_path: Path) -> None:
-    sock_path = tmp_path / "log.sock"
+def test_uds_channel_captures_lines(monkeypatch: Any, sock_dir: Path) -> None:
+    sock_path = sock_dir / "log.sock"
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(str(sock_path))
     server.listen(1)

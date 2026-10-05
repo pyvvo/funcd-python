@@ -161,7 +161,7 @@ def test_logs_correlated_to_span() -> None:
 
 
 @contextmanager
-def _solo_channel(monkeypatch: Any, tmp_path: Path, transport: str) -> Iterator[tuple[_Channel, list[bytes]]]:
+def _solo_channel(monkeypatch: Any, sock_dir: Path, transport: str) -> Iterator[tuple[_Channel, list[bytes]]]:
     """The telemetry channel opened the way the solo shim opens it (no write lock), drained 512 bytes at a
     time by a reader. On exit the channel is closed and the list holds every byte written to it."""
     received: list[bytes] = []
@@ -177,9 +177,9 @@ def _solo_channel(monkeypatch: Any, tmp_path: Path, transport: str) -> Iterator[
             os.close(read_fd)
     else:
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        server.bind(str(tmp_path / "log.sock"))
+        server.bind(str(sock_dir / "log.sock"))
         server.listen(1)
-        monkeypatch.setenv("FUNCD_LOG_SOCK", str(tmp_path / "log.sock"))
+        monkeypatch.setenv("FUNCD_LOG_SOCK", str(sock_dir / "log.sock"))
 
         def drain() -> None:
             conn, _ = server.accept()
@@ -204,12 +204,12 @@ def _solo_channel(monkeypatch: Any, tmp_path: Path, transport: str) -> Iterator[
 
 @pytest.mark.parametrize("transport", ["fd", "uds"])
 def test_issue_r25_solo_channel_keeps_span_and_log_records_whole(
-    monkeypatch: Any, tmp_path: Path, transport: str
+    monkeypatch: Any, sock_dir: Path, transport: str
 ) -> None:
     # pyvvo/funcd-python#25: the solo shim's request threads share one telemetry channel, and a span is
     # written outside the logging lock, so it must not splice into a log line blocked on a full channel.
     logs, spans = 150, 1500
-    with _solo_channel(monkeypatch, tmp_path, transport) as (channel, received):
+    with _solo_channel(monkeypatch, sock_dir, transport) as (channel, received):
         handler = install_log_capture(channel)
         assert handler is not None
 

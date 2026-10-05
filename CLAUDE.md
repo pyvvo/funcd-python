@@ -43,8 +43,8 @@ For many short commands (agents, scripts), use `scripts/agent/d <cmd>` instead: 
 from a cached `nix print-dev-env` (regenerated when `flake.nix` or `flake.lock` change), about 0.02 s per call
 instead of about 2 s. It caches this repo's flake; funcd and the other language repo ship the same script for their own.
 
-On macOS, run the tests with a short `TMPDIR` (`TMPDIR=/tmp scripts/agent/d just check`): pytest's default temp dir
-there is long enough to push the Unix socket paths some tests bind past the 104-byte `AF_UNIX` limit.
+A test binds a Unix socket in the `sock_dir` fixture (`shim/tests/conftest.py`), never under `tmp_path`: pytest's
+temp dir follows `TMPDIR`, which on macOS is long enough to push a socket path past the 104-byte `AF_UNIX` limit.
 
 The dev shell also installs the lefthook git hooks. pre-commit formats and lints staged files
 with ruff and gofmt, commit-msg enforces Conventional Commits, and pre-push runs `just check`.
