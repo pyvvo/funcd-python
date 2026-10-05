@@ -16,6 +16,8 @@ contract:
     properties:
       count:
         type: integer
+      big:
+        type: integer
   output:
     type: object
     additionalProperties: false
