@@ -17,7 +17,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from .funclog import _Budget, _record_bound
-from .invcontext import InvContext, reset_inv, set_inv
+from .invcontext import InvContext, current_inv, reset_inv, set_inv
 
 if TYPE_CHECKING:
     from .funclog import Channel
@@ -71,13 +71,45 @@ def parse_links(header: str | None) -> list[str]:
     return [s.strip() for s in header.split(",") if s.strip() and _SPAN_RE.match(s.strip())]
 
 
-def _emit_span(channel: Channel, rec: dict[str, Any], bound: int) -> None:
-    """Write one span record of at most *bound* bytes (ADR-0168): an over-long ``status_msg`` is cut and
-    the record carries ``attrs.truncated`` and ``attrs.keptBytes`` (the kept ``status_msg`` bytes)."""
+def _emit_span(
+    channel: Channel,
+    ids: InvContext,
+    name: str,
+    kind: str,
+    start_ns: int,
+    end_ns: int,
+    status: str,
+    status_msg: str,
+    attrs: dict[str, str],
+    links: list[str],
+    member: str | None,
+    bound: int,
+) -> None:
+    """Write one span record. *ids* names the span (trace, span, parent, inv): the invocation's own
+    context for a SERVER span, the caller's trace and invocation with a fresh span-id under the caller's
+    span for a CLIENT span (ADR-0165). The line is at most *bound* bytes (ADR-0168): an over-long
+    ``status_msg`` is cut and the record carries ``attrs.truncated`` and ``attrs.keptBytes`` (the kept
+    ``status_msg`` bytes)."""
+    rec: dict[str, Any] = {
+        "funcd.signal": "traces",
+        "trace_id": ids.trace_id,
+        "span_id": ids.span_id,
+        "parent_id": ids.parent_id,
+        "name": name,
+        "kind": kind,
+        "start": start_ns,
+        "end": end_ns,
+        "status": status,
+        "status_msg": status_msg,
+        "attrs": attrs,
+        "inv": ids.inv,
+        "links": links,  # ADR-0105: fan-in edges (same-trace span-ids)
+    }
+    if member:
+        rec["funcd.member"] = member
     text = json.dumps(rec, separators=(",", ":"))
     if len(text) > bound:
-        status_msg = rec["status_msg"]
-        rec = {**rec, "status_msg": "", "attrs": {**rec["attrs"], "truncated": "true", "keptBytes": ""}}
+        rec = {**rec, "status_msg": "", "attrs": {**attrs, "truncated": "true", "keptBytes": ""}}
         # keptBytes is at most 7 digits: the bound is at most 1 MiB.
         budget = _Budget(bound - len(json.dumps(rec, separators=(",", ":"))) - 7)
         rec["status_msg"] = budget.take(status_msg)
@@ -134,21 +166,88 @@ class InvocationSpan:
         if self._channel is None:
             return
         end_ns = self._start_ns + (time.monotonic_ns() - self._t0)
-        rec: dict[str, Any] = {
-            "funcd.signal": "traces",
-            "trace_id": self._ctx.trace_id,
-            "span_id": self._ctx.span_id,
-            "parent_id": self._ctx.parent_id,
-            "name": self._name,
-            "kind": "SERVER",
-            "start": self._start_ns,
-            "end": end_ns,
-            "status": self._status,
-            "status_msg": self._status_msg,
-            "attrs": {},
-            "inv": self._ctx.inv,
-            "links": self._links,  # ADR-0105: fan-in edges (same-trace span-ids)
-        }
-        if self._member:
-            rec["funcd.member"] = self._member
-        _emit_span(self._channel, rec, self._bound)
+        _emit_span(
+            self._channel,
+            self._ctx,
+            self._name,
+            "SERVER",
+            self._start_ns,
+            end_ns,
+            self._status,
+            self._status_msg,
+            {},
+            self._links,
+            self._member,
+            self._bound,
+        )
+
+
+class ClientSpan:
+    """CLIENT span "call <alias>" of one context.invoke call, under current_inv() (ADR-0165);
+    outside an invocation traceparent is None, nothing emitted. With no channel the traceparent is still
+    minted and no span line is written. *member* is the calling pool member, stamped as ``funcd.member``;
+    the span line takes the record bound as the SERVER span's does (ADR-0168)."""
+
+    def __init__(
+        self,
+        channel: Channel | None,
+        alias: str,
+        member: str | None = None,
+        max_record_bytes: int | None = None,
+    ) -> None:
+        self._channel = channel
+        self._bound = _record_bound() if max_record_bytes is None else max_record_bytes
+        self._alias = alias
+        self._member = member
+        caller = current_inv()
+        self._ids = (
+            None
+            if caller is None
+            else InvContext(
+                inv=caller.inv,
+                trace_id=caller.trace_id,
+                span_id=secrets.token_hex(8),
+                parent_id=caller.span_id,
+            )
+        )
+        self._http_status: int | None = None
+        self._start_ns = 0
+        self._t0 = 0
+
+    @property
+    def traceparent(self) -> str | None:
+        if self._ids is None:
+            return None
+        return f"00-{self._ids.trace_id}-{self._ids.span_id}-01"
+
+    def reply(self, status: int) -> None:
+        """Record the local API reply status as http.status_code, a decimal string;
+        sets no status (invoke.py raises on non-2xx)."""
+        self._http_status = status
+
+    def __enter__(self) -> ClientSpan:
+        self._start_ns = time.time_ns()
+        self._t0 = time.monotonic_ns()
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        """Emit the span once; any exception sets ERROR with str(exc)."""
+        if self._ids is None or self._channel is None:
+            return
+        end_ns = self._start_ns + (time.monotonic_ns() - self._t0)
+        status, status_msg = ("OK", "") if exc is None else ("ERROR", str(exc))
+        attrs = {} if self._http_status is None else {"http.status_code": str(self._http_status)}
+        _emit_span(
+            self._channel,
+            self._ids,
+            f"call {self._alias}",
+            "CLIENT",
+            self._start_ns,
+            end_ns,
+            status,
+            status_msg,
+            attrs,
+            [],
+            self._member,
+            self._bound,
+        )

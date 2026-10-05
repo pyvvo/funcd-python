@@ -185,7 +185,7 @@ class _Ctx:
         print(*args, flush=True)
 
     def invoke(self, alias: str, payload: Any) -> Any:
-        return _invoke(alias, payload, member=_member)
+        return _invoke(alias, payload, member=_member, channel=_channel)
 
     @property
     def kv(self) -> KVClient:
