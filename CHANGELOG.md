@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.6](https://github.com/pyvvo/funcd-python/compare/v0.3.5...v0.3.6) (2026-10-05)
+
+
+### Bug Fixes
+
+* **shim:** bound the int64 format to the JSON safe-integer range ([#58](https://github.com/pyvvo/funcd-python/issues/58)) ([b172a72](https://github.com/pyvvo/funcd-python/commit/b172a724cf3b7cae2113f64438097bdb9b6f8f3d))
+
 ## [0.3.5](https://github.com/pyvvo/funcd-python/compare/v0.3.4...v0.3.5) (2026-10-03)
 
 
