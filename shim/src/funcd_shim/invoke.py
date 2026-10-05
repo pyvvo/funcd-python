@@ -11,7 +11,12 @@ import http.client
 import json
 import os
 import socket
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from .tracespan import ClientSpan
+
+if TYPE_CHECKING:
+    from .funclog import Channel
 
 
 class _UnixHTTPConnection(http.client.HTTPConnection):
@@ -31,7 +36,7 @@ MEMBER_HEADER = "X-Funcd-Member"
 """The local API request header naming the calling pool member; the solo shim sends none."""
 
 
-def invoke(alias: str, payload: Any, *, member: str | None = None) -> Any:
+def invoke(alias: str, payload: Any, *, member: str | None = None, channel: Channel | None = None) -> Any:
     """POST *payload* to ``/invoke/<alias>`` over the worker-node UDS; return the target's JSON output.
 
     The platform builds the target's CloudEvent from *payload* (funcd ADR-0134): an object with a
@@ -41,23 +46,31 @@ def invoke(alias: str, payload: Any, *, member: str | None = None) -> Any:
 
     Raises ``RuntimeError`` on a non-2xx (no link → 403, unknown target → 404, bad input → 422,
     target down/timeout → 503) or when the socket is unavailable.
+
+    Inside an invocation the call sends a ``traceparent`` and, when *channel* is set, writes one CLIENT
+    span ``call <alias>`` on it once the call settles (ADR-0165).
     """
-    socket_path = os.environ.get("FUNCD_INVOKE_SOCKET")
-    if not socket_path:
-        raise RuntimeError(
-            "context.invoke: worker-node local API socket unavailable (FUNCD_INVOKE_SOCKET unset)"
-        )
-    conn = _UnixHTTPConnection(socket_path)
-    try:
-        body = json.dumps(payload).encode("utf-8")
-        headers = {"content-type": "application/json"}
-        if member:
-            headers[MEMBER_HEADER] = member
-        conn.request("POST", f"/invoke/{alias}", body=body, headers=headers)
-        resp = conn.getresponse()
-        text = resp.read().decode("utf-8")
-        if 200 <= resp.status < 300:
-            return json.loads(text) if text else None
-        raise RuntimeError(f'context.invoke("{alias}") failed: {resp.status} {text}')
-    finally:
-        conn.close()
+    # The CLIENT span brackets the whole call, so it opens before any check that can fail.
+    with ClientSpan(channel, alias, member) as span:
+        socket_path = os.environ.get("FUNCD_INVOKE_SOCKET")
+        if not socket_path:
+            raise RuntimeError(
+                "context.invoke: worker-node local API socket unavailable (FUNCD_INVOKE_SOCKET unset)"
+            )
+        conn = _UnixHTTPConnection(socket_path)
+        try:
+            body = json.dumps(payload).encode("utf-8")
+            headers = {"content-type": "application/json"}
+            if member:
+                headers[MEMBER_HEADER] = member
+            if span.traceparent:
+                headers["traceparent"] = span.traceparent
+            conn.request("POST", f"/invoke/{alias}", body=body, headers=headers)
+            resp = conn.getresponse()
+            span.reply(resp.status)
+            text = resp.read().decode("utf-8")
+            if 200 <= resp.status < 300:
+                return json.loads(text) if text else None
+            raise RuntimeError(f'context.invoke("{alias}") failed: {resp.status} {text}')
+        finally:
+            conn.close()

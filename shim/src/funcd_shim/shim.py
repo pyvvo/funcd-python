@@ -46,11 +46,14 @@ if TYPE_CHECKING:
 class _Context:
     """The FunctionContext passed to every handler invocation (ADR-0010 logging)."""
 
+    def __init__(self, channel: _Channel | None = None) -> None:
+        self._channel = channel  # ADR-0165: where context.invoke writes its CLIENT span
+
     def log(self, *args: object) -> None:
         print(*args, flush=True)
 
     def invoke(self, alias: str, payload: Any) -> Any:
-        return _invoke(alias, payload)
+        return _invoke(alias, payload, channel=self._channel)
 
     @property
     def kv(self) -> KVClient:
@@ -88,7 +91,7 @@ def make_request_handler(
     ADR-0101: when *channel* is set, each invocation emits an auto SERVER span on it (adopting the
     incoming ``traceparent`` or minting a root); *fn_name* names the span.
     """
-    context: FunctionContext = _Context()
+    context: FunctionContext = _Context(channel)
 
     class ShimHandler(BaseHTTPRequestHandler):
         # HTTP/1.1 → keep-alive: reuse the TCP connection across requests instead of closing after
