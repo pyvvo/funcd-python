@@ -2,11 +2,10 @@
 worker-node local API (HTTP-over-UDS), proving the client-side decoders without a real platform."""
 
 import os
-import shutil
-import tempfile
 import threading
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 from socketserver import UnixStreamServer
 
 import pytest
@@ -37,11 +36,9 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 @pytest.fixture
-def kv() -> Iterator[KVClient]:
+def kv(sock_dir: Path) -> Iterator[KVClient]:
     _ROUTES.clear()
-    # A short dir under /tmp — pytest's tmp_path overflows the ~104-char AF_UNIX limit.
-    tmp = tempfile.mkdtemp(dir="/tmp")
-    sock = os.path.join(tmp, "s")
+    sock = str(sock_dir / "s")
     server = UnixStreamServer(sock, _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -52,7 +49,6 @@ def kv() -> Iterator[KVClient]:
         os.environ.pop("FUNCD_INVOKE_SOCKET", None)
         server.shutdown()
         server.server_close()
-        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def test_scenario_get_str_decodes(kv: KVClient) -> None:
