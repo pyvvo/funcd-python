@@ -391,6 +391,65 @@ def test_runtime_compiled_validators_enforce_wire(tmp_path: Path) -> None:
         assert post(base, "{}")[0] == 500
 
 
+# ---- ADR-0150: int64 is the JSON safe-integer range -(2**53 - 1)..2**53 - 1 on every runtime ----
+
+_INT64_SIDE = {
+    "type": "object",
+    "properties": {"n": {"type": "integer", "format": "int64"}},
+    "required": ["n"],
+    "additionalProperties": False,
+}
+
+
+def _int64_contract(tmp_path: Path, input_side: Any, output_side: Any) -> runtime.Validators:
+    blob = tmp_path / "int64.json"
+    blob.write_text(json.dumps({"input": input_side, "output": output_side}))
+    return contract.load_from_path(str(blob))
+
+
+def _int64_event(n: int) -> str:
+    return f'{{"data": {{"n": {n}}}}}'
+
+
+def test_scenario_int64_safe_max_accepted(tmp_path: Path) -> None:
+    validators = _int64_contract(tmp_path, _INT64_SIDE, _INT64_SIDE)
+    seen: list[Any] = []
+
+    def handler(context: FunctionContext, event: CloudEvent[Any]) -> Any:
+        seen.append(event["data"]["n"])
+        return event["data"]
+
+    with serve(handler, validators) as base:
+        for n in (2**53 - 1, -(2**53 - 1)):
+            status, payload = post(base, _int64_event(n))
+            assert status == 200, n
+            assert json.loads(payload) == {"n": n}
+    assert seen == [2**53 - 1, -(2**53 - 1)]
+
+
+def test_scenario_int64_over_safe_range_rejected(tmp_path: Path) -> None:
+    validators = _int64_contract(tmp_path, _INT64_SIDE, {})
+    calls: list[Any] = []
+    with serve(lambda ctx, e: calls.append(e), validators) as base:
+        for n in (2**53, 2**53 + 1, 2**70):
+            assert post(base, _int64_event(n))[0] == 422, n
+    assert calls == []
+
+
+def test_scenario_int64_under_safe_range_rejected(tmp_path: Path) -> None:
+    validators = _int64_contract(tmp_path, _INT64_SIDE, {})
+    calls: list[Any] = []
+    with serve(lambda ctx, e: calls.append(e), validators) as base:
+        assert post(base, _int64_event(-(2**53)))[0] == 422
+    assert calls == []
+
+
+def test_scenario_int64_output_over_safe_range_is_500(tmp_path: Path) -> None:
+    validators = _int64_contract(tmp_path, {}, _INT64_SIDE)
+    with serve(lambda ctx, e: {"n": 2**60}, validators) as base:
+        assert post(base, "{}")[0] == 500
+
+
 # ---- main() shape-gate exit codes (return before serving) ----
 
 

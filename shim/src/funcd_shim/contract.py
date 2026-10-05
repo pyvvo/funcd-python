@@ -32,8 +32,8 @@ CONTRACT_ENV = "FUNCD_CONTRACT_PATH"
 
 # The ADR-0058 profile formats fastjsonschema does not ship: without them a schema inside the profile fails
 # to compile ("Unknown format"). fastjsonschema checks a format on strings only, so the number formats
-# int32/int64 get the empty pattern (_with_int32_range enforces int32); every other unknown format still
-# fails closed.
+# int32/int64 get the empty pattern (_with_int_ranges enforces their ranges); every other unknown format
+# still fails closed.
 _PROFILE_FORMATS = {
     "uuid": r"^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\Z",
     "int32": "",
@@ -41,9 +41,14 @@ _PROFILE_FORMATS = {
 }
 
 
-# What ajv-formats enforces for int32 on nodejs22; the profile puts int32 on an integer, so the bounds are the
-# whole check (ADR-0058, ADR-0123 advertised == enforced).
-_INT32_RANGE = {"minimum": -(2**31), "maximum": 2**31 - 1}
+# The profile puts int32/int64 on an integer, so the bounds are the whole check (ADR-0058, ADR-0123
+# advertised == enforced). int32 is what ajv-formats enforces on nodejs22. int64 is the JSON safe-integer
+# range (ADR-0150): Python holds 2**63 - 1 exactly but nodejs22 does not, and a contract means the same on
+# every runtime.
+_INT_RANGES = {
+    "int32": {"minimum": -(2**31), "maximum": 2**31 - 1},
+    "int64": {"minimum": -(2**53 - 1), "maximum": 2**53 - 1},
+}
 # Keywords whose value maps names to subschemas, and keywords whose value is instance data, not a subschema.
 _SCHEMA_MAPS = frozenset(
     {"properties", "patternProperties", "$defs", "definitions", "dependentSchemas", "dependencies"}
@@ -56,10 +61,10 @@ class ContractError(Exception):
     (never serve un-validated); the shim turns this into exit code 3."""
 
 
-def _with_int32_range(schema: Any) -> Any:
-    """Return a copy of *schema* in which every int32 subschema also carries ``allOf: [_INT32_RANGE]``."""
+def _with_int_ranges(schema: Any) -> Any:
+    """Return a copy of *schema* in which every int32/int64 subschema also carries ``allOf: [its range]``."""
     if isinstance(schema, list):
-        return [_with_int32_range(sub) for sub in schema]
+        return [_with_int_ranges(sub) for sub in schema]
     if not isinstance(schema, dict):
         return schema
     out: dict[str, Any] = {}
@@ -67,11 +72,12 @@ def _with_int32_range(schema: Any) -> Any:
         if key in _DATA_KEYWORDS:
             out[key] = value
         elif key in _SCHEMA_MAPS and isinstance(value, dict):
-            out[key] = {name: _with_int32_range(sub) for name, sub in value.items()}
+            out[key] = {name: _with_int_ranges(sub) for name, sub in value.items()}
         else:
-            out[key] = _with_int32_range(value)
-    if out.get("format") == "int32":
-        out["allOf"] = [*out.get("allOf", []), _INT32_RANGE]
+            out[key] = _with_int_ranges(value)
+    fmt = out.get("format")
+    if isinstance(fmt, str) and fmt in _INT_RANGES:
+        out["allOf"] = [*out.get("allOf", []), _INT_RANGES[fmt]]
     return out
 
 
@@ -80,7 +86,7 @@ def _compile_side(schema: Any) -> Validator:
     ``fastjsonschema.compile`` (returns a callable that RAISES on invalid — wrapped to the shim's
     list-of-errors shape). Pure-Python, so it behaves identically solo and in the subinterpreter pool.
     The runtime image ships ``fastjsonschema`` (ADR-0071); it is imported at module top like any dep."""
-    validate = fastjsonschema.compile(_with_int32_range(schema), formats=_PROFILE_FORMATS)
+    validate = fastjsonschema.compile(_with_int_ranges(schema), formats=_PROFILE_FORMATS)
     invalid = fastjsonschema.JsonSchemaValueException
 
     def _validator(data: Any) -> list[Any]:
