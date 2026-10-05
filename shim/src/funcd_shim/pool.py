@@ -7,10 +7,13 @@ correlates each request↔response, so there is no hand-rolled queue/dispatch.
 Reads ``FUNCD_POOL_MANIFEST`` (the SAME ``[{name, artifact, handler}]`` contract as ``pool.mjs``),
 serves ``POST /function/<name>`` by submitting the request to the named handler's interpreter — with
 the byte-identical wire contract + JSON Schema I/O validation (ADR-0058, ADR-0123) as the solo shim
-(ADR-0049) — plus ``GET /health/{readiness,liveness}``. Bind: ``FUNCD_PORT`` → ``0.0.0.0:PORT``
-(container) else ``FUNCD_PORTFILE`` → loopback + write the port (process). A member whose
-handler/contract fails to load makes the host exit 3 (the shape-gate). Runtime dependency:
-fastjsonschema (the validators, ADR-0071).
+(ADR-0049) — plus ``GET /health/{readiness,liveness,members}``. Bind: ``FUNCD_PORT`` → ``0.0.0.0:PORT``
+(container) else ``FUNCD_PORTFILE`` → loopback + write the port (process).
+
+The host serves at once and loads every member concurrently, each bounded by
+``FUNCD_POOL_LOAD_TIMEOUT_MS``: a member whose handler/contract fails to load, or does not load in
+time, is ``failed`` (calls get 503) while its siblings serve. A manifest row's ``env`` reaches only
+that member. Runtime dependency: fastjsonschema (the validators, ADR-0071).
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 from concurrent.futures import InterpreterPoolExecutor  # type: ignore[attr-defined]  # 3.14, no stubs yet
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -27,11 +31,21 @@ from funcd_shim.funclog import new_write_lock
 from funcd_shim.shim import read_body
 from funcd_shim.tracespan import parse_links
 
+# funcd's runtime.bootTimeout default (1 m), used when FUNCD_POOL_LOAD_TIMEOUT_MS is unset or invalid.
+_DEFAULT_LOAD_TIMEOUT_MS = 60_000
+
+
+def load_timeout_s(value: str | None) -> float:
+    """``FUNCD_POOL_LOAD_TIMEOUT_MS`` in seconds: a positive decimal integer, else the default."""
+    ms = int(value) if value and value.isascii() and value.isdigit() else 0
+    return (ms if ms >= 1 else _DEFAULT_LOAD_TIMEOUT_MS) / 1000
+
 
 class _Pooled:
     """One pooled handler: a dedicated single-worker interpreter executor. ``max_workers=1`` keeps
     one in-flight request per handler (its interpreter is single-threaded); different handlers run in
-    parallel via their own interpreters (per-GIL)."""
+    parallel via their own interpreters (per-GIL). Its state is ``loading``, then ``ready`` or
+    ``failed`` (a first load that failed or timed out; not retried in this process)."""
 
     def __init__(
         self,
@@ -40,18 +54,43 @@ class _Pooled:
         handler: str,
         contract: str | None = None,
         write_lock: tuple[int, int] | None = None,
+        name: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> None:
         # ADR-0123: contract is the delivered contract-blob path (from the manifest's "contract"
         # field); the worker compiles its validator from it at init, ahead of the handler import.
+        self.name = name
+        self.state = "loading"
+        self.error: str | None = None
         self.ex = InterpreterPoolExecutor(
             max_workers=1,
             initializer=_poolworker.init,
-            initargs=(src, artifact, handler, contract, write_lock),
+            initargs=(src, artifact, handler, contract, write_lock, name, env),
         )
 
-    def await_ready(self) -> None:
-        """Force the initializer to run and surface a load failure as an exception (→ host exit 3)."""
-        self.ex.submit(_poolworker.ready).result()
+    def load(self, timeout_s: float) -> None:
+        """Run the initializer and settle the state. A load past *timeout_s* leaves its thread behind:
+        an import cannot be interrupted."""
+        future = self.ex.submit(_poolworker.load_error)
+        try:
+            error = future.result(timeout=timeout_s)
+        except TimeoutError:
+            error = "load timed out"
+            self.ex.shutdown(wait=False, cancel_futures=True)
+        except Exception as err:  # noqa: BLE001 - a broken interpreter fails this member alone
+            error = f"{type(err).__name__}: {err}"
+        if error is None:
+            self.state = "ready"
+            return
+        print(f"funcd-pool: {self.name!r} failed to load: {error}", file=sys.stderr, flush=True)
+        self.error = error
+        self.state = "failed"
+
+    def status(self) -> dict[str, str]:
+        out = {"name": self.name or "", "state": self.state}
+        if self.error is not None:
+            out["error"] = self.error
+        return out
 
     def invoke(
         self,
@@ -109,7 +148,12 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
             if self.path == "/health/liveness":
                 self._text(200, "ok")
             elif self.path == "/health/readiness":
-                self._text(200, "ready")
+                if any(p.state == "loading" for p in handlers.values()):
+                    self._text(503, "not ready")
+                else:
+                    self._text(200, "ready")
+            elif self.path == "/health/members":
+                self._json(200, json.dumps([p.status() for p in handlers.values()]).encode())
             else:
                 self._empty(404)
 
@@ -126,6 +170,9 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
             pooled = handlers.get(name)
             if pooled is None:
                 self._empty(404)
+                return
+            if pooled.state != "ready":
+                self._json(503, json.dumps({"error": f"function {name} unavailable"}).encode())
                 return
             # ADR-0101: forward the trace header + function name so the worker's span adopts/names.
             # ADR-0101/0105: forward the trace + span-id + fan-in links headers to the worker.
@@ -166,14 +213,17 @@ def main() -> int:
     handlers: dict[str, _Pooled] = {}
     for entry in manifest:
         handlers[entry["name"]] = _Pooled(
-            src, entry["artifact"], entry["handler"], entry.get("contract"), write_lock
+            src,
+            entry["artifact"],
+            entry["handler"],
+            entry.get("contract"),
+            write_lock,
+            entry["name"],
+            entry.get("env"),
         )
-    for name, pooled in handlers.items():
-        try:
-            pooled.await_ready()
-        except Exception as err:  # noqa: BLE001 - any load failure is the shape-gate
-            print(f"funcd-pool: shape error in {name!r}: {err}", file=sys.stderr)
-            return 3  # a bad member fails the whole host (ADR-0050 / ADR-0044 shape-gate)
+    timeout_s = load_timeout_s(os.environ.get("FUNCD_POOL_LOAD_TIMEOUT_MS"))
+    for pooled in handlers.values():
+        threading.Thread(target=pooled.load, args=(timeout_s,), daemon=True).start()
 
     hostname = "0.0.0.0" if fixed_port > 0 else "127.0.0.1"  # noqa: S104 - container bind is intentional
     server = ThreadingHTTPServer((hostname, fixed_port), make_request_handler(handlers))

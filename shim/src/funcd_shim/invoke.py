@@ -27,7 +27,11 @@ class _UnixHTTPConnection(http.client.HTTPConnection):
         self.sock = sock
 
 
-def invoke(alias: str, payload: Any) -> Any:
+MEMBER_HEADER = "X-Funcd-Member"
+"""The local API request header naming the calling pool member; the solo shim sends none."""
+
+
+def invoke(alias: str, payload: Any, *, member: str | None = None) -> Any:
     """POST *payload* to ``/invoke/<alias>`` over the worker-node UDS; return the target's JSON output.
 
     The platform builds the target's CloudEvent from *payload* (funcd ADR-0134): an object with a
@@ -46,7 +50,10 @@ def invoke(alias: str, payload: Any) -> Any:
     conn = _UnixHTTPConnection(socket_path)
     try:
         body = json.dumps(payload).encode("utf-8")
-        conn.request("POST", f"/invoke/{alias}", body=body, headers={"content-type": "application/json"})
+        headers = {"content-type": "application/json"}
+        if member:
+            headers[MEMBER_HEADER] = member
+        conn.request("POST", f"/invoke/{alias}", body=body, headers=headers)
         resp = conn.getresponse()
         text = resp.read().decode("utf-8")
         if 200 <= resp.status < 300:

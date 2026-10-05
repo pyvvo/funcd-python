@@ -313,3 +313,14 @@ def test_server_input_mismatch_emits_no_span() -> None:
         thread.join(timeout=5)
     time.sleep(0.1)
     assert ch.spans() == []  # input-mismatch short-circuits before the handler → no span
+
+
+def test_pooled_span_carries_member_and_solo_omits_it() -> None:
+    ch = FakeChannel()
+    with InvocationSpan(ch, "a", None, member="a"):
+        pass
+    with InvocationSpan(ch, "solo", None):
+        pass
+    pooled, solo = ch.spans()
+    assert pooled["funcd.member"] == "a"
+    assert "funcd.member" not in solo
