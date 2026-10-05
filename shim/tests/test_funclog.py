@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from funcd_shim.funclog import install_log_capture
+from funcd_shim.funclog import FuncLogHandler, install_log_capture
 
 
 @pytest.fixture(autouse=True)
@@ -212,3 +212,20 @@ def test_issue_r26_short_write_keeps_record_whole(monkeypatch: Any) -> None:
 
     assert first["body"] == "first " + "x" * 64
     assert second["body"] == "second"
+
+
+class _Lines:
+    def __init__(self) -> None:
+        self.lines: list[bytes] = []
+
+    def write_line(self, line: bytes) -> None:
+        self.lines.append(line)
+
+
+def test_pool_member_is_stamped_and_solo_omits_it() -> None:
+    sink = _Lines()
+    FuncLogHandler(sink, "a").emit(logging.makeLogRecord({"msg": "pooled", "levelno": logging.INFO}))
+    FuncLogHandler(sink).emit(logging.makeLogRecord({"msg": "solo", "levelno": logging.INFO}))
+    pooled, solo = _parse_lines(b"".join(sink.lines))
+    assert (pooled["body"], pooled["funcd.member"]) == ("pooled", "a")
+    assert "funcd.member" not in solo

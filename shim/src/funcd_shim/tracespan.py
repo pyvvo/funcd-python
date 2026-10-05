@@ -81,8 +81,10 @@ class InvocationSpan:
         tp: str | None,
         span_id: str | None = None,
         links: list[str] | None = None,
+        member: str | None = None,
     ) -> None:
         self._channel = channel
+        self._member = member
         self._name = name
         self._ctx = new_inv_context(tp, span_id)
         self._links = links or []
@@ -129,5 +131,7 @@ class InvocationSpan:
             "inv": self._ctx.inv,
             "links": self._links,  # ADR-0105: fan-in edges (same-trace span-ids)
         }
+        if self._member:
+            rec["funcd.member"] = self._member
         line = (json.dumps(rec, separators=(",", ":")) + "\n").encode("utf-8")
         self._channel.write_line(line)  # best-effort; _Channel swallows OSError

@@ -11,8 +11,9 @@ is unchanged. A void side is ``{"type": "null"}`` → its validator accepts only
 
 **Fail-closed** (ADR-0123 no-fail-open): if ``FUNCD_CONTRACT_PATH`` is set but the file is missing,
 unparseable, or not a ``{input, output}`` document, :func:`load` raises :class:`ContractError` so the
-worker breaks (exit 3) rather than serving un-validated. When the env is **unset**, :func:`load` returns
-``None`` and the caller falls back to the module-baked validators (transition back-compat).
+solo shim exits 3 and a pooled member is failed, rather than serving un-validated. When the env is
+**unset**, :func:`load` returns ``None`` and the caller falls back to the module-baked validators
+(transition back-compat).
 """
 
 from __future__ import annotations

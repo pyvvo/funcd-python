@@ -14,6 +14,8 @@ import os
 import socket
 from urllib.parse import quote
 
+from .invoke import MEMBER_HEADER
+
 
 class _UnixHTTPConnection(http.client.HTTPConnection):
     """An HTTPConnection that dials a Unix domain socket instead of TCP."""
@@ -47,10 +49,14 @@ class BlobClient:
     """A function's binding-scoped blob storage (ADR-0127): get/put/delete/list a bound prefix's objects,
     or mint a presigned URL — the blob twin of :class:`KVClient`."""
 
+    def __init__(self, member: str | None = None) -> None:
+        # In a pool, every request names the calling member; funcd checks it against the pool.
+        self._headers = {MEMBER_HEADER: member} if member else {}
+
     def get(self, binding: str, key: str) -> bytes | None:
         conn = _conn()
         try:
-            conn.request("GET", _key_path(binding, key))
+            conn.request("GET", _key_path(binding, key), headers=self._headers)
             resp = conn.getresponse()
             data = resp.read()
             if resp.status == 404:
@@ -65,7 +71,7 @@ class BlobClient:
     def put(self, binding: str, key: str, data: bytes) -> None:
         conn = _conn()
         try:
-            conn.request("PUT", _key_path(binding, key), body=data)
+            conn.request("PUT", _key_path(binding, key), body=data, headers=self._headers)
             resp = conn.getresponse()
             text = resp.read().decode("utf-8", "replace")
             if not 200 <= resp.status < 300:
@@ -76,7 +82,7 @@ class BlobClient:
     def delete(self, binding: str, key: str) -> None:
         conn = _conn()
         try:
-            conn.request("DELETE", _key_path(binding, key))
+            conn.request("DELETE", _key_path(binding, key), headers=self._headers)
             resp = conn.getresponse()
             text = resp.read().decode("utf-8", "replace")
             if not 200 <= resp.status < 300:
@@ -90,7 +96,7 @@ class BlobClient:
             path += f"?prefix={quote(prefix, safe='')}"
         conn = _conn()
         try:
-            conn.request("GET", path)
+            conn.request("GET", path, headers=self._headers)
             resp = conn.getresponse()
             text = resp.read().decode("utf-8")
             if not 200 <= resp.status < 300:
@@ -107,7 +113,7 @@ class BlobClient:
             path += f"&expiry={expiry}s"
         conn = _conn()
         try:
-            conn.request("GET", path)
+            conn.request("GET", path, headers=self._headers)
             resp = conn.getresponse()
             text = resp.read().decode("utf-8", "replace")
             if not 200 <= resp.status < 300:

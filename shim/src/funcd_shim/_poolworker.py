@@ -1,7 +1,7 @@
 """Worker-side logic for the funcd Python pool host (ADR-0050), run INSIDE each subinterpreter by
 ``InterpreterPoolExecutor``. ``init`` loads the handler + the optional I/O validators once per worker
 interpreter (state persists across invocations); ``invoke`` runs the contract + handler for one
-request and returns a status-tagged envelope; ``ready`` is a side-effect-free load probe.
+request and returns a status-tagged envelope; ``load_error`` is a side-effect-free load probe.
 
 No ``concurrent.*`` here — plain per-interpreter Python. ``init``/``invoke``/``ready`` are referenced
 by the executor across the interpreter boundary, so they live in this small importable module (the
@@ -31,6 +31,8 @@ from .types import CloudEvent, Handler
 _handler: Handler | None = None
 _validators: Validators = Validators()
 _channel: Any = None  # the shared telemetry channel (ADR-0101), opened once in init()
+_member: str | None = None  # this worker's pool member name, sent on the local API and telemetry
+_load_error: str | None = "not loaded"
 
 #: The working directory, the umask, the C environment and the C locale belong to the process, not to a
 #: subinterpreter: a member that changed them would change them for every sibling. The pool refuses them,
@@ -130,16 +132,23 @@ def init(
     handler: str,
     contract_path: str | None = None,
     write_lock: tuple[int, int] | None = None,
+    name: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> None:
     """Load the handler + I/O validators into this interpreter (the materialization shape-gate,
-    ADR-0058/0123). Runs once per worker; a failure breaks the pool → exit 3.
+    ADR-0058/0123). Runs once per worker. A load failure is kept as text for ``load_error``, not
+    raised: a raising initializer breaks the executor and loses the error. *name* is the pool member,
+    *env* its own environment, which no sibling sees.
 
     ADR-0123: when *contract_path* is given, compile the validators from the delivered schema
     (``fastjsonschema.compile``) **before** the untrusted handler module is imported — the bounded
     eval-free reversal + the m3 reorder. A set-but-broken path fails the worker closed. When absent,
     fall back to the module-baked ``__funcd_validate_*`` (transition back-compat)."""
-    global _handler, _validators, _channel
+    global _handler, _validators, _channel, _member, _load_error
     _isolate_process_state()
+    # After the isolation: a member's environ writes skip putenv, so they stay in this interpreter.
+    os.environ.update(env or {})
+    _member = name
     if src not in sys.path:
         sys.path.insert(0, src)
 
@@ -148,19 +157,23 @@ def init(
     # the handler loads. One shared channel per worker. No-op unless FUNCD_LOG_FD/SOCK is set. Every
     # worker writes to the same FUNCD_LOG_FD, so they all take the host's one *write_lock*.
     _channel = open_channel(write_lock)
-    install_log_capture(_channel)
+    install_log_capture(_channel, member=name)
 
-    # ADR-0123: compile the delivered contract AHEAD of the handler import (m3 reorder).
-    delivered = contract.load_from_path(contract_path) if contract_path else None
-    module = runtime.load_module(artifact)
-    _handler = runtime.resolve_handler(module, handler)
-    _validators = delivered if delivered is not None else runtime.resolve_validators(module)
+    try:
+        # ADR-0123: compile the delivered contract AHEAD of the handler import (m3 reorder).
+        delivered = contract.load_from_path(contract_path) if contract_path else None
+        module = runtime.load_module(artifact)
+        _handler = runtime.resolve_handler(module, handler)
+        _validators = delivered if delivered is not None else runtime.resolve_validators(module)
+    except (Exception, SystemExit) as err:  # noqa: BLE001 - any load failure fails this member alone
+        _load_error = f"{type(err).__name__}: {err}"
+        return
+    _load_error = None
 
 
-def ready() -> bool:
-    """A load probe: True once init() succeeded (no handler call). The host submits this at startup
-    so a bad member surfaces as a broken pool before serving."""
-    return _handler is not None
+def load_error() -> str | None:
+    """A load probe: None once init() loaded the handler (no handler call), else why it did not."""
+    return _load_error
 
 
 class _Ctx:
@@ -168,15 +181,15 @@ class _Ctx:
         print(*args, flush=True)
 
     def invoke(self, alias: str, payload: Any) -> Any:
-        return _invoke(alias, payload)
+        return _invoke(alias, payload, member=_member)
 
     @property
     def kv(self) -> KVClient:
-        return KVClient()
+        return KVClient(_member)
 
     @property
     def blob(self) -> BlobClient:
-        return BlobClient()
+        return BlobClient(_member)
 
 
 def _reply(status: int, body: dict[str, Any]) -> dict[str, Any]:
@@ -210,7 +223,7 @@ def invoke(
         if errors:
             # ADR-0101: input-mismatch short-circuits before the handler → no invocation, no span.
             return _reply(422, {"error": "event data does not match the input contract", "details": errors})
-    with InvocationSpan(_channel, fn_name, traceparent, span_id, links) as span:
+    with InvocationSpan(_channel, fn_name, traceparent, span_id, links, _member) as span:
         try:
             result = call_handler(_handler, _Ctx(), event)
         except BaseException as err:  # noqa: BLE001 - user handler errors, SystemExit too, become 500

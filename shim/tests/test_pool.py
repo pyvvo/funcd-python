@@ -7,16 +7,21 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import socketserver
 import subprocess
 import sys
 import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 import fastjsonschema
 import pytest
+
+from funcd_shim.pool import load_timeout_s
 
 pytest.importorskip("concurrent.interpreters")  # Python 3.14+ only
 
@@ -116,8 +121,13 @@ def _manifest(tmp: Path, members: list[tuple[str, str]]) -> Path:
 
 
 def _start(
-    tmp: Path, manifest: Path, env: dict[str, str] | None = None, pass_fds: tuple[int, ...] = ()
+    tmp: Path,
+    manifest: Path,
+    env: dict[str, str] | None = None,
+    pass_fds: tuple[int, ...] = (),
+    settle: bool = True,
 ) -> tuple[subprocess.Popen[bytes], int]:
+    """Start the pool host; with *settle*, return once no member is loading (the host serves at once)."""
     port_file = tmp / "pool.port"
     proc = subprocess.Popen(
         [sys.executable, "-m", "funcd_shim.pool"],
@@ -137,7 +147,10 @@ def _start(
         if proc.poll() is not None:
             raise RuntimeError(f"pool host exited early: {proc.returncode}")
         if port_file.exists() and port_file.read_text().strip():
-            return proc, int(port_file.read_text().strip())
+            port = int(port_file.read_text().strip())
+            if settle:
+                _settled(port)
+            return proc, port
         time.sleep(0.05)
     proc.terminate()
     raise RuntimeError("pool host never wrote its port")
@@ -601,54 +614,227 @@ def test_pool_delivered_contract_enforces(tmp_path: Path) -> None:
         proc.wait(timeout=5)
 
 
-def test_pool_broken_contract_fails_closed(tmp_path: Path) -> None:
-    # scenario: no-fail-open (pool) — a member with a set-but-missing contract path fails the whole
-    # host closed (exit 3), never serving un-validated.
-    art = tmp_path / "fn.py"
-    art.write_text("def handle(context, event):\n    return None\n")
-    mpath = tmp_path / "m.json"
-    mpath.write_text(
-        json.dumps(
-            [
-                {
-                    "name": "f0",
-                    "artifact": str(art),
-                    "handler": "handle",
-                    "contract": str(tmp_path / "absent.json"),
-                },
-            ]
-        )
-    )
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "funcd_shim.pool"],
-        env={
-            "FUNCD_POOL_MANIFEST": str(mpath),
-            "FUNCD_PORTFILE": str(tmp_path / "p"),
-            "PATH": "/usr/bin:/bin",
-            "PYTHONPATH": SRC,
-        },
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    assert proc.wait(timeout=15) == 3
-
-
-def test_pool_shape_gate(tmp_path: Path) -> None:
-    # scenario: a member whose handler export is missing makes the whole host exit 3.
-    bad = tmp_path / "bad.py"
-    bad.write_text("x = 1\n")  # no handle
-    entries = [{"name": "f0", "artifact": str(bad), "handler": "handle"}]
-    mpath = tmp_path / "m.json"
+def _rows(tmp: Path, rows: list[dict[str, object]]) -> Path:
+    """A manifest of *rows*, each {name, body, ...extra manifest keys}."""
+    entries = []
+    for row in rows:
+        art = tmp / f"{row['name']}.py"
+        art.write_text(str(row["body"]))
+        extra = {k: v for k, v in row.items() if k not in ("name", "body")}
+        entries.append({"name": row["name"], "artifact": str(art), "handler": "handle", **extra})
+    mpath = tmp / "rows.json"
     mpath.write_text(json.dumps(entries))
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "funcd_shim.pool"],
-        env={
-            "FUNCD_POOL_MANIFEST": str(mpath),
-            "FUNCD_PORTFILE": str(tmp_path / "p"),
-            "PATH": "/usr/bin:/bin",
-            "PYTHONPATH": SRC,
-        },
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+    return mpath
+
+
+def _get(port: int, path: str) -> tuple[int, bytes]:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=10) as r:  # noqa: S310 - loopback
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+def _settled(port: int, timeout: float = 20) -> list[dict[str, str]]:
+    """Wait until no member is loading, then return /health/members."""
+    deadline = time.time() + timeout
+    while _get(port, "/health/readiness")[0] != 200:
+        assert time.time() < deadline, "a member is still loading"
+        time.sleep(0.05)
+    status, body = _get(port, "/health/members")
+    assert status == 200
+    members: list[dict[str, str]] = json.loads(body)
+    return members
+
+
+class _UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    daemon_threads = True
+
+
+@pytest.fixture
+def local_api(sock_dir: Path) -> Iterator[tuple[str, list[str]]]:
+    """A fake worker-node local API: it records which member each call named and answers every kv,
+    blob and invoke call with that member's name (403 when none is named)."""
+    calls: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, fmt: str, *args: object) -> None:  # noqa: A002 - stdlib signature
+            return
+
+        def _answer(self) -> None:
+            length = int(self.headers.get("content-length") or 0)
+            self.rfile.read(length)
+            member = self.headers.get("X-Funcd-Member")
+            calls.append(f"{self.command} {self.path} {member or '-'}")
+            if member is None:
+                body, status = b"no member", 403
+            elif self.path.startswith("/invoke/"):
+                body, status = json.dumps({"via": member}).encode(), 200
+            else:
+                body, status = f"value-for-{member}".encode(), 200
+            self.send_response(status)
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        do_GET = do_POST = _answer  # noqa: N815 - stdlib names
+
+    path = str(sock_dir / "api.sock")
+    server = _UnixHTTPServer(path, Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield path, calls
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+_LOCAL_API = (
+    "def handle(context, event):\n"
+    "    return {\n"
+    "        'kv': context.kv.get_str('t', 'k'),\n"
+    "        'blob': context.blob.get('raw', 'x').decode(),\n"
+    "        'invoke': context.invoke('peer', {}),\n"
+    "    }\n"
+)
+
+
+def test_scenario_pooled_member_kv(tmp_path: Path, local_api: tuple[str, list[str]]) -> None:
+    # scenario: pooled-member-kv — each member's context.kv/blob/invoke call names that member.
+    socket_path, calls = local_api
+    mpath = _rows(tmp_path, [{"name": "a", "body": _LOCAL_API}, {"name": "b", "body": _LOCAL_API}])
+    proc, port = _start(tmp_path, mpath, env={"FUNCD_INVOKE_SOCKET": socket_path})
+    try:
+        _settled(port)
+        for name in ("a", "b"):
+            status, body = _post(port, name, "{}")
+            assert status == 200, body
+            assert json.loads(body) == {
+                "kv": f"value-for-{name}",
+                "blob": f"value-for-{name}",
+                "invoke": {"via": name},
+            }
+        assert sorted(calls) == [
+            "GET /blob/raw/x a",
+            "GET /blob/raw/x b",
+            "GET /kv/t/k a",
+            "GET /kv/t/k b",
+            "POST /invoke/peer a",
+            "POST /invoke/peer b",
+        ]
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_scenario_pooled_member_logs(tmp_path: Path) -> None:
+    # scenario: pooled-member-logs — a member's log records and span carry its own name.
+    log = "import logging\ndef handle(context, event):\n    logging.info('hello-%s', event['data'])\n"
+    channel = tmp_path / "channel"
+    fd = os.open(channel, os.O_WRONLY | os.O_CREAT, 0o600)
+    mpath = _rows(tmp_path, [{"name": "a", "body": log}, {"name": "b", "body": log}])
+    proc, port = _start(tmp_path, mpath, env={"FUNCD_LOG_FD": str(fd)}, pass_fds=(fd,))
+    try:
+        _settled(port)
+        assert _post(port, "a", json.dumps({"data": "a"}))[0] == 204
+        assert _post(port, "b", json.dumps({"data": "b"}))[0] == 204
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+        os.close(fd)
+    records = [json.loads(line) for line in channel.read_text().splitlines() if line]
+    logs = [(r["body"], r.get("funcd.member")) for r in records if "funcd.signal" not in r]
+    spans = sorted((r["name"], r.get("funcd.member")) for r in records if r.get("funcd.signal") == "traces")
+    assert logs == [("hello-a", "a"), ("hello-b", "b")]
+    assert spans == [("a", "a"), ("b", "b")]
+
+
+def test_scenario_pool_member_load_failure(tmp_path: Path) -> None:
+    # scenario: pool-member-load-failure — a member with no handle export fails alone; the host does
+    # not exit and its siblings serve.
+    ok = "def handle(context, event):\n    return {'ok': True}\n"
+    mpath = _rows(
+        tmp_path,
+        [{"name": "a", "body": ok}, {"name": "b", "body": "x = 1\n"}, {"name": "c", "body": ok}],
     )
-    assert proc.wait(timeout=15) == 3
+    proc, port = _start(tmp_path, mpath)
+    try:
+        members = _settled(port)
+        assert [(m["name"], m["state"]) for m in members] == [("a", "ready"), ("b", "failed"), ("c", "ready")]
+        assert "handle" in members[1]["error"]
+        assert _post(port, "a", "{}")[0] == 200
+        assert _post(port, "c", "{}")[0] == 200
+        assert _post(port, "b", "{}") == (503, b'{"error": "function b unavailable"}')
+        assert proc.poll() is None, "the host keeps running"
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_pool_member_with_a_broken_contract_fails_closed(tmp_path: Path) -> None:
+    # scenario: no-fail-open (pool) — a member with a set-but-missing contract path never serves
+    # un-validated: it is failed and answers 503, while a sibling serves.
+    ok = "def handle(context, event):\n    return None\n"
+    mpath = _rows(
+        tmp_path,
+        [{"name": "f0", "body": ok, "contract": str(tmp_path / "absent.json")}, {"name": "f1", "body": ok}],
+    )
+    proc, port = _start(tmp_path, mpath)
+    try:
+        members = _settled(port)
+        assert [(m["name"], m["state"]) for m in members] == [("f0", "failed"), ("f1", "ready")]
+        assert _post(port, "f0", "{}")[0] == 503
+        assert _post(port, "f1", "{}")[0] == 204
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_pool_member_whose_import_hangs_fails_with_load_timed_out(tmp_path: Path) -> None:
+    hung = "import time\ntime.sleep(4)\ndef handle(context, event):\n    return None\n"
+    ok = "def handle(context, event):\n    return {'ok': True}\n"
+    mpath = _rows(tmp_path, [{"name": "hung", "body": hung}, {"name": "ok", "body": ok}])
+    proc, port = _start(tmp_path, mpath, env={"FUNCD_POOL_LOAD_TIMEOUT_MS": "1000"}, settle=False)
+    try:
+        assert _get(port, "/health/liveness")[0] == 200, "the host answers while members load"
+        assert _get(port, "/health/readiness")[0] == 503, "a member is still loading"
+        assert _settled(port) == [
+            {"name": "hung", "state": "failed", "error": "load timed out"},
+            {"name": "ok", "state": "ready"},
+        ]
+        assert _post(port, "ok", "{}")[0] == 200
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_pool_member_env_reaches_only_that_member(tmp_path: Path) -> None:
+    show = (
+        "import os\n"
+        "def handle(context, event):\n"
+        "    return {'v': os.environ.get('FUNCD_TEST_MEMBER_VALUE')}\n"
+    )
+    mpath = _rows(
+        tmp_path,
+        [
+            {"name": "a", "body": show, "env": {"FUNCD_TEST_MEMBER_VALUE": "a-only"}},
+            {"name": "b", "body": show},
+        ],
+    )
+    proc, port = _start(tmp_path, mpath)
+    try:
+        _settled(port)
+        assert _post(port, "a", "{}") == (200, b'{"v":"a-only"}')
+        assert _post(port, "b", "{}") == (200, b'{"v":null}')
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_load_timeout_follows_the_env() -> None:
+    assert load_timeout_s("250") == 0.25
+    for value in (None, "", "0", "-1", "1.5", "abc", "\u0661"):
+        assert load_timeout_s(value) == 60.0, value

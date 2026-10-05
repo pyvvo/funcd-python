@@ -156,9 +156,10 @@ class FuncLogHandler(logging.Handler):
     It does not echo to stdout/stderr, so Path A (raw fd 1/2) never re-captures a Path B line.
     """
 
-    def __init__(self, channel: Channel) -> None:
+    def __init__(self, channel: Channel, member: str | None = None) -> None:
         super().__init__(level=logging.NOTSET)
         self._channel = channel
+        self._member = member
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -201,22 +202,27 @@ class FuncLogHandler(logging.Handler):
             "span_id": inv.span_id if inv else "",
             "funcd.source": "logging",
         }
+        if self._member:
+            obj["funcd.member"] = self._member
         return (json.dumps(obj, separators=(",", ":")) + "\n").encode("utf-8")
 
 
-def install_log_capture(channel: Channel | None = None) -> FuncLogHandler | None:
+def install_log_capture(
+    channel: Channel | None = None, *, member: str | None = None
+) -> FuncLogHandler | None:
     """Install Path B capture on the root logger if a channel is available; else do nothing.
 
     Returns the installed handler (or ``None`` when no channel is configured), mainly for tests.
     Call this EARLY in shim startup, before any function handler runs, so the first ``logging.info``
     a function emits is already captured. Pass ``channel`` to reuse a channel an entrypoint already
-    opened (ADR-0101: log + trace capture share ONE channel); omit it to open from the env.
+    opened (ADR-0101: log + trace capture share ONE channel); omit it to open from the env. A pool
+    worker passes its *member* name, stamped on every record as ``funcd.member``.
     """
     if channel is None:
         channel = _open_channel()
     if channel is None:
         return None
-    handler = FuncLogHandler(channel)
+    handler = FuncLogHandler(channel, member)
     root = logging.getLogger()
     # Capture INFO and above by default (so a function's logging.info(...) is seen). Lower the root
     # level only if it is currently coarser than INFO; never raise a more-verbose configuration.

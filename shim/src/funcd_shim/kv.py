@@ -12,6 +12,8 @@ import os
 import socket
 from urllib.parse import quote
 
+from .invoke import MEMBER_HEADER
+
 
 class _UnixHTTPConnection(http.client.HTTPConnection):
     """An HTTPConnection that dials a Unix domain socket instead of TCP."""
@@ -42,10 +44,14 @@ def _key_path(binding: str, key: str) -> str:
 class KVClient:
     """A function's namespace-scoped key-value storage (ADR-0069)."""
 
+    def __init__(self, member: str | None = None) -> None:
+        # In a pool, every request names the calling member; funcd checks it against the pool.
+        self._headers = {MEMBER_HEADER: member} if member else {}
+
     def get(self, binding: str, key: str) -> bytes | None:
         conn = _conn()
         try:
-            conn.request("GET", _key_path(binding, key))
+            conn.request("GET", _key_path(binding, key), headers=self._headers)
             resp = conn.getresponse()
             data = resp.read()
             if resp.status == 404:
@@ -72,7 +78,7 @@ class KVClient:
         body = value.encode("utf-8") if isinstance(value, str) else value
         conn = _conn()
         try:
-            conn.request("PUT", _key_path(binding, key), body=body)
+            conn.request("PUT", _key_path(binding, key), body=body, headers=self._headers)
             resp = conn.getresponse()
             text = resp.read().decode("utf-8", "replace")
             if not 200 <= resp.status < 300:
@@ -83,7 +89,7 @@ class KVClient:
     def delete(self, binding: str, key: str) -> None:
         conn = _conn()
         try:
-            conn.request("DELETE", _key_path(binding, key))
+            conn.request("DELETE", _key_path(binding, key), headers=self._headers)
             resp = conn.getresponse()
             text = resp.read().decode("utf-8", "replace")
             if not 200 <= resp.status < 300:
@@ -97,7 +103,7 @@ class KVClient:
             path += f"?prefix={quote(prefix, safe='')}"
         conn = _conn()
         try:
-            conn.request("GET", path)
+            conn.request("GET", path, headers=self._headers)
             resp = conn.getresponse()
             text = resp.read().decode("utf-8")
             if not 200 <= resp.status < 300:
