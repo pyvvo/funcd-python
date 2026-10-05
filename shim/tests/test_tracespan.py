@@ -324,3 +324,17 @@ def test_pooled_span_carries_member_and_solo_omits_it() -> None:
     pooled, solo = ch.spans()
     assert pooled["funcd.member"] == "a"
     assert "funcd.member" not in solo
+
+
+def test_span_status_msg_is_cut_at_the_bound() -> None:
+    ch = FakeChannel()
+    with InvocationSpan(ch, "greeter", TRACEPARENT, max_record_bytes=2048) as span:
+        span.fail("\u00e9" * 10_000)
+    with InvocationSpan(ch, "greeter", TRACEPARENT, max_record_bytes=2048) as span:
+        span.fail("short")
+    cut, short = ch.spans()
+    assert cut["attrs"]["truncated"] == "true"
+    assert int(cut["attrs"]["keptBytes"]) == len(cut["status_msg"].encode("utf-8"))
+    assert set(cut["status_msg"]) == {"\u00e9"}
+    assert 2000 < len(json.dumps(cut, separators=(",", ":"))) <= 2048
+    assert short["status_msg"] == "short" and short["attrs"] == {}

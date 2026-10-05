@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import _locale
 import inspect
+import io
 import locale
 import os
 import subprocess
@@ -149,6 +150,9 @@ def init(
     # After the isolation: a member's environ writes skip putenv, so they stay in this interpreter.
     os.environ.update(env or {})
     _member = name
+    # ADR-0168: a member's print() reaches funcd's stdout reader line by line.
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(line_buffering=True)
     if src not in sys.path:
         sys.path.insert(0, src)
 

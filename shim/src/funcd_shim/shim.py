@@ -25,6 +25,7 @@ Runtime dependency: fastjsonschema (the baked validator imports it); pydantic ru
 
 from __future__ import annotations
 
+import io
 import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -205,6 +206,9 @@ def main(argv: list[str] | None = None) -> int:
     # between log capture and the per-invocation span (a second connect would double-capture). Install
     # BEFORE the handler loads so the first logging.* is captured. No-op unless FUNCD_LOG_FD/SOCK is set.
     # The shim's own messages use print(... stderr), not logging, so they are never captured.
+    # ADR-0168: print() reaches funcd's stdout reader line by line, not when a block buffer fills.
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(line_buffering=True)
     channel = open_channel()
     install_log_capture(channel)
 

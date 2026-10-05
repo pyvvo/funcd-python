@@ -834,6 +834,18 @@ def test_pool_member_env_reaches_only_that_member(tmp_path: Path) -> None:
         proc.wait(timeout=5)
 
 
+def test_pool_member_stdout_is_line_buffered(tmp_path: Path) -> None:
+    show = "import sys\ndef handle(context, event):\n    return {'v': sys.stdout.line_buffering}\n"
+    mpath = _rows(tmp_path, [{"name": "a", "body": show}])
+    proc, port = _start(tmp_path, mpath)
+    try:
+        _settled(port)
+        assert _post(port, "a", "{}") == (200, b'{"v":true}')
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def test_load_timeout_follows_the_env() -> None:
     assert load_timeout_s("250") == 0.25
     for value in (None, "", "0", "-1", "1.5", "abc", "\u0661"):

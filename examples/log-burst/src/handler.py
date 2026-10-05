@@ -14,6 +14,7 @@ the function emitted exactly as many records as funcd's host-side reader capture
 from __future__ import annotations
 
 import logging
+import sys
 from typing import TypedDict
 
 from funcd_shim import CloudEvent, FunctionContext
@@ -30,9 +31,11 @@ _ERRORS = 3
 
 
 class FuncInput(TypedDict, total=False):
-    """The event payload (all keys optional). ``count`` raises the INFO burst beyond the 100 floor."""
+    """The event payload (all keys optional). ``count`` raises the INFO burst beyond the 100 floor;
+    ``big`` logs one value of that many bytes, to show a record cut at the bound (ADR-0168)."""
 
     count: int
+    big: int
 
 
 class FuncOutput(TypedDict):
@@ -47,7 +50,15 @@ def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput
     extra_info = max(int(data.get("count", 0)), 0)
     info_count = _BASE_INFO + extra_info
 
+    # raw output (ADR-0168): stdout reaches the logs at INFO, stderr at ERROR.
+    print("burst stdout", flush=True)
+    print("burst stderr", file=sys.stderr, flush=True)
+
     emitted = 0
+    big = max(int(data.get("big", 0)), 0)
+    if big:
+        log.info("big value", extra={"big": "x" * big})
+        emitted += 1
     for i in range(info_count):
         # structured: an `extra=` dict the shim forwards into the record's attrs (host: map[str]str)
         log.info("processing item %d", i, extra={"item": i, "phase": "scan"})

@@ -14,8 +14,9 @@ import json
 import re
 import secrets
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from .funclog import _Budget, _record_bound
 from .invcontext import InvContext, reset_inv, set_inv
 
 if TYPE_CHECKING:
@@ -70,6 +71,21 @@ def parse_links(header: str | None) -> list[str]:
     return [s.strip() for s in header.split(",") if s.strip() and _SPAN_RE.match(s.strip())]
 
 
+def _emit_span(channel: Channel, rec: dict[str, Any], bound: int) -> None:
+    """Write one span record of at most *bound* bytes (ADR-0168): an over-long ``status_msg`` is cut and
+    the record carries ``attrs.truncated`` and ``attrs.keptBytes`` (the kept ``status_msg`` bytes)."""
+    text = json.dumps(rec, separators=(",", ":"))
+    if len(text) > bound:
+        status_msg = rec["status_msg"]
+        rec = {**rec, "status_msg": "", "attrs": {**rec["attrs"], "truncated": "true", "keptBytes": ""}}
+        # keptBytes is at most 7 digits: the bound is at most 1 MiB.
+        budget = _Budget(bound - len(json.dumps(rec, separators=(",", ":"))) - 7)
+        rec["status_msg"] = budget.take(status_msg)
+        rec["attrs"]["keptBytes"] = str(budget.kept)
+        text = json.dumps(rec, separators=(",", ":"))
+    channel.write_line((text + "\n").encode("utf-8"))  # best-effort; _Channel swallows OSError
+
+
 class InvocationSpan:
     """A live per-invocation SERVER span. Enter to bind the context (so logs correlate); exit emits
     the span record with the outcome. ``status``/``status_msg`` default to OK unless :meth:`fail` set."""
@@ -82,8 +98,10 @@ class InvocationSpan:
         span_id: str | None = None,
         links: list[str] | None = None,
         member: str | None = None,
+        max_record_bytes: int | None = None,
     ) -> None:
         self._channel = channel
+        self._bound = _record_bound() if max_record_bytes is None else max_record_bytes
         self._member = member
         self._name = name
         self._ctx = new_inv_context(tp, span_id)
@@ -116,7 +134,7 @@ class InvocationSpan:
         if self._channel is None:
             return
         end_ns = self._start_ns + (time.monotonic_ns() - self._t0)
-        rec = {
+        rec: dict[str, Any] = {
             "funcd.signal": "traces",
             "trace_id": self._ctx.trace_id,
             "span_id": self._ctx.span_id,
@@ -133,5 +151,4 @@ class InvocationSpan:
         }
         if self._member:
             rec["funcd.member"] = self._member
-        line = (json.dumps(rec, separators=(",", ":")) + "\n").encode("utf-8")
-        self._channel.write_line(line)  # best-effort; _Channel swallows OSError
+        _emit_span(self._channel, rec, self._bound)
