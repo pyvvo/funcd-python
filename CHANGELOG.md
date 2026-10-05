@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/pyvvo/funcd-python/compare/v0.3.6...v0.4.0) (2026-10-05)
+
+
+### Features
+
+* **shim:** load pool members on their own and name the member on every channel ([#62](https://github.com/pyvvo/funcd-python/issues/62)) ([cef420a](https://github.com/pyvvo/funcd-python/commit/cef420abe8bcf8af98c6aaa06ec7f7e393146d37))
+
 ## [0.3.6](https://github.com/pyvvo/funcd-python/compare/v0.3.5...v0.3.6) (2026-10-05)
 
 
