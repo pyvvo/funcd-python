@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/pyvvo/funcd-python/compare/v0.4.0...v0.5.0) (2026-10-05)
+
+
+### Features
+
+* **shim:** bound each log record and line-buffer stdout ([#64](https://github.com/pyvvo/funcd-python/issues/64)) ([be72eab](https://github.com/pyvvo/funcd-python/commit/be72eabbefddfda72568fc70a6d4ff497095a84e))
+* **shim:** send traceparent and emit a CLIENT span from context.invoke ([#66](https://github.com/pyvvo/funcd-python/issues/66)) ([cd5e1e6](https://github.com/pyvvo/funcd-python/commit/cd5e1e614f55bdacc9f160be375700b60a57219c))
+
 ## [0.4.0](https://github.com/pyvvo/funcd-python/compare/v0.3.6...v0.4.0) (2026-10-05)
 
 
