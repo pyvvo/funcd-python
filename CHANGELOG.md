@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/pyvvo/funcd-python/compare/v0.5.0...v0.5.1) (2026-10-05)
+
+
+### Bug Fixes
+
+* **examples:** accept big in the log-burst input contract ([#67](https://github.com/pyvvo/funcd-python/issues/67)) ([d7171c1](https://github.com/pyvvo/funcd-python/commit/d7171c1acdb4bddd91bf15d6834e6362156316f6))
+
 ## [0.5.0](https://github.com/pyvvo/funcd-python/compare/v0.4.0...v0.5.0) (2026-10-05)
 
 
