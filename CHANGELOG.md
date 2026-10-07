@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0](https://github.com/pyvvo/funcd-python/compare/v0.5.1...v0.6.0) (2026-10-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* **shim:** signed_url takes expiry as a duration string ([#69](https://github.com/pyvvo/funcd-python/issues/69))
+
+### Features
+
+* **shim:** signed_url takes expiry as a duration string ([#69](https://github.com/pyvvo/funcd-python/issues/69)) ([eb19b99](https://github.com/pyvvo/funcd-python/commit/eb19b99f06569e65563818b058f63c5891568541))
+
 ## [0.5.1](https://github.com/pyvvo/funcd-python/compare/v0.5.0...v0.5.1) (2026-10-05)
 
 
