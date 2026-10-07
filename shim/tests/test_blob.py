@@ -86,12 +86,39 @@ def test_scenario_blob_list(blob: BlobClient) -> None:
 
 
 def test_scenario_blob_signed_url(blob: BlobClient) -> None:
-    _ROUTES["/blob/files/report.txt?sign=1&method=PUT&expiry=900s"] = (
+    _ROUTES["/blob/files/report.txt?sign=1&method=PUT&expiry=10m"] = (
         200,
         b"https://signed.example/p/report.txt",
     )
-    url = blob.signed_url("files", "report.txt", method="PUT", expiry=900)
+    url = blob.signed_url("files", "report.txt", method="PUT", expiry="10m")
     assert url == "https://signed.example/p/report.txt"
+
+
+def test_scenario_blob_signed_url_none_omits_expiry(blob: BlobClient) -> None:
+    _ROUTES["/blob/files/report.txt?sign=1&method=GET"] = (200, b"https://signed.example/g")
+    assert blob.signed_url("files", "report.txt") == "https://signed.example/g"
+    assert _RECORDED[0][1] == "/blob/files/report.txt?sign=1&method=GET"
+
+
+def test_scenario_blob_signed_url_sends_expiry_as_given(blob: BlobClient) -> None:
+    # The server owns the grammar (ADR-0198): the shim sends an empty or odd value and surfaces the 400.
+    _ROUTES["/blob/files/k?sign=1&method=GET&expiry="] = (400, b"invalid expiry")
+    with pytest.raises(RuntimeError, match=r"context\.blob\.signed_url failed: 400"):
+        blob.signed_url("files", "k", expiry="")
+    _ROUTES["/blob/files/k?sign=1&method=GET&expiry=1h%2030m"] = (400, b"invalid expiry")
+    with pytest.raises(RuntimeError, match=r"context\.blob\.signed_url failed: 400"):
+        blob.signed_url("files", "k", expiry="1h 30m")
+    assert [r[1] for r in _RECORDED] == [
+        "/blob/files/k?sign=1&method=GET&expiry=",
+        "/blob/files/k?sign=1&method=GET&expiry=1h%2030m",
+    ]
+
+
+@pytest.mark.parametrize("expiry", [60, 60.0, b"10m"])
+def test_scenario_blob_signed_url_non_string_expiry_raises(blob: BlobClient, expiry: object) -> None:
+    with pytest.raises(TypeError, match="expiry must be a duration string such as 10m or 1h30m"):
+        blob.signed_url("files", "k", expiry=expiry)  # type: ignore[arg-type]
+    assert _RECORDED == []
 
 
 def test_scenario_blob_error_raises(blob: BlobClient) -> None:
