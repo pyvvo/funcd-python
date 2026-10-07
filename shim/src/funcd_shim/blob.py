@@ -105,12 +105,20 @@ class BlobClient:
         finally:
             conn.close()
 
-    def signed_url(self, binding: str, key: str, method: str = "GET", expiry: float | None = None) -> str:
+    def signed_url(self, binding: str, key: str, method: str = "GET", expiry: str | None = None) -> str:
         """Return a presigned external URL for the object. ``method`` is GET (read) / PUT / DELETE (write);
-        ``expiry`` is in seconds (the driver's default when ``None``). A PUT/DELETE URL requires s3::write."""
+        a PUT/DELETE URL requires s3::write. ``expiry`` is a duration string such as ``"10m"`` or ``"1h30m"``
+        (funcd ADR-0198: units h, m, s, ms in that order, whole seconds from 1s to 168h); ``None`` takes the
+        driver's default. The shim sends the string as given and funcd refuses a bad one with 400, raised
+        here as ``RuntimeError``; a non-string ``expiry`` raises ``TypeError`` before any request."""
+        if expiry is not None and not isinstance(expiry, str):
+            raise TypeError(
+                "context.blob.signed_url: expiry must be a duration string such as 10m or 1h30m, "
+                f"not {type(expiry).__name__}"
+            )
         path = f"{_key_path(binding, key)}?sign=1&method={quote(method, safe='')}"
         if expiry is not None:
-            path += f"&expiry={expiry}s"
+            path += f"&expiry={quote(expiry, safe='')}"
         conn = _conn()
         try:
             conn.request("GET", path, headers=self._headers)
