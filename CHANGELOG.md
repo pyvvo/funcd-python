@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/pyvvo/funcd-python/compare/v0.6.0...v0.7.0) (2026-10-10)
+
+
+### Features
+
+* **shim:** readiness checks the function's declared dependencies (funcd ADR-0215) ([#72](https://github.com/pyvvo/funcd-python/issues/72)) ([6034cc1](https://github.com/pyvvo/funcd-python/commit/6034cc19bd13b72139ebe3fcaa8e5e92ad7f462f))
+
 ## [0.6.0](https://github.com/pyvvo/funcd-python/compare/v0.5.1...v0.6.0) (2026-10-07)
 
 
