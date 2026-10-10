@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import CLOSE, HOLD, DependencyAPI
+from fakeapi import CLOSE, HOLD, DependencyAPI
 
 from funcd_shim import contract, runtime, shim
 from funcd_shim.types import CloudEvent, FunctionContext, Validator
@@ -221,7 +221,9 @@ def test_scenario_health_shim_compat_no_socket_is_ready(monkeypatch: pytest.Monk
         assert get_body(base, "/health/readiness") == (200, b"ready")
 
 
-@pytest.mark.parametrize("reply", [(403, b"no member"), (500, b"boom"), (204, b""), CLOSE])
+@pytest.mark.parametrize(
+    "reply", [(403, b"no member"), (500, b"boom"), (204, b""), (503, b"busy"), (503, b"[1]"), CLOSE]
+)
 def test_readiness_other_answers_are_socket_unreachable(
     dependency_api: DependencyAPI, monkeypatch: pytest.MonkeyPatch, reply: tuple[int, bytes] | str
 ) -> None:
@@ -254,7 +256,7 @@ def test_readiness_unanswered_check_is_socket_timeout(
         elapsed = time.monotonic() - start
     assert status == 503
     _socket_report(body, "Timeout")
-    assert elapsed < 1, elapsed
+    assert elapsed < 0.1, elapsed
 
 
 def test_liveness_never_calls_funcd(dependency_api: DependencyAPI, monkeypatch: pytest.MonkeyPatch) -> None:

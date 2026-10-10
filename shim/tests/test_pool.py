@@ -7,7 +7,6 @@ from __future__ import annotations
 import http.client
 import json
 import os
-import socketserver
 import subprocess
 import sys
 import threading
@@ -20,7 +19,7 @@ from pathlib import Path
 
 import fastjsonschema
 import pytest
-from conftest import HOLD, DependencyAPI
+from fakeapi import HOLD, DependencyAPI, UnixHTTPServer
 
 from funcd_shim.pool import load_timeout_s
 
@@ -648,10 +647,6 @@ def _settled(port: int, timeout: float = 20) -> list[dict[str, str]]:
     return members
 
 
-class _UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
-    daemon_threads = True
-
-
 @pytest.fixture
 def local_api(sock_dir: Path) -> Iterator[tuple[str, list[str]]]:
     """A fake worker-node local API: it records which member each call named and answers every kv,
@@ -683,7 +678,7 @@ def local_api(sock_dir: Path) -> Iterator[tuple[str, list[str]]]:
         do_GET = do_POST = _answer  # noqa: N815 - stdlib names
 
     path = str(sock_dir / "api.sock")
-    server = _UnixHTTPServer(path, Handler)
+    server = UnixHTTPServer(path, Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

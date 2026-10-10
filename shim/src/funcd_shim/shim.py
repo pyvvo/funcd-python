@@ -30,6 +30,9 @@ import http.client
 import io
 import os
 import sys
+import threading
+import time
+from collections.abc import Sequence
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
 
@@ -68,25 +71,15 @@ class _Context:
 
 
 DEPENDENCY_CHECK_BUDGET = 0.05
-"""funcd's DependencyCheckBudget (ADR-0215): a pool host's one bound for asking every member."""
-
-READINESS_CHECK_TIMEOUT = 0.1
-"""funcd's readiness probeTimeout: past it funcd no longer reads the shim's answer."""
+"""funcd's DependencyCheckBudget (ADR-0215): the one bound on a dependency check, half funcd's probeTimeout,
+so a ``Timeout`` report reaches funcd's probe."""
 
 
 def socket_report(reason: str, message: str) -> dict[str, str]:
     return {"kind": "socket", "binding": "", "reason": reason, "message": message}
 
 
-def check_dependencies(member: str | None, timeout: float) -> bytes | None:
-    """Ask funcd's ``GET /health/dependencies`` over ``FUNCD_INVOKE_SOCKET`` (funcd ADR-0215 Decision 4).
-
-    Returns None on a pass, else the JSON report readiness answers with 503. 200 passes, and so do 404
-    and no socket: a funcd without the endpoint. A 503 report is relayed as funcd wrote it; any other
-    answer or a socket error is kind ``socket``. In a pool, *member* names the member being checked."""
-    socket_path = os.environ.get("FUNCD_INVOKE_SOCKET")
-    if not socket_path:
-        return None
+def _ask_dependencies(socket_path: str, member: str | None, timeout: float) -> bytes | None:
     conn = _UnixHTTPConnection(socket_path, timeout)
     try:
         conn.request("GET", "/health/dependencies", headers={MEMBER_HEADER: member} if member else {})
@@ -101,8 +94,49 @@ def check_dependencies(member: str | None, timeout: float) -> bytes | None:
     if resp.status in (200, 404):
         return None
     if resp.status == 503:
-        return body
+        try:
+            report = jsonwire.decode(body)
+        except ValueError:
+            report = None
+        if isinstance(report, dict):
+            return body
+        return jsonwire.encode(
+            socket_report("Unreachable", "GET /health/dependencies answered 503 without a report")
+        )
     return jsonwire.encode(socket_report("Unreachable", f"GET /health/dependencies answered {resp.status}"))
+
+
+def check_dependencies(
+    members: Sequence[str | None], budget: float = DEPENDENCY_CHECK_BUDGET
+) -> dict[str | None, bytes]:
+    """Ask funcd's ``GET /health/dependencies`` over ``FUNCD_INVOKE_SOCKET`` for each of *members* at once,
+    under one overall *budget* (funcd ADR-0215 Decision 4); None is the solo shim, a name a pool member.
+
+    Returns the JSON report readiness answers with 503 for each member whose check fails. 200 passes, and so
+    do 404 and no socket: a funcd without the endpoint. A 503 report is relayed as funcd wrote it; any other
+    answer, a socket error or no answer within *budget* is kind ``socket``."""
+    socket_path = os.environ.get("FUNCD_INVOKE_SOCKET")
+    if not socket_path:
+        return {}
+    deadline = time.monotonic() + budget
+    answers: dict[str | None, bytes | None] = {}
+
+    def ask(member: str | None) -> None:
+        answers[member] = _ask_dependencies(socket_path, member, budget)
+
+    threads = [threading.Thread(target=ask, args=(member,), daemon=True) for member in members]
+    for thread in threads:
+        thread.start()
+    reports: dict[str | None, bytes] = {}
+    for member, thread in zip(members, threads, strict=True):
+        thread.join(max(0.0, deadline - time.monotonic()))
+        if thread.is_alive():
+            reports[member] = jsonwire.encode(
+                socket_report("Timeout", f"funcd did not answer within {budget:g}s")
+            )
+        elif (report := answers[member]) is not None:
+            reports[member] = report
+    return reports
 
 
 def read_body(request: BaseHTTPRequestHandler) -> bytes | None:
@@ -172,7 +206,7 @@ def make_request_handler(
             if self.path == "/health/liveness":
                 self._send_text(200, "ok")
             elif self.path == "/health/readiness":
-                report = check_dependencies(None, READINESS_CHECK_TIMEOUT)
+                report = check_dependencies([None]).get(None)
                 if report is None:
                     self._send_text(200, "ready")
                 else:

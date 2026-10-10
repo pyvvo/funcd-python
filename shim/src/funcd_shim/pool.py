@@ -23,14 +23,13 @@ import json
 import os
 import sys
 import threading
-import time
 from concurrent.futures import InterpreterPoolExecutor  # type: ignore[attr-defined]  # 3.14, no stubs yet
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from funcd_shim import _poolworker
 from funcd_shim.funclog import new_write_lock
-from funcd_shim.shim import DEPENDENCY_CHECK_BUDGET, check_dependencies, read_body, socket_report
+from funcd_shim.shim import check_dependencies, read_body
 from funcd_shim.tracespan import parse_links
 
 # funcd's runtime.bootTimeout default (1 m), used when FUNCD_POOL_LOAD_TIMEOUT_MS is unset or invalid.
@@ -116,44 +115,6 @@ def _src_dir() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def _report(raw: bytes) -> dict[str, Any]:
-    try:
-        report = json.loads(raw)
-    except ValueError:
-        report = None
-    if isinstance(report, dict):
-        return report
-    return socket_report("Unreachable", "GET /health/dependencies answered 503 without a report")
-
-
-def member_dependencies(
-    names: list[str], budget: float = DEPENDENCY_CHECK_BUDGET
-) -> dict[str, dict[str, Any]]:
-    """The dependency report of each member in *names* whose check fails, asked of all at once on the
-    shared socket under one overall *budget*, so ``/health/members`` fits funcd's probe timeout."""
-    if not os.environ.get("FUNCD_INVOKE_SOCKET"):
-        return {}
-    deadline = time.monotonic() + budget
-    answers: dict[str, bytes | None] = {}
-
-    def ask(name: str) -> None:
-        answers[name] = check_dependencies(name, budget)
-
-    threads = [threading.Thread(target=ask, args=(name,), daemon=True) for name in names]
-    for thread in threads:
-        thread.start()
-    reports: dict[str, dict[str, Any]] = {}
-    for name, thread in zip(names, threads, strict=True):
-        thread.join(max(0.0, deadline - time.monotonic()))
-        if thread.is_alive():
-            reports[name] = socket_report("Timeout", f"funcd did not answer within {budget:g}s")
-            continue
-        raw = answers[name]
-        if raw is not None:
-            reports[name] = _report(raw)
-    return reports
-
-
 def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHandler]:
     class PoolHandler(BaseHTTPRequestHandler):
         # HTTP/1.1 → keep-alive (see shim.py): reuse the TCP connection instead of closing per
@@ -193,12 +154,12 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
                 else:
                     self._text(200, "ready")
             elif self.path == "/health/members":
-                deps = member_dependencies([n for n, p in handlers.items() if p.state == "ready"])
+                deps = check_dependencies([n for n, p in handlers.items() if p.state == "ready"])
                 rows: list[dict[str, Any]] = []
                 for name, pooled in handlers.items():
                     row: dict[str, Any] = dict(pooled.status())
                     if name in deps:
-                        row["dependency"] = deps[name]
+                        row["dependency"] = json.loads(deps[name])
                     rows.append(row)
                 self._json(200, json.dumps(rows).encode())
             else:
