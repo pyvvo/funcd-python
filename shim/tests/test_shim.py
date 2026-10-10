@@ -256,6 +256,19 @@ def test_readiness_unanswered_check_is_socket_timeout(
         elapsed = time.monotonic() - start
     assert status == 503
     _socket_report(body, "Timeout")
+    assert elapsed < 1, elapsed
+
+
+def test_unanswered_check_returns_within_the_budget(
+    dependency_api: DependencyAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Timed on the check itself: an end-to-end readiness call adds client and server latency under load.
+    monkeypatch.setenv("FUNCD_INVOKE_SOCKET", dependency_api.path)
+    dependency_api.replies["-"] = HOLD
+    start = time.monotonic()
+    reports = shim.check_dependencies([None])
+    elapsed = time.monotonic() - start
+    _socket_report(reports[None], "Timeout")
     assert elapsed < 0.1, elapsed
 
 
