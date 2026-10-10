@@ -22,12 +22,14 @@ if TYPE_CHECKING:
 class _UnixHTTPConnection(http.client.HTTPConnection):
     """An HTTPConnection that dials a Unix domain socket instead of TCP."""
 
-    def __init__(self, socket_path: str) -> None:
-        super().__init__("localhost")
+    def __init__(self, socket_path: str, timeout: float | None = None) -> None:
+        super().__init__("localhost", timeout=timeout)
         self._socket_path = socket_path
 
     def connect(self) -> None:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        if self.timeout is not None:
+            sock.settimeout(self.timeout)
         sock.connect(self._socket_path)
         self.sock = sock
 

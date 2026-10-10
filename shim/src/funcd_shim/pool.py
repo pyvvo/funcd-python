@@ -7,8 +7,9 @@ correlates each request↔response, so there is no hand-rolled queue/dispatch.
 Reads ``FUNCD_POOL_MANIFEST`` (the SAME ``[{name, artifact, handler}]`` contract as ``pool.mjs``),
 serves ``POST /function/<name>`` by submitting the request to the named handler's interpreter — with
 the byte-identical wire contract + JSON Schema I/O validation (ADR-0058, ADR-0123) as the solo shim
-(ADR-0049) — plus ``GET /health/{readiness,liveness,members}``. Bind: ``FUNCD_PORT`` → ``0.0.0.0:PORT``
-(container) else ``FUNCD_PORTFILE`` → loopback + write the port (process).
+(ADR-0049) — plus ``GET /health/{readiness,liveness,members}``; each ``/health/members`` entry of a ready
+member carries funcd's dependency report when its check fails (funcd ADR-0215). Bind: ``FUNCD_PORT`` →
+``0.0.0.0:PORT`` (container) else ``FUNCD_PORTFILE`` → loopback + write the port (process).
 
 The host serves at once and loads every member concurrently, each bounded by
 ``FUNCD_POOL_LOAD_TIMEOUT_MS``: a member whose handler/contract fails to load, or does not load in
@@ -28,7 +29,7 @@ from typing import Any
 
 from funcd_shim import _poolworker
 from funcd_shim.funclog import new_write_lock
-from funcd_shim.shim import read_body
+from funcd_shim.shim import check_dependencies, read_body
 from funcd_shim.tracespan import parse_links
 
 # funcd's runtime.bootTimeout default (1 m), used when FUNCD_POOL_LOAD_TIMEOUT_MS is unset or invalid.
@@ -153,7 +154,14 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
                 else:
                     self._text(200, "ready")
             elif self.path == "/health/members":
-                self._json(200, json.dumps([p.status() for p in handlers.values()]).encode())
+                deps = check_dependencies(list(handlers))
+                rows: list[dict[str, Any]] = []
+                for name, pooled in handlers.items():
+                    row: dict[str, Any] = dict(pooled.status())
+                    if name in deps:
+                        row["dependency"] = json.loads(deps[name])
+                    rows.append(row)
+                self._json(200, json.dumps(rows).encode())
             else:
                 self._empty(404)
 

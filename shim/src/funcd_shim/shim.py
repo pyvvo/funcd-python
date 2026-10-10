@@ -7,8 +7,9 @@ ADR-0037), so the platform stays language-blind:
     POST /                 CloudEvent -> [input contract] -> handler -> [output contract] -> response
                            (dict/list->200 JSON, None/void->204, raise/output-mismatch->500 {error},
                             bad JSON->400, input-mismatch->422 {error, details})
-    GET  /health/readiness 200 once the handler resolved
-    GET  /health/liveness  200 while up
+    GET  /health/readiness once the handler resolved, funcd's dependency check (funcd ADR-0215):
+                           200 when it passes, else 503 {kind, binding, reason, message}
+    GET  /health/liveness  200 while up; never calls funcd
 
 If the artifact carries a precompiled validator (ADR-0058/0060 — generated at build from the
 author's ``FuncInput``/``FuncOutput`` contract; supersedes the ADR-0038 JTD ``event_schema``),
@@ -25,15 +26,20 @@ Runtime dependency: fastjsonschema (the baked validator imports it); pydantic ru
 
 from __future__ import annotations
 
+import http.client
 import io
 import os
 import sys
+import threading
+import time
+from collections.abc import Sequence
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
 
 from . import contract, jsonwire, runtime
 from .blob import BlobClient
 from .funclog import install_log_capture, open_channel
+from .invoke import MEMBER_HEADER, _UnixHTTPConnection
 from .invoke import invoke as _invoke
 from .kv import KVClient
 from .tracespan import InvocationSpan, parse_links
@@ -62,6 +68,75 @@ class _Context:
     @property
     def blob(self) -> BlobClient:
         return BlobClient()
+
+
+DEPENDENCY_CHECK_BUDGET = 0.05
+"""funcd's DependencyCheckBudget (ADR-0215): the one bound on a dependency check, half funcd's probeTimeout,
+so a ``Timeout`` report reaches funcd's probe."""
+
+
+def socket_report(reason: str, message: str) -> dict[str, str]:
+    return {"kind": "socket", "binding": "", "reason": reason, "message": message}
+
+
+def _ask_dependencies(socket_path: str, member: str | None, timeout: float) -> bytes | None:
+    conn = _UnixHTTPConnection(socket_path, timeout)
+    try:
+        conn.request("GET", "/health/dependencies", headers={MEMBER_HEADER: member} if member else {})
+        resp = conn.getresponse()
+        body = resp.read()
+    except TimeoutError:
+        return jsonwire.encode(socket_report("Timeout", f"funcd did not answer within {timeout:g}s"))
+    except (OSError, http.client.HTTPException) as err:
+        return jsonwire.encode(socket_report("Unreachable", f"{type(err).__name__}: {err}"))
+    finally:
+        conn.close()
+    if resp.status in (200, 404):
+        return None
+    if resp.status == 503:
+        try:
+            report = jsonwire.decode(body)
+        except ValueError:
+            report = None
+        if isinstance(report, dict):
+            return body
+        return jsonwire.encode(
+            socket_report("Unreachable", "GET /health/dependencies answered 503 without a report")
+        )
+    return jsonwire.encode(socket_report("Unreachable", f"GET /health/dependencies answered {resp.status}"))
+
+
+def check_dependencies(
+    members: Sequence[str | None], budget: float = DEPENDENCY_CHECK_BUDGET
+) -> dict[str | None, bytes]:
+    """Ask funcd's ``GET /health/dependencies`` over ``FUNCD_INVOKE_SOCKET`` for each of *members* at once,
+    under one overall *budget* (funcd ADR-0215 Decision 4); None is the solo shim, a name a pool member.
+
+    Returns the JSON report readiness answers with 503 for each member whose check fails. 200 passes, and so
+    do 404 and no socket: a funcd without the endpoint. A 503 report is relayed as funcd wrote it; any other
+    answer, a socket error or no answer within *budget* is kind ``socket``."""
+    socket_path = os.environ.get("FUNCD_INVOKE_SOCKET")
+    if not socket_path:
+        return {}
+    deadline = time.monotonic() + budget
+    answers: dict[str | None, bytes | None] = {}
+
+    def ask(member: str | None) -> None:
+        answers[member] = _ask_dependencies(socket_path, member, budget)
+
+    threads = [threading.Thread(target=ask, args=(member,), daemon=True) for member in members]
+    for thread in threads:
+        thread.start()
+    reports: dict[str | None, bytes] = {}
+    for member, thread in zip(members, threads, strict=True):
+        thread.join(max(0.0, deadline - time.monotonic()))
+        if thread.is_alive():
+            reports[member] = jsonwire.encode(
+                socket_report("Timeout", f"funcd did not answer within {budget:g}s")
+            )
+        elif (report := answers[member]) is not None:
+            reports[member] = report
+    return reports
 
 
 def read_body(request: BaseHTTPRequestHandler) -> bytes | None:
@@ -131,7 +206,11 @@ def make_request_handler(
             if self.path == "/health/liveness":
                 self._send_text(200, "ok")
             elif self.path == "/health/readiness":
-                self._send_text(200, "ready")
+                report = check_dependencies([None]).get(None)
+                if report is None:
+                    self._send_text(200, "ready")
+                else:
+                    self._send_encoded(503, report)
             else:
                 self._send_empty(404)
 
