@@ -880,6 +880,24 @@ def test_scenario_health_pool_member_dependency(tmp_path: Path, dependency_api: 
         proc.wait(timeout=5)
 
 
+def test_pool_members_dependency_check_asks_every_member(
+    tmp_path: Path, dependency_api: DependencyAPI
+) -> None:
+    # funcd ADR-0215 Decision 4: the check is asked of all manifest members, a member that failed to load too.
+    mpath = _rows(tmp_path, [{"name": "a", "body": _OK}, {"name": "b", "body": "x = 1\n"}])
+    proc, port = _start(tmp_path, mpath, env={"FUNCD_INVOKE_SOCKET": dependency_api.path})
+    try:
+        members = _settled(port)
+        assert [(m["name"], m["state"]) for m in members] == [("a", "ready"), ("b", "failed")]
+        dependency_api.calls.clear()
+        status, _ = _get(port, "/health/members")
+        assert status == 200
+        assert sorted(dependency_api.calls) == ["GET /health/dependencies a", "GET /health/dependencies b"]
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def test_pool_members_dependency_check_has_one_bound(tmp_path: Path, dependency_api: DependencyAPI) -> None:
     # Every member is asked at once under one DependencyCheckBudget (50 ms), so /health/members fits
     # funcd's 100 ms probeTimeout even when the check of a member never answers.

@@ -154,7 +154,7 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
                 else:
                     self._text(200, "ready")
             elif self.path == "/health/members":
-                deps = check_dependencies([n for n, p in handlers.items() if p.state == "ready"])
+                deps = check_dependencies(list(handlers))
                 rows: list[dict[str, Any]] = []
                 for name, pooled in handlers.items():
                     row: dict[str, Any] = dict(pooled.status())
