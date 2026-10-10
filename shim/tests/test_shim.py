@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import CLOSE, HOLD, DependencyAPI
 
 from funcd_shim import contract, runtime, shim
 from funcd_shim.types import CloudEvent, FunctionContext, Validator
@@ -164,6 +165,104 @@ def test_health_endpoints() -> None:
         assert get(base, "/health/liveness") == 200
         assert get(base, "/health/readiness") == 200
         assert get(base, "/nope") == 404
+
+
+def get_body(base: str, path: str) -> tuple[int, bytes]:
+    try:
+        with urllib.request.urlopen(base + path, timeout=5) as resp:  # noqa: S310 - local loopback
+            return int(resp.status), resp.read()
+    except urllib.error.HTTPError as err:
+        return int(err.code), err.read()
+
+
+_KV_REPORT = b'{"kind":"kv","binding":"audit","reason":"Forbidden","message":"kv::read denied"}'
+
+
+def _socket_report(body: bytes, reason: str) -> None:
+    report = json.loads(body)
+    assert set(report) == {"kind", "binding", "reason", "message"}
+    assert (report["kind"], report["binding"], report["reason"]) == ("socket", "", reason)
+    assert report["message"]
+
+
+def test_readiness_is_ready_when_funcd_answers_200(
+    dependency_api: DependencyAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FUNCD_INVOKE_SOCKET", dependency_api.path)
+    with serve(_echo) as base:
+        assert get_body(base, "/health/readiness") == (200, b"ready")
+    assert dependency_api.calls == ["GET /health/dependencies -"]
+
+
+def test_scenario_app_dependency_check_readiness_relays_the_503_report(
+    dependency_api: DependencyAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # scenario: app-dependency-check — funcd's report on a forbidden kv binding reaches funcd's probe as is.
+    monkeypatch.setenv("FUNCD_INVOKE_SOCKET", dependency_api.path)
+    dependency_api.replies["-"] = (503, _KV_REPORT)
+    with serve(_echo) as base:
+        assert get_body(base, "/health/readiness") == (503, _KV_REPORT)
+
+
+def test_scenario_health_shim_compat_404_is_ready(
+    dependency_api: DependencyAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # scenario: health-shim-compat — a funcd without /health/dependencies answers 404: the shim is ready.
+    monkeypatch.setenv("FUNCD_INVOKE_SOCKET", dependency_api.path)
+    dependency_api.replies["-"] = (404, b"")
+    with serve(_echo) as base:
+        assert get_body(base, "/health/readiness") == (200, b"ready")
+
+
+def test_scenario_health_shim_compat_no_socket_is_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    # scenario: health-shim-compat — no FUNCD_INVOKE_SOCKET: nothing to ask, the shim is ready.
+    monkeypatch.delenv("FUNCD_INVOKE_SOCKET", raising=False)
+    with serve(_echo) as base:
+        assert get_body(base, "/health/readiness") == (200, b"ready")
+
+
+@pytest.mark.parametrize("reply", [(403, b"no member"), (500, b"boom"), (204, b""), CLOSE])
+def test_readiness_other_answers_are_socket_unreachable(
+    dependency_api: DependencyAPI, monkeypatch: pytest.MonkeyPatch, reply: tuple[int, bytes] | str
+) -> None:
+    monkeypatch.setenv("FUNCD_INVOKE_SOCKET", dependency_api.path)
+    dependency_api.replies["-"] = reply
+    with serve(_echo) as base:
+        status, body = get_body(base, "/health/readiness")
+    assert status == 503
+    _socket_report(body, "Unreachable")
+
+
+def test_readiness_missing_socket_file_is_socket_unreachable(
+    sock_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FUNCD_INVOKE_SOCKET", str(sock_dir / "absent.sock"))
+    with serve(_echo) as base:
+        status, body = get_body(base, "/health/readiness")
+    assert status == 503
+    _socket_report(body, "Unreachable")
+
+
+def test_readiness_unanswered_check_is_socket_timeout(
+    dependency_api: DependencyAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FUNCD_INVOKE_SOCKET", dependency_api.path)
+    dependency_api.replies["-"] = HOLD
+    with serve(_echo) as base:
+        start = time.monotonic()
+        status, body = get_body(base, "/health/readiness")
+        elapsed = time.monotonic() - start
+    assert status == 503
+    _socket_report(body, "Timeout")
+    assert elapsed < 1, elapsed
+
+
+def test_liveness_never_calls_funcd(dependency_api: DependencyAPI, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FUNCD_INVOKE_SOCKET", dependency_api.path)
+    dependency_api.replies["-"] = (503, _KV_REPORT)
+    with serve(_echo) as base:
+        assert get_body(base, "/health/liveness") == (200, b"ok")
+    assert dependency_api.calls == []
 
 
 def test_input_contract_valid_passes() -> None:

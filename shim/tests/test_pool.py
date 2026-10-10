@@ -20,6 +20,7 @@ from pathlib import Path
 
 import fastjsonschema
 import pytest
+from conftest import HOLD, DependencyAPI
 
 from funcd_shim.pool import load_timeout_s
 
@@ -709,6 +710,7 @@ def test_scenario_pooled_member_kv(tmp_path: Path, local_api: tuple[str, list[st
     proc, port = _start(tmp_path, mpath, env={"FUNCD_INVOKE_SOCKET": socket_path})
     try:
         _settled(port)
+        calls.clear()  # /health/members asks each member's dependency check (funcd ADR-0215)
         for name in ("a", "b"):
             status, body = _post(port, name, "{}")
             assert status == 200, body
@@ -850,3 +852,72 @@ def test_load_timeout_follows_the_env() -> None:
     assert load_timeout_s("250") == 0.25
     for value in (None, "", "0", "-1", "1.5", "abc", "\u0661"):
         assert load_timeout_s(value) == 60.0, value
+
+
+_OK = "def handle(context, event):\n    return {'ok': True}\n"
+_KV_REPORT = {"kind": "kv", "binding": "audit", "reason": "Forbidden", "message": "kv::read denied"}
+
+
+def test_scenario_health_pool_member_dependency(tmp_path: Path, dependency_api: DependencyAPI) -> None:
+    # scenario: health-pool-member-dependency — only the member whose check fails carries a dependency;
+    # a passing member and one whose funcd answers 404 (health-shim-compat) carry none.
+    dependency_api.replies["a"] = (503, json.dumps(_KV_REPORT).encode())
+    dependency_api.replies["c"] = (404, b"")
+    mpath = _rows(tmp_path, [{"name": n, "body": _OK} for n in ("a", "b", "c")])
+    proc, port = _start(tmp_path, mpath, env={"FUNCD_INVOKE_SOCKET": dependency_api.path})
+    try:
+        dependency_api.calls.clear()
+        status, body = _get(port, "/health/members")
+        assert status == 200
+        assert json.loads(body) == [
+            {"name": "a", "state": "ready", "dependency": _KV_REPORT},
+            {"name": "b", "state": "ready"},
+            {"name": "c", "state": "ready"},
+        ]
+        assert sorted(dependency_api.calls) == [
+            "GET /health/dependencies a",
+            "GET /health/dependencies b",
+            "GET /health/dependencies c",
+        ]
+        assert _get(port, "/health/readiness") == (200, b"ready"), "the host's readiness is unchanged"
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_pool_members_dependency_check_has_one_bound(tmp_path: Path, dependency_api: DependencyAPI) -> None:
+    # Every member is asked at once under one DependencyCheckBudget (50 ms), so /health/members fits
+    # funcd's 100 ms probeTimeout even when the check of a member never answers.
+    dependency_api.replies["slow1"] = HOLD
+    dependency_api.replies["slow2"] = HOLD
+    mpath = _rows(tmp_path, [{"name": n, "body": _OK} for n in ("slow1", "slow2", "fast")])
+    proc, port = _start(tmp_path, mpath, env={"FUNCD_INVOKE_SOCKET": dependency_api.path})
+    try:
+        start = time.monotonic()
+        status, body = _get(port, "/health/members")
+        elapsed = time.monotonic() - start
+        assert status == 200
+        members = json.loads(body)
+        assert elapsed < 0.1, elapsed
+        assert [m["name"] for m in members] == ["slow1", "slow2", "fast"]
+        for slow in members[:2]:
+            dep = slow["dependency"]
+            assert (dep["kind"], dep["binding"], dep["reason"]) == ("socket", "", "Timeout")
+            assert dep["message"]
+        assert members[2] == {"name": "fast", "state": "ready"}
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_pool_liveness_and_readiness_never_call_funcd(tmp_path: Path, dependency_api: DependencyAPI) -> None:
+    mpath = _rows(tmp_path, [{"name": "a", "body": _OK}])
+    proc, port = _start(tmp_path, mpath, env={"FUNCD_INVOKE_SOCKET": dependency_api.path})
+    try:
+        dependency_api.calls.clear()
+        assert _get(port, "/health/liveness") == (200, b"ok")
+        assert _get(port, "/health/readiness") == (200, b"ready")
+        assert dependency_api.calls == []
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
