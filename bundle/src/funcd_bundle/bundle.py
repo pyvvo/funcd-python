@@ -27,10 +27,14 @@ from pathlib import Path
 
 import yaml
 
-# Pinned by digest, so a bundle builds from the same image on every machine; move the tag and digest together.
-BASE_IMAGE = (
-    "python:3.14-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83"
-)
+BASE_IMAGE = "python:3.14-slim-bookworm"
+# BASE_IMAGE pinned per platform (its index is sha256:48b13b00…0f83), so a bundle builds from one image on
+# every machine. Not the index digest: the classic image store maps one digest to one image, so it cannot hold
+# both platforms of an index under one digest. Move the three together.
+BASE_IMAGES = {
+    "linux/amd64": "python@sha256:a66d3a463d0be3cc537c269b0d3418746dda512417a975559a0eaa8a6406baaf",
+    "linux/arm64": "python@sha256:0e24db28cf5b7788413afe3fdc63075ca22bc4ecf74f5472304b391c2110e629",
+}
 PYTHON_VERSION = "3.14"
 GLIBC = "2_36"
 MANIFEST_SUFFIX = ".funcdctl.yaml"
@@ -289,7 +293,11 @@ def _check(out: Path, platform: str, modules: list[str]) -> None:
 
 
 def _create(platform: str, env: list[str], command: list[str]) -> str:
-    return _run(["docker", "create", "--platform", platform, *env, BASE_IMAGE, *command]).decode().strip()
+    return (
+        _run(["docker", "create", "--platform", platform, *env, BASE_IMAGES[platform], *command])
+        .decode()
+        .strip()
+    )
 
 
 def _start(cid: str, what: str) -> None:
