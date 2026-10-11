@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/pyvvo/funcd-python/compare/v0.8.0...v0.8.1) (2026-10-11)
+
+
+### Bug Fixes
+
+* **bundle:** pin the base image by digest and check the DuckDB extensions ([#77](https://github.com/pyvvo/funcd-python/issues/77)) ([095ba8a](https://github.com/pyvvo/funcd-python/commit/095ba8a9d556766227b46a7588b09d179d3e0ba3))
+
 ## [0.8.0](https://github.com/pyvvo/funcd-python/compare/v0.7.0...v0.8.0) (2026-10-11)
 
 
