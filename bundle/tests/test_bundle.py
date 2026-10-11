@@ -19,7 +19,7 @@ import pytest
 import yaml
 
 from funcd_bundle import BundleError, bundle, discover, host_platform
-from funcd_bundle.bundle import _check
+from funcd_bundle.bundle import BASE_IMAGES, PLATFORMS, _check
 from funcd_bundle.cli import main
 
 FOREIGN = {"linux/arm64": "linux/amd64", "linux/amd64": "linux/arm64"}
@@ -362,3 +362,9 @@ def test_issue_r48_invalid_manifest_yaml_is_reported(
     assert err.startswith(f"funcd-bundle: {tmp_path / 'funcdctl.yaml'}: "), err
     assert "while parsing a flow node" in err, "the parser message names the problem"
     assert "Traceback" not in err
+
+
+def test_base_image_is_pinned_by_digest() -> None:
+    assert set(BASE_IMAGES) == set(PLATFORMS), "one pinned image per platform a bundle builds for"
+    for platform, ref in BASE_IMAGES.items():
+        assert re.fullmatch(r"python@sha256:[0-9a-f]{64}", ref), f"{platform}: {ref}"
