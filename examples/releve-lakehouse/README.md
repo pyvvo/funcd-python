@@ -144,13 +144,16 @@ for f in resources/*.yaml; do funcdctl apply -f "$f"; done
 Each step is a Python function on the **stock `python314`** runtime; its native deps (`pdfplumber`,
 `pyarrow`, `duckdb`) travel in a deployment-package **bundle** (ADR-0089). `uv run funcd-bundle` (funcd ADR-0144)
 builds one per `*.funcdctl.yaml`: it installs the versions `uv.lock` pins, by hash, inside the pinned
-`python:3.14-slim-bookworm`, then adds the quack and httpfs extensions. Then push each:
+`python:3.14-slim-bookworm`, then adds the quack and httpfs extensions. The project has one lock, so every bundle
+carries the whole closure (about 300 MB). Then push each:
 
 ```bash
 uv run funcd-bundle                                         # → dist/<function>/
 funcdctl push dist/extract registry:extract --entry handler.py
+funcdctl push dist/verify registry:verify --entry handler.py
+funcdctl push dist/build-silver registry:build-silver --entry handler.py
+funcdctl push dist/to-gold registry:to-gold --entry handler.py
 funcdctl push dist/query-transactions registry:catalog-reader --entry handler.py
-# …one push per step; the image refs match resources/functions.yaml
 ```
 
 | Function | Ports | Reads → Writes |
