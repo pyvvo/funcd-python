@@ -15,6 +15,6 @@ ADR-0038 JTD ``event_schema``). Requires pydantic at runtime.
 
 from __future__ import annotations
 
-from .types import CloudEvent, FunctionContext, Handler, Json
+from .types import CloudEvent, DeadlineExceeded, FunctionContext, Handler, Json
 
-__all__ = ["CloudEvent", "FunctionContext", "Handler", "Json"]
+__all__ = ["CloudEvent", "DeadlineExceeded", "FunctionContext", "Handler", "Json"]

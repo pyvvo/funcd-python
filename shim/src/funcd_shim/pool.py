@@ -8,7 +8,8 @@ Reads ``FUNCD_POOL_MANIFEST`` (the SAME ``[{name, artifact, handler}]`` contract
 serves ``POST /function/<name>`` by submitting the request to the named handler's interpreter — with
 the byte-identical wire contract + JSON Schema I/O validation (ADR-0058, ADR-0123) as the solo shim
 (ADR-0049) — plus ``GET /health/{readiness,liveness,members}``; each ``/health/members`` entry of a ready
-member carries funcd's dependency report when its check fails (funcd ADR-0215). Bind: ``FUNCD_PORT`` →
+member carries funcd's dependency report when its check fails (funcd ADR-0215). Liveness answers 503
+``stuck call`` while a member runs a call 11 s after its deadline (funcd ADR-0226). Bind: ``FUNCD_PORT`` →
 ``0.0.0.0:PORT`` (container) else ``FUNCD_PORTFILE`` → loopback + write the port (process).
 
 The host serves at once and loads every member concurrently, each bounded by
@@ -23,14 +24,19 @@ import json
 import os
 import sys
 import threading
+import time
 from concurrent.futures import InterpreterPoolExecutor  # type: ignore[attr-defined]  # 3.14, no stubs yet
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from funcd_shim import _poolworker
+from funcd_shim.deadline import deadline_from, is_stuck
 from funcd_shim.funclog import new_write_lock
-from funcd_shim.shim import check_dependencies, read_body
+from funcd_shim.shim import check_dependencies, exit_on_sigterm, read_body
 from funcd_shim.tracespan import parse_links
+
+if TYPE_CHECKING:
+    from concurrent.futures import Future
 
 # funcd's runtime.bootTimeout default (1 m), used when FUNCD_POOL_LOAD_TIMEOUT_MS is unset or invalid.
 _DEFAULT_LOAD_TIMEOUT_MS = 60_000
@@ -63,6 +69,8 @@ class _Pooled:
         self.name = name
         self.state = "loading"
         self.error: str | None = None
+        # The deadline of each call submitted with one, until it answers.
+        self._deadlines: dict[Future[dict[str, Any]], float] = {}
         self.ex = InterpreterPoolExecutor(
             max_workers=1,
             initializer=_poolworker.init,
@@ -100,11 +108,22 @@ class _Pooled:
         fn_name: str = "invoke",
         span_id: str | None = None,
         links: list[str] | None = None,
+        deadline: float | None = None,
     ) -> dict[str, Any]:
-        result: dict[str, Any] = self.ex.submit(
-            _poolworker.invoke, body, traceparent, fn_name, span_id, links
-        ).result()
-        return result
+        future: Future[dict[str, Any]] = self.ex.submit(
+            _poolworker.invoke, body, traceparent, fn_name, span_id, links, deadline
+        )
+        if deadline is None:
+            return future.result()
+        self._deadlines[future] = deadline
+        try:
+            return future.result()
+        finally:
+            del self._deadlines[future]
+
+    def stuck(self, now: float) -> bool:
+        """Whether the member runs a call that is stuck at *now*; a call queued behind it does not count."""
+        return any(f.running() and is_stuck(d, now) for f, d in self._deadlines.copy().items())
 
     def close(self) -> None:
         self.ex.shutdown(wait=False)
@@ -147,7 +166,11 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
 
         def do_GET(self) -> None:  # noqa: N802 - stdlib signature
             if self.path == "/health/liveness":
-                self._text(200, "ok")
+                now = time.monotonic()
+                if any(pooled.stuck(now) for pooled in handlers.values()):
+                    self._text(503, "stuck call")
+                else:
+                    self._text(200, "ok")
             elif self.path == "/health/readiness":
                 if any(p.state == "loading" for p in handlers.values()):
                     self._text(503, "not ready")
@@ -166,6 +189,7 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
                 self._empty(404)
 
         def do_POST(self) -> None:  # noqa: N802 - stdlib signature
+            received = time.monotonic()
             # Drain the request body FIRST, before any early return — with HTTP/1.1 keep-alive an
             # unread body would desync the next request on the connection.
             raw = read_body(self)
@@ -190,6 +214,7 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
                 name,
                 self.headers.get("X-Funcd-Span-Id"),
                 parse_links(self.headers.get("X-Funcd-Span-Links")),
+                deadline_from(self.headers, received),
             )
             status = int(res["status"])
             if status == 204:
@@ -203,6 +228,7 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
 
 
 def main() -> int:
+    exit_on_sigterm()
     manifest_path = os.environ.get("FUNCD_POOL_MANIFEST")
     fixed_port = int(os.environ["FUNCD_PORT"]) if os.environ.get("FUNCD_PORT") else 0
     port_file = os.environ.get("FUNCD_PORTFILE")

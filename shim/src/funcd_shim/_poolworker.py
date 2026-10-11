@@ -19,7 +19,7 @@ import sys
 from collections.abc import Callable, MutableMapping
 from typing import Any, AnyStr, NoReturn
 
-from . import contract, jsonwire, runtime
+from . import contract, invcontext, jsonwire, runtime
 from .blob import BlobClient
 from .funclog import install_log_capture, open_channel
 from .invoke import invoke as _invoke
@@ -195,6 +195,9 @@ class _Ctx:
     def blob(self) -> BlobClient:
         return BlobClient(_member)
 
+    def remaining_ms(self) -> int | None:
+        return invcontext.remaining_ms()
+
 
 def _reply(status: int, body: dict[str, Any]) -> dict[str, Any]:
     return {"status": status, "body": jsonwire.encode(body)}
@@ -206,11 +209,14 @@ def invoke(
     fn_name: str = "invoke",
     span_id: str | None = None,
     links: list[str] | None = None,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
     """Run one request: parse → optional input validation → handler → optional output validation →
     a status-tagged envelope the host maps to the HTTP response (identical to the solo shim). The body
     is encoded here, so a result with no JSON form is this handler's 500 and never reaches the host.
-    ADR-0101: a successful-past-input-validation request emits a SERVER span on the worker's channel."""
+    ADR-0101: a successful-past-input-validation request emits a SERVER span on the worker's channel.
+    *deadline* is the host's ``time.monotonic()`` deadline of the call (funcd ADR-0226): it is watched
+    from its start here, and one that starts after its stop does not run."""
     if _handler is None:  # defensive — init() always runs first
         return _reply(500, {"error": "handler not loaded"})
     try:
@@ -227,7 +233,7 @@ def invoke(
         if errors:
             # ADR-0101: input-mismatch short-circuits before the handler → no invocation, no span.
             return _reply(422, {"error": "event data does not match the input contract", "details": errors})
-    with InvocationSpan(_channel, fn_name, traceparent, span_id, links, _member) as span:
+    with InvocationSpan(_channel, fn_name, traceparent, span_id, links, _member, deadline=deadline) as span:
         try:
             result = call_handler(_handler, _Ctx(), event)
         except BaseException as err:  # noqa: BLE001 - user handler errors, SystemExit too, become 500

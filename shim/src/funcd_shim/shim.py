@@ -9,7 +9,8 @@ ADR-0037), so the platform stays language-blind:
                             bad JSON->400, input-mismatch->422 {error, details})
     GET  /health/readiness once the handler resolved, funcd's dependency check (funcd ADR-0215):
                            200 when it passes, else 503 {kind, binding, reason, message}
-    GET  /health/liveness  200 while up; never calls funcd
+    GET  /health/liveness  200 while up, 503 ``stuck call`` while a call still runs 11 s after its
+                           deadline (funcd ADR-0226); never calls funcd
 
 If the artifact carries a precompiled validator (ADR-0058/0060 — generated at build from the
 author's ``FuncInput``/``FuncOutput`` contract; supersedes the ADR-0038 JTD ``event_schema``),
@@ -29,6 +30,7 @@ from __future__ import annotations
 import http.client
 import io
 import os
+import signal
 import sys
 import threading
 import time
@@ -36,8 +38,9 @@ from collections.abc import Sequence
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
 
-from . import contract, jsonwire, runtime
+from . import contract, invcontext, jsonwire, runtime
 from .blob import BlobClient
+from .deadline import deadline_from, stuck
 from .funclog import install_log_capture, open_channel
 from .invoke import MEMBER_HEADER, _UnixHTTPConnection
 from .invoke import invoke as _invoke
@@ -68,6 +71,9 @@ class _Context:
     @property
     def blob(self) -> BlobClient:
         return BlobClient()
+
+    def remaining_ms(self) -> int | None:
+        return invcontext.remaining_ms()
 
 
 DEPENDENCY_CHECK_BUDGET = 0.05
@@ -204,7 +210,10 @@ def make_request_handler(
 
         def do_GET(self) -> None:  # noqa: N802 - stdlib signature
             if self.path == "/health/liveness":
-                self._send_text(200, "ok")
+                if stuck():
+                    self._send_text(503, "stuck call")
+                else:
+                    self._send_text(200, "ok")
             elif self.path == "/health/readiness":
                 report = check_dependencies([None]).get(None)
                 if report is None:
@@ -215,6 +224,7 @@ def make_request_handler(
                 self._send_empty(404)
 
         def do_POST(self) -> None:  # noqa: N802 - stdlib signature
+            received = time.monotonic()
             # Drain the request body FIRST, before any early return — with HTTP/1.1 keep-alive an
             # unread body would desync the next request on the connection.
             raw = read_body(self)
@@ -251,6 +261,7 @@ def make_request_handler(
                 self.headers.get("traceparent"),
                 self.headers.get("X-Funcd-Span-Id"),
                 parse_links(self.headers.get("X-Funcd-Span-Links")),
+                deadline=deadline_from(self.headers, received),
             ) as span:
                 try:
                     result = runtime.call_handler(handler, context, event)
@@ -281,9 +292,19 @@ def make_request_handler(
     return ShimHandler
 
 
+def exit_on_sigterm() -> None:
+    """As PID 1, in a container, exit at once with 143 (128 + SIGTERM) on SIGTERM: the kernel drops a
+    signal that PID 1 has no handler for, so funcd's stop waited out its grace and killed the worker.
+    Elsewhere the default action ends the shim by the signal, as before. os._exit, so a stuck call's
+    thread cannot hold up the exit."""
+    if os.getpid() == 1:
+        signal.signal(signal.SIGTERM, lambda signum, frame: os._exit(128 + signum))
+
+
 def main(argv: list[str] | None = None) -> int:
     """Load the artifact, resolve the handler + optional contract, and serve. Returns the process
     exit code (0 only if the server is interrupted cleanly)."""
+    exit_on_sigterm()
     # Path B log capture (ADR-0081) + traces (ADR-0101): open the telemetry channel ONCE and share it
     # between log capture and the per-invocation span (a second connect would double-capture). Install
     # BEFORE the handler loads so the first logging.* is captured. No-op unless FUNCD_LOG_FD/SOCK is set.
