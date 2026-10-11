@@ -71,6 +71,19 @@ class FunctionContext(Protocol):
         mint a presigned URL — the blob twin of ``kv``."""
         ...
 
+    def remaining_ms(self) -> int | None:
+        """Milliseconds left before the call's deadline (X-Funcd-Timeout-Ms), floored at 0; None
+        without one."""
+        ...
+
+
+class DeadlineExceeded(BaseException):
+    """Raised in a handler's thread after its deadline (ADR-0226). Catch it only to clean up."""
+
+    def __init__(self, *args: object) -> None:
+        # PyThreadState_SetAsyncExc raises the class without arguments, and a raise answers with its message.
+        super().__init__(*(args or ("deadline exceeded",)))
+
 
 class Handler(Protocol):
     """A function handler: receives the context + CloudEvent, returns a response (or ``None``).

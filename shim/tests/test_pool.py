@@ -14,6 +14,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
+from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -21,11 +22,18 @@ import fastjsonschema
 import pytest
 from fakeapi import HOLD, DependencyAPI, UnixHTTPServer
 
-from funcd_shim.pool import load_timeout_s
+from funcd_shim import deadline
+from funcd_shim.pool import _Pooled, load_timeout_s
 
 pytest.importorskip("concurrent.interpreters")  # Python 3.14+ only
 
 SRC = str(Path(__file__).resolve().parents[1] / "src")
+TIMEOUT = "X-Funcd-Timeout-Ms"
+# The pool host's entry script (embed.go) after setting delays of the host's funcd_shim.deadline; a
+# member's subinterpreter imports its own copy, with the module's values.
+PATCHED_ENTRY = (
+    "from funcd_shim import deadline\n{patch}from funcd_shim.pool import main\nraise SystemExit(main())\n"
+)
 
 # A REAL fastjsonschema-compiled __funcd_validate_input (what the build bakes) — this proves
 # fastjsonschema's compiled validator runs end-to-end inside the subinterpreter pool (the whole
@@ -126,11 +134,17 @@ def _start(
     env: dict[str, str] | None = None,
     pass_fds: tuple[int, ...] = (),
     settle: bool = True,
+    constants: dict[str, float] | None = None,
 ) -> tuple[subprocess.Popen[bytes], int]:
-    """Start the pool host; with *settle*, return once no member is loading (the host serves at once)."""
+    """Start the pool host, with the delays of its funcd_shim.deadline set to *constants*; with
+    *settle*, return once no member is loading (the host serves at once)."""
     port_file = tmp / "pool.port"
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "funcd_shim.pool"],
+    launch = [sys.executable, "-m", "funcd_shim.pool"]
+    if constants:
+        patch = "".join(f"deadline.{name} = {value!r}\n" for name, value in constants.items())
+        launch = [sys.executable, "-c", PATCHED_ENTRY.format(patch=patch)]
+    proc = subprocess.Popen(  # noqa: S603 - this interpreter, on the test's own launcher
+        launch,
         env={
             "FUNCD_POOL_MANIFEST": str(manifest),
             "FUNCD_PORTFILE": str(port_file),
@@ -156,11 +170,13 @@ def _start(
     raise RuntimeError("pool host never wrote its port")
 
 
-def _post(port: int, name: str, body: str | bytes) -> tuple[int, bytes]:
+def _post(
+    port: int, name: str, body: str | bytes, headers: dict[str, str] | None = None
+) -> tuple[int, bytes]:
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/function/{name}",
         data=body if isinstance(body, bytes) else body.encode(),
-        headers={"content-type": "application/json"},
+        headers={"content-type": "application/json", **(headers or {})},
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as r:  # noqa: S310 - loopback
@@ -934,3 +950,127 @@ def test_pool_liveness_and_readiness_never_call_funcd(tmp_path: Path, dependency
     finally:
         proc.terminate()
         proc.wait(timeout=5)
+
+
+# ---- funcd ADR-0226: a late call is stopped in its member; one that will not stop fails liveness ----
+
+LOOP = (
+    "import funcd_shim\n"
+    "def handle(context, event):\n"
+    "    if event['data'] == 'ping':\n"
+    "        return {'pong': True}\n"
+    "    try:\n"
+    "        while True:\n"
+    "            pass\n"
+    "    except funcd_shim.DeadlineExceeded:\n"
+    "        with open(event['data'], 'w') as f:\n"
+    "            f.write('saw DeadlineExceeded')\n"
+    "        raise\n"
+)
+REMAINING = "def handle(context, event):\n    return {'ms': context.remaining_ms()}\n"
+STOPPED = (500, b'{"error":"deadline exceeded"}')
+
+
+def test_scenario_stuck_pooled_python_member_stopped(tmp_path: Path) -> None:
+    # scenario: stuck-pooled-python-member-stopped — a watchdog in a's own subinterpreter stops a's loop at
+    # its deadline + 1 s; a serves its next call, and b serves throughout.
+    proc, port = _start(
+        tmp_path, _rows(tmp_path, [{"name": "a", "body": LOOP}, {"name": "b", "body": REMAINING}])
+    )
+    seen = tmp_path / "seen"
+    replies: list[tuple[int, bytes]] = []
+    stopped = threading.Thread(
+        target=lambda: replies.append(_post(port, "a", json.dumps({"data": str(seen)}), {TIMEOUT: "1000"}))
+    )
+    try:
+        start = time.monotonic()
+        stopped.start()
+        while stopped.is_alive():
+            assert _post(port, "b", "{}") == (200, b'{"ms":null}')
+            time.sleep(0.1)
+        assert time.monotonic() - start >= 2.0
+        assert replies == [STOPPED]
+        assert seen.read_text() == "saw DeadlineExceeded"
+        assert _post(port, "a", json.dumps({"data": "ping"})) == (200, b'{"pong":true}')
+        # scenario: handler-reads-deadline (pooled)
+        status, body = _post(port, "b", "{}", {TIMEOUT: "5000"})
+        assert status == 200
+        assert 3000 < json.loads(body)["ms"] <= 5000
+        assert _get(port, "/health/liveness") == (200, b"ok")
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+        stopped.join(timeout=5)
+
+
+SLOW = (
+    "import time\n"
+    "def handle(context, event):\n"
+    "    with open(event['data']['log'], 'a') as f:\n"
+    "        f.write(event['data']['tag'] + '\\n')\n"
+    "    time.sleep(event['data']['sleep'])\n"
+    "    return {'ran': event['data']['tag']}\n"
+)
+
+
+def test_pooled_call_that_starts_late_is_not_run(tmp_path: Path) -> None:
+    # A call queued behind its member's busy call starts after its deadline + 1 s: it answers as stopped,
+    # and its handler never runs.
+    proc, port = _start(tmp_path, _rows(tmp_path, [{"name": "a", "body": SLOW}]))
+    log = tmp_path / "log"
+    replies: list[tuple[int, bytes]] = []
+    busy = threading.Thread(
+        target=lambda: replies.append(
+            _post(port, "a", json.dumps({"data": {"log": str(log), "tag": "busy", "sleep": 1.5}}))
+        )
+    )
+    try:
+        busy.start()
+        until = time.monotonic() + 10
+        while not (log.exists() and log.read_text()):
+            assert time.monotonic() < until, "the busy call never started"
+            time.sleep(0.01)
+        late = json.dumps({"data": {"log": str(log), "tag": "late", "sleep": 0}})
+        assert _post(port, "a", late, {TIMEOUT: "1"}) == STOPPED
+        busy.join(timeout=10)
+        assert replies == [(200, b'{"ran":"busy"}')]
+        assert log.read_text() == "busy\n"
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+        busy.join(timeout=5)
+
+
+def test_pool_liveness_fails_while_a_member_call_is_stuck(tmp_path: Path) -> None:
+    # A raise cannot reach a handler blocked in C: the host's liveness answers 503 once the member still
+    # runs the call STUCK_DELAY_S after its stop, while the sibling serves.
+    sleeper = "import time\ndef handle(context, event):\n    time.sleep(3600)\n"
+    mpath = _rows(tmp_path, [{"name": "a", "body": sleeper}, {"name": "b", "body": REMAINING}])
+    proc, port = _start(tmp_path, mpath, constants={"STUCK_DELAY_S": 0.3})
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    try:
+        start = time.monotonic()
+        conn.request("POST", "/function/a", b"{}", {TIMEOUT: "100"})
+        while (live := _get(port, "/health/liveness")) == (200, b"ok"):
+            assert time.monotonic() - start < 5, "liveness never failed"
+            time.sleep(0.05)
+        assert live == (503, b"stuck call")
+        assert time.monotonic() - start >= 0.1 + 1 + 0.3
+        assert _post(port, "b", "{}") == (200, b'{"ms":null}')
+    finally:
+        conn.close()
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_pool_liveness_counts_a_running_call_not_a_queued_one() -> None:
+    pooled = _Pooled(SRC, "artifact.py", "handle")
+    queued: Future[dict[str, object]] = Future()
+    running: Future[dict[str, object]] = Future()
+    running.set_running_or_notify_cancel()
+    pooled._deadlines.update({queued: 0.0, running: 5.0})
+    stuck_at = 5.0 + deadline.STOP_MARGIN_S + deadline.STUCK_DELAY_S
+    assert not pooled.stuck(stuck_at - 0.001)
+    assert pooled.stuck(stuck_at)
+    del pooled._deadlines[running]
+    assert not pooled.stuck(stuck_at + 3600), "a queued call never counts"

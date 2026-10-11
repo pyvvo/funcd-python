@@ -22,7 +22,9 @@ from dataclasses import dataclass
 from types import ModuleType
 from typing import Any, cast
 
-from .types import CloudEvent, FunctionContext, Handler, Validator
+from .deadline import Call
+from .invcontext import current_inv
+from .types import CloudEvent, DeadlineExceeded, FunctionContext, Handler, Validator
 
 #: artifact exports the build bakes the precompiled validators into. Absent (or non-callable) ⇒
 #: that side is unchecked.
@@ -60,11 +62,31 @@ def resolve_handler(module: ModuleType, name: str) -> Handler:
 
 def call_handler(handler: Handler, context: FunctionContext, event: CloudEvent[Any]) -> Any:
     """Call *handler* and return its result, running a coroutine (an ``async def`` handler) to
-    completion first: the Node shim awaits its handler, and ADR-0049 keeps the same contract."""
+    completion first: the Node shim awaits its handler, and ADR-0049 keeps the same contract. A call
+    whose context carries a deadline runs under its watchdog, and not at all once its stop has passed
+    (funcd ADR-0226)."""
+    inv = current_inv()
+    if inv is None or inv.deadline is None:
+        return _run(handler, context, event, None)
+    call = Call(inv.deadline)
+    try:
+        call.start()
+        return _run(handler, context, event, call)
+    finally:
+        try:
+            call.end()
+        except DeadlineExceeded:
+            # It fired on entering end(), before end()'s own try. It was the call's only raise, so
+            # end() now runs through.
+            call.end()
+
+
+def _run(handler: Handler, context: FunctionContext, event: CloudEvent[Any], call: Call | None) -> Any:
     result = handler(context, event)
-    if inspect.iscoroutine(result):
-        return asyncio.run(result)
-    return result
+    if not inspect.iscoroutine(result):
+        return result
+    with asyncio.Runner() as runner:
+        return runner.run(result if call is None else call.track(result))
 
 
 @dataclass

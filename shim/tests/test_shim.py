@@ -35,6 +35,12 @@ ECHO = (
     "    context.log('hi', event.get('data'))\n"
     "    return {'echoed': event.get('data')}\n"
 )
+SRC = str(Path(__file__).resolve().parents[1] / "src")
+TIMEOUT = "X-Funcd-Timeout-Ms"
+# funcd's entry script (embed.go) after setting delays of funcd_shim.deadline
+PATCHED_ENTRY = (
+    "from funcd_shim import deadline\n{patch}from funcd_shim.shim import main\nraise SystemExit(main())\n"
+)
 
 
 # fake precompiled validators (stand-ins for what pydantic models produce via resolve_validators).
@@ -67,9 +73,11 @@ def serve(handler: Any, validators: runtime.Validators | None = None) -> Iterato
         thread.join(timeout=5)
 
 
-def post(base: str, body: bytes | str) -> tuple[int, bytes]:
+def post(base: str, body: bytes | str, headers: dict[str, str] | None = None) -> tuple[int, bytes]:
     data = body.encode() if isinstance(body, str) else body
-    req = urllib.request.Request(base + "/", data=data, headers={"content-type": "application/json"})
+    req = urllib.request.Request(
+        base + "/", data=data, headers={"content-type": "application/json", **(headers or {})}
+    )
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310 - local loopback
             return resp.status, resp.read()
@@ -165,6 +173,15 @@ def test_health_endpoints() -> None:
         assert get(base, "/health/liveness") == 200
         assert get(base, "/health/readiness") == 200
         assert get(base, "/nope") == 404
+
+
+def test_scenario_handler_reads_deadline() -> None:
+    # scenario: handler-reads-deadline (solo) — remaining_ms() counts down from X-Funcd-Timeout-Ms.
+    with serve(lambda context, event: {"ms": context.remaining_ms()}) as base:
+        status, body = post(base, "{}", {TIMEOUT: "5000"})
+        assert status == 200
+        assert 3000 < json.loads(body)["ms"] <= 5000
+        assert post(base, "{}") == (200, b'{"ms":null}')
 
 
 def get_body(base: str, path: str) -> tuple[int, bytes]:
@@ -582,27 +599,40 @@ def test_main_bad_handler_exit_3(monkeypatch: Any, tmp_path: Path) -> None:
 # ---- real subprocess: the launch path the Go process driver uses (portfile handshake + e2e) ----
 
 
-def test_subprocess_portfile_handshake_and_contract(tmp_path: Path) -> None:
+def spawn(tmp_path: Path, body: str, **constants: float) -> tuple[subprocess.Popen[bytes], int]:
+    """Run the shim on the artifact *body* as funcd does, with the delays of funcd_shim.deadline set to
+    *constants*, and return it with its port once it listens."""
     artifact = tmp_path / "fn.py"
-    artifact.write_text(ECHO)
+    artifact.write_text(body)
     port_file = tmp_path / "fn.port"
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "funcd_shim"],
+    launch = [sys.executable, "-m", "funcd_shim"]
+    if constants:
+        patch = "".join(f"deadline.{name} = {value!r}\n" for name, value in constants.items())
+        launch = [sys.executable, "-c", PATCHED_ENTRY.format(patch=patch)]
+    proc = subprocess.Popen(  # noqa: S603 - this interpreter, on the test's own launcher
+        launch,
         env={
             "FUNCD_ARTIFACT": str(artifact),
             "FUNCD_PORTFILE": str(port_file),
             "PATH": "/usr/bin:/bin",
-            "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
+            "PYTHONPATH": SRC,
         },
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+    until = time.time() + 10
+    while time.time() < until and not (port_file.exists() and port_file.read_text().strip()):
+        time.sleep(0.05)
+    if not (port_file.exists() and port_file.read_text().strip()):
+        proc.terminate()
+        proc.wait(timeout=5)
+        pytest.fail("shim never wrote its port")
+    return proc, int(port_file.read_text().strip())
+
+
+def test_subprocess_portfile_handshake_and_contract(tmp_path: Path) -> None:
+    proc, port = spawn(tmp_path, ECHO)
     try:
-        deadline = time.time() + 10
-        while time.time() < deadline and not (port_file.exists() and port_file.read_text().strip()):
-            time.sleep(0.05)
-        assert port_file.exists() and port_file.read_text().strip(), "shim never wrote its port"
-        port = int(port_file.read_text().strip())
         # it bound loopback (process mode), not 0.0.0.0
         with closing(socket.create_connection(("127.0.0.1", port), timeout=5)):
             pass
@@ -610,5 +640,110 @@ def test_subprocess_portfile_handshake_and_contract(tmp_path: Path) -> None:
         assert status == 200
         assert json.loads(body) == {"echoed": {"k": "v"}}
     finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+# ---- funcd ADR-0226: a late call is stopped; one that will not stop fails liveness ----
+
+LOOP = (
+    "import funcd_shim\n"
+    "def handle(context, event):\n"
+    "    if event['data'] == 'ping':\n"
+    "        return {'pong': True}\n"
+    "    try:\n"
+    "        while True:\n"
+    "            pass\n"
+    "    except funcd_shim.DeadlineExceeded:\n"
+    "        with open(event['data'], 'w') as f:\n"
+    "            f.write('saw DeadlineExceeded')\n"
+    "        raise\n"
+)
+ASYNC_SLEEP = (
+    "import asyncio\n"
+    "async def handle(context, event):\n"
+    "    if event['data'] == 'ping':\n"
+    "        return {'pong': True}\n"
+    "    try:\n"
+    "        await asyncio.sleep(3600)\n"
+    "    except asyncio.CancelledError:\n"
+    "        with open(event['data'], 'w') as f:\n"
+    "            f.write('cancelled')\n"
+    "        raise\n"
+)
+ASYNC_LOOP = LOOP.replace("def handle", "async def handle")
+STOPPED = (500, b'{"error":"deadline exceeded"}')
+
+
+def test_scenario_stuck_python_call_stopped(tmp_path: Path) -> None:
+    # scenario: stuck-python-call-stopped (#928) — at its deadline + 1 s a looping handler gets
+    # DeadlineExceeded, the call answers as any raise does, and the shim serves on.
+    proc, port = spawn(tmp_path, LOOP)
+    base = f"http://127.0.0.1:{port}"
+    seen = tmp_path / "seen"
+    try:
+        start = time.monotonic()
+        assert post(base, json.dumps({"data": str(seen)}), {TIMEOUT: "1000"}) == STOPPED
+        assert 2.0 <= time.monotonic() - start < 4
+        assert seen.read_text() == "saw DeadlineExceeded"
+        assert post(base, json.dumps({"data": "ping"})) == (200, b'{"pong":true}')
+        assert get(base, "/health/liveness") == 200
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_scenario_async_python_call_cancelled(tmp_path: Path) -> None:
+    # scenario: async-python-call-cancelled — the task of an async handler waiting on asyncio.sleep is
+    # cancelled at the stop; the handler sees CancelledError, so no raise was needed.
+    proc, port = spawn(tmp_path, ASYNC_SLEEP, STOP_MARGIN_S=0.2)
+    base = f"http://127.0.0.1:{port}"
+    seen = tmp_path / "seen"
+    try:
+        start = time.monotonic()
+        assert post(base, json.dumps({"data": str(seen)}), {TIMEOUT: "100"}) == STOPPED
+        assert time.monotonic() - start >= 0.3
+        assert seen.read_text() == "cancelled"
+        assert post(base, json.dumps({"data": "ping"})) == (200, b'{"pong":true}')
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_scenario_spinning_async_python_call_stopped(tmp_path: Path) -> None:
+    # scenario: spinning-async-python-call-stopped — an async handler that never awaits ignores the
+    # cancel, so it gets DeadlineExceeded ESCALATION_S after it.
+    proc, port = spawn(tmp_path, ASYNC_LOOP, STOP_MARGIN_S=0.2, ESCALATION_S=0.3)
+    base = f"http://127.0.0.1:{port}"
+    seen = tmp_path / "seen"
+    try:
+        start = time.monotonic()
+        assert post(base, json.dumps({"data": str(seen)}), {TIMEOUT: "100"}) == STOPPED
+        assert time.monotonic() - start >= 0.6
+        assert seen.read_text() == "saw DeadlineExceeded"
+        assert post(base, json.dumps({"data": "ping"})) == (200, b'{"pong":true}')
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_scenario_unstoppable_call_fails_liveness(tmp_path: Path) -> None:
+    # scenario: unstoppable-call-restarts-replica (the shim's part) — a raise cannot reach a handler
+    # blocked in C, so liveness answers 503 from STUCK_DELAY_S after the stop, and funcd restarts.
+    sleeper = "import time\ndef handle(context, event):\n    time.sleep(3600)\n"
+    proc, port = spawn(tmp_path, sleeper, STOP_MARGIN_S=0.2, STUCK_DELAY_S=0.3)
+    base = f"http://127.0.0.1:{port}"
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    try:
+        assert get_body(base, "/health/liveness") == (200, b"ok")
+        start = time.monotonic()
+        conn.request("POST", "/", b"{}", {TIMEOUT: "100"})
+        while (live := get_body(base, "/health/liveness")) == (200, b"ok"):
+            assert time.monotonic() - start < 5, "liveness never failed"
+            time.sleep(0.05)
+        assert live == (503, b"stuck call")
+        assert time.monotonic() - start >= 0.1 + 0.2 + 0.3
+    finally:
+        conn.close()
         proc.terminate()
         proc.wait(timeout=5)
