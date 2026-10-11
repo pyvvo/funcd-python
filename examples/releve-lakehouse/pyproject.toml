@@ -5,8 +5,8 @@ description = "A medallion lakehouse pipeline on funcd: bank-statement PDFs → 
 authors = [{ name = "The funcd Authors" }]
 requires-python = ">=3.12"
 # funcd-shim is the typed authoring contract (CloudEvent/FunctionContext). The runtime deps below are the
-# native closure each step vendors into its ADR-0089 bundle (functions/build.py); they are declared here for
-# LOCAL typecheck + tests only — at deploy they travel IN the artifact, on the stock python314 runtime.
+# native closure `uv run funcd-bundle` vendors, at the versions uv.lock pins, into each step's ADR-0089 bundle
+# (funcd ADR-0144); at deploy they travel IN the artifact, on the stock python314 runtime.
 dependencies = [
     "funcd-shim",
     "pdfplumber>=0.11",   # extract + verify: geometric / text PDF extraction
@@ -15,19 +15,24 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["mypy>=1.13", "pytest>=8.3", "pyyaml>=6.0.2", "ruff>=0.8", "types-pyyaml>=6.0.12"]
-# functions/build.py bakes the ADR-0058 validators at push time; it needs pydantic (build-time only).
-# faker (MIT) generates the synthetic statement fake data (landing/generate_synthetic.py) — build-time only.
+dev = ["funcd-bundle", "mypy>=1.13", "pytest>=8.3", "pyyaml>=6.0.2", "ruff>=0.8", "types-pyyaml>=6.0.12"]
+# reportlab and faker (MIT) generate the synthetic statements (landing/generate_synthetic.py).
 build = [
-    "pydantic>=2.13.4",
     "reportlab>=5.0.0",
     "faker>=30",
 ]
 
 [tool.uv.sources]
 funcd-shim = { path = "../../shim", editable = true }
+funcd-bundle = { path = "../../bundle", editable = true }
 
-# Each function is pushed as its own bundle (functions/build.py) — there is no importable wheel; the code is
+# `uv run funcd-bundle` builds inside the pinned python:3.14-slim-bookworm, then installs the quack and httpfs
+# extensions to-gold and query-transactions load offline (checked by SHA-256).
+[tool.funcd-bundle]
+hermetic = true
+post-install = ["python", "scripts/install_extensions.py"]
+
+# Each function is pushed as its own bundle (dist/<function>/) — there is no importable wheel; the code is
 # authored + typechecked in place under functions/.
 [tool.mypy]
 strict = true
@@ -36,7 +41,7 @@ files = ["functions", "tests"]
 mypy_path = "functions"
 explicit_package_bases = true    # functions/<fn>/handler.py are distinct namespace modules (extract.handler, …)
 namespace_packages = true
-exclude = ['functions/.*/bundle/']   # vendored wheels (build.py output) are not ours to typecheck
+exclude = ['dist/']
 
 [[tool.mypy.overrides]]
 module = "pyarrow.*"  # ships no type stubs
@@ -49,13 +54,13 @@ module = "funcd_types"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]            # don't recurse into functions/*/bundle (vendored wheels from build.py)
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 110
 target-version = "py312"
 # the vendored wheel closure, and the types `funcdctl types` generates
-extend-exclude = ["functions/*/bundle", "functions/*/funcd_types.py"]
+extend-exclude = ["dist", "functions/*/funcd_types.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B"]

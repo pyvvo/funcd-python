@@ -14,8 +14,8 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# ADR-0089 build output (vendored wheels — rebuilt by functions/build.py)
-functions/*/bundle/
+# funcd-bundle output (uv run funcd-bundle)
+dist/
 
 # funcdctl dev state (--persist: metastore / kv / blob / catalog)
 .funcd-dev/
