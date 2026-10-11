@@ -19,7 +19,7 @@ from funcd_shim import CloudEvent, FunctionContext
 # (funcd_types.py — DO NOT EDIT); the single source, never redefined here.
 from funcd_types import FuncInput, FuncOutput
 
-# The mart SQL travels in the bundle next to the handler (build.py copies functions/to_gold/*.sql in).
+# The mart SQL travels in the bundle next to the handler (funcd-bundle copies the handler's directory).
 _SQL_PATH = os.path.join(os.path.dirname(__file__), "mart_depenses_mensuelles.sql")
 
 

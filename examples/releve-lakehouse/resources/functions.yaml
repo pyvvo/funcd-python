@@ -1,6 +1,6 @@
 # The ELT functions (ADR-0080 blob bindings + ADR-0089 bundled native deps). Each runs on the STOCK curated
 # `python314` runtime; pdfplumber/pyarrow/duckdb travel IN the artifact as a deployment-package bundle
-# (functions/build.py → bundle/), pushed with `funcdctl push functions/<step>/bundle registry:<step> --entry
+# (`uv run funcd-bundle` → dist/<function>/), pushed with `funcdctl push dist/<function> registry:<step> --entry
 # handler.py`. A spec.blob binding IS the capability (default-deny — no binding ⇒ Forbidden); a function
 # writes a prefix only if it is that prefix's `owner` in bucket.yaml. DuckDB uses anonymous S3 against the
 # sandbox-scoped endpoint — nothing issued or rotated for in-platform functions.

@@ -23,7 +23,8 @@ gold DuckLake mart included); the **containerd/prod deploy is not yet**.
   the cross-check gate (geometric `extract` == independent `verify` == the statement's printed totals, to
   the centime) and the PII gate (`build_silver` anonymize → **0 residual**). `uv run pytest` green; `uv run
   ruff check` clean.
-- ✅ **ADR-0089 bundle** builds (`functions/build.py extract` → glibc/arch-matched wheel closure).
+- ✅ **ADR-0089 bundle** builds (`uv run funcd-bundle` → the locked wheel closure, installed inside the pinned base
+  image, plus the SHA-256-checked DuckDB extensions).
 - ✅ **Native blob I/O** (ADR-0127): `extract`, `verify` and `build_silver` read and write their `spec.blob`
   bindings through `context.blob` over the worker-node local API — no S3 client, no keypair, no httpfs. The
   SigV4 keypair (ADR-0085) is for S3 tools only: the drop into `landing/` and the `aws s3` commands below.
@@ -141,12 +142,14 @@ for f in resources/*.yaml; do funcdctl apply -f "$f"; done
 ## The functions
 
 Each step is a Python function on the **stock `python314`** runtime; its native deps (`pdfplumber`,
-`pyarrow`, `duckdb`) travel in a deployment-package **bundle** (ADR-0089) — build with `python
-functions/build.py` then push, e.g.:
+`pyarrow`, `duckdb`) travel in a deployment-package **bundle** (ADR-0089). `uv run funcd-bundle` (funcd ADR-0144)
+builds one per `*.funcdctl.yaml`: it installs the versions `uv.lock` pins, by hash, inside the pinned
+`python:3.14-slim-bookworm`, then adds the quack and httpfs extensions. Then push each:
 
 ```bash
-python functions/build.py                                   # vendors wheels → functions/<step>/bundle/
-funcdctl push functions/extract/bundle registry:extract --entry handler.py
+uv run funcd-bundle                                         # → dist/<function>/
+funcdctl push dist/extract registry:extract --entry handler.py
+funcdctl push dist/query-transactions registry:catalog-reader --entry handler.py
 # …one push per step; the image refs match resources/functions.yaml
 ```
 
