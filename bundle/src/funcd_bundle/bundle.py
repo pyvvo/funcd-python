@@ -27,7 +27,10 @@ from pathlib import Path
 
 import yaml
 
-BASE_IMAGE = "python:3.14-slim-bookworm"
+# Pinned by digest, so a bundle builds from the same image on every machine; move the tag and digest together.
+BASE_IMAGE = (
+    "python:3.14-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83"
+)
 PYTHON_VERSION = "3.14"
 GLIBC = "2_36"
 MANIFEST_SUFFIX = ".funcdctl.yaml"
