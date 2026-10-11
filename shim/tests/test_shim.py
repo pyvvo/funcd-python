@@ -11,6 +11,7 @@ import asyncio
 import datetime
 import http.client
 import json
+import signal
 import socket
 import subprocess
 import sys
@@ -584,12 +585,21 @@ def test_scenario_int64_output_over_safe_range_is_500(tmp_path: Path) -> None:
 # ---- main() shape-gate exit codes (return before serving) ----
 
 
-def test_main_missing_artifact_exit_2(monkeypatch: Any) -> None:
+@pytest.fixture
+def sigterm_handler() -> Iterator[None]:
+    """main() sets the SIGTERM handler of a process that is PID 1, as tests run in a container may be:
+    the test process gets its own back."""
+    handler = signal.getsignal(signal.SIGTERM)
+    yield
+    signal.signal(signal.SIGTERM, handler)
+
+
+def test_main_missing_artifact_exit_2(monkeypatch: Any, sigterm_handler: None) -> None:
     monkeypatch.delenv("FUNCD_ARTIFACT", raising=False)
     assert shim.main([]) == 2
 
 
-def test_main_bad_handler_exit_3(monkeypatch: Any, tmp_path: Path) -> None:
+def test_main_bad_handler_exit_3(monkeypatch: Any, tmp_path: Path, sigterm_handler: None) -> None:
     art = tmp_path / "a.py"
     art.write_text("x = 1\n")  # no handle export
     monkeypatch.setenv("FUNCD_ARTIFACT", str(art))
@@ -599,15 +609,18 @@ def test_main_bad_handler_exit_3(monkeypatch: Any, tmp_path: Path) -> None:
 # ---- real subprocess: the launch path the Go process driver uses (portfile handshake + e2e) ----
 
 
-def spawn(tmp_path: Path, body: str, **constants: float) -> tuple[subprocess.Popen[bytes], int]:
+def spawn(
+    tmp_path: Path, body: str, pid1: bool = False, **constants: float
+) -> tuple[subprocess.Popen[bytes], int]:
     """Run the shim on the artifact *body* as funcd does, with the delays of funcd_shim.deadline set to
-    *constants*, and return it with its port once it listens."""
+    *constants* and, with *pid1*, as if it were PID 1; return it with its port once it listens."""
     artifact = tmp_path / "fn.py"
     artifact.write_text(body)
     port_file = tmp_path / "fn.port"
     launch = [sys.executable, "-m", "funcd_shim"]
-    if constants:
+    if constants or pid1:
         patch = "".join(f"deadline.{name} = {value!r}\n" for name, value in constants.items())
+        patch += "import os\nos.getpid = lambda: 1\n" if pid1 else ""
         launch = [sys.executable, "-c", PATCHED_ENTRY.format(patch=patch)]
     proc = subprocess.Popen(  # noqa: S603 - this interpreter, on the test's own launcher
         launch,
@@ -746,4 +759,41 @@ def test_scenario_unstoppable_call_fails_liveness(tmp_path: Path) -> None:
     finally:
         conn.close()
         proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_shim_not_pid_1_dies_by_sigterm(tmp_path: Path) -> None:
+    # Outside a container the default action stays, so funcd records the end as before: by signal 15.
+    proc, _ = spawn(tmp_path, ECHO)
+    try:
+        proc.send_signal(signal.SIGTERM)
+        assert proc.wait(timeout=5) == -signal.SIGTERM
+    finally:
+        proc.kill()
+        proc.wait(timeout=5)
+
+
+def test_shim_as_pid_1_exits_143_on_sigterm_with_a_call_in_flight(tmp_path: Path) -> None:
+    # In a container the shim is PID 1, which gets no SIGTERM it has no handler for: funcd's stop then
+    # waited its grace and killed it. 143 = 128 + SIGTERM; a call in flight does not hold up the exit.
+    started = tmp_path / "started"
+    body = (
+        "import time\n"
+        "def handle(context, event):\n"
+        "    open(event['data'], 'w').close()\n"
+        "    time.sleep(3600)\n"
+    )
+    proc, port = spawn(tmp_path, body, pid1=True)
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    try:
+        conn.request("POST", "/", json.dumps({"data": str(started)}).encode())
+        until = time.monotonic() + 5
+        while not started.exists():
+            assert time.monotonic() < until, "the call never started"
+            time.sleep(0.01)
+        proc.send_signal(signal.SIGTERM)
+        assert proc.wait(timeout=5) == 143
+    finally:
+        conn.close()
+        proc.kill()
         proc.wait(timeout=5)

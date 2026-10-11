@@ -30,6 +30,7 @@ from __future__ import annotations
 import http.client
 import io
 import os
+import signal
 import sys
 import threading
 import time
@@ -291,9 +292,19 @@ def make_request_handler(
     return ShimHandler
 
 
+def exit_on_sigterm() -> None:
+    """As PID 1, in a container, exit at once with 143 (128 + SIGTERM) on SIGTERM: the kernel drops a
+    signal that PID 1 has no handler for, so funcd's stop waited out its grace and killed the worker.
+    Elsewhere the default action ends the shim by the signal, as before. os._exit, so a stuck call's
+    thread cannot hold up the exit."""
+    if os.getpid() == 1:
+        signal.signal(signal.SIGTERM, lambda signum, frame: os._exit(128 + signum))
+
+
 def main(argv: list[str] | None = None) -> int:
     """Load the artifact, resolve the handler + optional contract, and serve. Returns the process
     exit code (0 only if the server is interrupted cleanly)."""
+    exit_on_sigterm()
     # Path B log capture (ADR-0081) + traces (ADR-0101): open the telemetry channel ONCE and share it
     # between log capture and the per-invocation span (a second connect would double-capture). Install
     # BEFORE the handler loads so the first logging.* is captured. No-op unless FUNCD_LOG_FD/SOCK is set.

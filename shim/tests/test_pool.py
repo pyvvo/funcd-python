@@ -7,6 +7,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -135,13 +136,16 @@ def _start(
     pass_fds: tuple[int, ...] = (),
     settle: bool = True,
     constants: dict[str, float] | None = None,
+    pid1: bool = False,
 ) -> tuple[subprocess.Popen[bytes], int]:
-    """Start the pool host, with the delays of its funcd_shim.deadline set to *constants*; with
-    *settle*, return once no member is loading (the host serves at once)."""
+    """Start the pool host, with the delays of its funcd_shim.deadline set to *constants* and, with
+    *pid1*, as if it were PID 1; with *settle*, return once no member is loading (the host serves at
+    once)."""
     port_file = tmp / "pool.port"
     launch = [sys.executable, "-m", "funcd_shim.pool"]
-    if constants:
-        patch = "".join(f"deadline.{name} = {value!r}\n" for name, value in constants.items())
+    if constants or pid1:
+        patch = "".join(f"deadline.{name} = {value!r}\n" for name, value in (constants or {}).items())
+        patch += "import os\nos.getpid = lambda: 1\n" if pid1 else ""
         launch = [sys.executable, "-c", PATCHED_ENTRY.format(patch=patch)]
     proc = subprocess.Popen(  # noqa: S603 - this interpreter, on the test's own launcher
         launch,
@@ -1074,3 +1078,29 @@ def test_pool_liveness_counts_a_running_call_not_a_queued_one() -> None:
     assert pooled.stuck(stuck_at)
     del pooled._deadlines[running]
     assert not pooled.stuck(stuck_at + 3600), "a queued call never counts"
+
+
+def test_pool_host_as_pid_1_exits_143_on_sigterm_with_a_call_in_flight(tmp_path: Path) -> None:
+    # As the solo shim: the pool host is PID 1 in a container. A member's stuck call must not hold up the
+    # exit either, which a normal exit would, joining the member's thread.
+    started = tmp_path / "started"
+    body = (
+        "import time\n"
+        "def handle(context, event):\n"
+        "    open(event['data'], 'w').close()\n"
+        "    time.sleep(3600)\n"
+    )
+    proc, port = _start(tmp_path, _rows(tmp_path, [{"name": "a", "body": body}]), pid1=True)
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    try:
+        conn.request("POST", "/function/a", json.dumps({"data": str(started)}).encode())
+        until = time.monotonic() + 5
+        while not started.exists():
+            assert time.monotonic() < until, "the call never started"
+            time.sleep(0.01)
+        proc.send_signal(signal.SIGTERM)
+        assert proc.wait(timeout=5) == 143
+    finally:
+        conn.close()
+        proc.kill()
+        proc.wait(timeout=5)

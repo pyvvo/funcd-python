@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any
 from funcd_shim import _poolworker
 from funcd_shim.deadline import deadline_from, is_stuck
 from funcd_shim.funclog import new_write_lock
-from funcd_shim.shim import check_dependencies, read_body
+from funcd_shim.shim import check_dependencies, exit_on_sigterm, read_body
 from funcd_shim.tracespan import parse_links
 
 if TYPE_CHECKING:
@@ -228,6 +228,7 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
 
 
 def main() -> int:
+    exit_on_sigterm()
     manifest_path = os.environ.get("FUNCD_POOL_MANIFEST")
     fixed_port = int(os.environ["FUNCD_PORT"]) if os.environ.get("FUNCD_PORT") else 0
     port_file = os.environ.get("FUNCD_PORTFILE")
