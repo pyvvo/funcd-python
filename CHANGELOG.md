@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/pyvvo/funcd-python/compare/v0.7.0...v0.8.0) (2026-10-11)
+
+
+### Features
+
+* **shim:** the handler reads its deadline and a late call is stopped (funcd ADR-0226) ([#74](https://github.com/pyvvo/funcd-python/issues/74)) ([7f0acbf](https://github.com/pyvvo/funcd-python/commit/7f0acbfd8bdfcc2f6dd694a009e6cd6626673c79))
+
 ## [0.7.0](https://github.com/pyvvo/funcd-python/compare/v0.6.0...v0.7.0) (2026-10-10)
 
 
