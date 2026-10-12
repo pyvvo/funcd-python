@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
 if TYPE_CHECKING:
     from .blob import BlobClient
     from .kv import KVClient
+    from .sql import SQLClient
 
 #: Json — the explicit "arbitrary JSON value" contract type (ADR-0058). Declare ``FuncInput``/
 #: ``FuncOutput = Json``, or a field ``payload: Json``, when the shape is genuinely unknown; the
@@ -69,6 +70,13 @@ class FunctionContext(Protocol):
     def blob(self) -> BlobClient:
         """Binding-scoped blob storage (ADR-0127): get/put/delete/list a bound prefix's objects, or
         mint a presigned URL — the blob twin of ``kv``."""
+        ...
+
+    @property
+    def sql(self) -> SQLClient:
+        """The SQL databases a function binds (funcd ADR-0233): ``query`` reads, ``query_values`` keeps
+        every column of a join, ``execute`` writes in one transaction. A write needs the database's owner or
+        a writer role."""
         ...
 
     def remaining_ms(self) -> int | None:

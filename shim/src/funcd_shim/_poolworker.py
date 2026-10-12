@@ -25,6 +25,7 @@ from .funclog import install_log_capture, open_channel
 from .invoke import invoke as _invoke
 from .kv import KVClient
 from .runtime import Validators, call_handler
+from .sql import SQLClient
 from .tracespan import InvocationSpan
 from .types import CloudEvent, Handler
 
@@ -194,6 +195,10 @@ class _Ctx:
     @property
     def blob(self) -> BlobClient:
         return BlobClient(_member)
+
+    @property
+    def sql(self) -> SQLClient:
+        return SQLClient(_member)
 
     def remaining_ms(self) -> int | None:
         return invcontext.remaining_ms()
