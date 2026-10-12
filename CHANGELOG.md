@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/pyvvo/funcd-python/compare/v0.10.0...v0.10.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* **examples:** drop catalog.proxyHost from the example configs ([#86](https://github.com/pyvvo/funcd-python/issues/86)) ([4eba7fc](https://github.com/pyvvo/funcd-python/commit/4eba7fc7ddb197c608bb848687c4b36f566fefce))
+
 ## [0.10.0](https://github.com/pyvvo/funcd-python/compare/v0.9.0...v0.10.0) (2026-10-12)
 
 
