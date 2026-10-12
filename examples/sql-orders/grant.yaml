@@ -1,0 +1,28 @@
+# migrate applies the migrations and audit records the order changes; both write orders-db, whose owner is orders
+# (funcd ADR-0233).
+apiVersion: funcd.io/v1alpha1
+kind: RolesAssignment
+metadata:
+  name: orders-db-writers
+  namespace: default
+  resourceGroup: rg1
+spec:
+  assignments:
+    - principal:
+        kind: Function
+        name: migrate
+      roleRef:
+        kind: BuiltinRole
+        name: SQL Data Writer
+      scope:
+        kind: SQLDatabase
+        name: orders-db
+    - principal:
+        kind: Function
+        name: audit
+      roleRef:
+        kind: BuiltinRole
+        name: SQL Data Writer
+      scope:
+        kind: SQLDatabase
+        name: orders-db

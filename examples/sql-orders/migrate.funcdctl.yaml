@@ -1,0 +1,26 @@
+# The client config of the migrate function (funcd ADR-0122). It binds orders-db too; `funcdctl dev` grants it
+# SQL Data Writer there, as grant.yaml does on a platform.
+runtime: python314
+handler: handle
+main: src/migrate.py
+dev:
+  python: .venv/bin/python
+bindings:
+  sql:
+    - alias: app
+      database: orders-db
+contract:
+  input:
+    type: object
+    additionalProperties: false
+    properties:
+      event:
+        type: string
+  output:
+    type: object
+    additionalProperties: false
+    properties:
+      applied:
+        type: integer
+    required:
+      - applied
