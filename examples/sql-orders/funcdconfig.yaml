@@ -17,6 +17,3 @@ runtime:
 log:
   format: text
   level: info
-catalog:
-  # The address on the containerd bridge where the engines post their changes (funcd ADR-0235).
-  proxyHost: 10.63.0.1

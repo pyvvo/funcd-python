@@ -86,7 +86,7 @@ funcdctl apply -f changes.yaml
 | `orders.yaml`, `orders-migrate.yaml`, `audit.yaml` | the Functions, each binding `orders-db` as alias `app` |
 | `grant.yaml` | `SQL Data Writer` on `orders-db` for `orders-migrate` and `audit` |
 | `changes.yaml` | the EventSource on table `orders` and the Sensor that calls `audit` |
-| `funcdconfig.yaml` | a daemon config with file storage, and the bridge address the engine posts its changes to |
+| `funcdconfig.yaml` | a daemon config with file storage; the engine posts its changes to the bridge address funcd derives (funcd ADR-0238) |
 
 A workload BackupSchedule that lists `orders-db` in `scope.databases` copies the database, sealed to its recipients, and a
 Restore loads a copy into an empty database (funcd ADR-0234).
