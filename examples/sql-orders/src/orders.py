@@ -5,7 +5,7 @@ from typing import Any, TypedDict
 from funcd_shim import CloudEvent, FunctionContext
 from sqlmodel import col, insert, select, update
 
-from models import Customer, Order
+from models import Customer, Order, OrderEvent
 from sqlrun import execute, rows
 
 
@@ -27,8 +27,14 @@ class OrderOut(TypedDict):
     note: str | None
 
 
+class EventOut(TypedDict):
+    change: str
+    status: str | None
+
+
 class FuncOutput(TypedDict, total=False):
     orders: list[OrderOut]
+    history: list[EventOut]
     changed: int
 
 
@@ -62,6 +68,14 @@ def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput
             return _set(context, data.get("id", 0), status="cancelled")
         case "note":
             return _set(context, data.get("id", 0), note=data.get("note"))
+        case "history":
+            events = rows(
+                context,
+                select(OrderEvent.change, OrderEvent.status)
+                .where(OrderEvent.order_id == data.get("id", 0))
+                .order_by(col(OrderEvent.id)),
+            )
+            return {"history": [EventOut(change=e["change"], status=e["status"]) for e in events]}
     stmt = (
         select(Order, Customer.email)
         .join(Customer, col(Customer.id) == col(Order.customer_id))

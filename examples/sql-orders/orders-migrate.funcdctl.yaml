@@ -1,4 +1,4 @@
-# The client config of the migrate function (funcd ADR-0122). It binds orders-db too; `funcdctl dev` grants it
+# The client config of the orders-migrate function (funcd ADR-0122). It binds orders-db too; `funcdctl dev` grants it
 # SQL Data Writer there, as grant.yaml does on a platform.
 runtime: python314
 handler: handle

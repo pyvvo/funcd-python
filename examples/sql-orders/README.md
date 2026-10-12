@@ -4,8 +4,8 @@ Three Python functions over one SQL database, `orders-db`, served by its own rql
 
 | Function | What |
 |---|---|
-| `migrate` | applies the Alembic migrations the database lacks |
-| `orders` | places, lists, ships, cancels and annotates orders with SQLModel; the owner of `orders-db` |
+| `orders-migrate` | applies the Alembic migrations the database lacks |
+| `orders` | places, lists, ships, cancels and annotates orders, and returns an order's audit trail with SQLModel; the owner of `orders-db` |
 | `audit` | records each change of table `orders` that the change feed delivers, in table `order_events` |
 
 The functions hold no credential and never reach the engine: `context.sql` calls funcd over the sandbox's socket,
@@ -19,14 +19,14 @@ only adds to the schema, so the code one version back still runs on it.
 
 Alembic never connects to the database. [`scripts/render_migrations.py`](scripts/render_migrations.py) renders each
 revision offline to the SQLite statements it runs, without Alembic's own transaction and version table, into
-[`src/migrations_sql.py`](src/migrations_sql.py), which the `migrate` function ships:
+[`src/migrations_sql.py`](src/migrations_sql.py), which the `orders-migrate` function ships:
 
 ```bash
 uv run alembic revision -m "<what changed>"       # write the upgrade in the new alembic/versions file
 uv run python scripts/render_migrations.py        # regenerate src/migrations_sql.py; a test fails while it is stale
 ```
 
-`migrate` applies the revisions that table `_migrations` lacks, with their `_migrations` rows, in one `context.sql`
+`orders-migrate` applies the revisions that table `_migrations` lacks, with their `_migrations` rows, in one `context.sql`
 call. rqlite runs the call as one transaction, so a failed migration records nothing. Call it after each deploy, or
 make it an App's `preApply` hook (funcd ADR-0236).
 
@@ -56,7 +56,7 @@ by hand there:
 ```bash
 uv sync
 funcdctl dev .
-curl -XPOST localhost:<gateway>/function/migrate -d '{"data":{}}'
+curl -XPOST localhost:<gateway>/function/orders-migrate -d '{"data":{}}'
 curl -XPOST localhost:<gateway>/function/orders -d '{"data":{"op":"place","email":"ada@example.org","item":"tea","quantity":2}}'
 curl -XPOST localhost:<gateway>/function/orders -d '{"data":{"op":"list"}}'
 ```
@@ -66,11 +66,11 @@ curl -XPOST localhost:<gateway>/function/orders -d '{"data":{"op":"list"}}'
 ```bash
 uv run funcd-bundle                    # dist/<function>/ with SQLModel vendored for the runtime
 funcdctl push dist/orders <registry>:orders --entry orders.py
-funcdctl push dist/migrate <registry>:migrate --entry migrate.py
+funcdctl push dist/orders-migrate <registry>:orders-migrate --entry migrate.py
 funcdctl push dist/audit <registry>:audit --entry audit.py
 funcdctl apply -f orders-db.yaml
 funcdctl apply -f orders.yaml
-funcdctl apply -f migrate.yaml
+funcdctl apply -f orders-migrate.yaml
 funcdctl apply -f audit.yaml
 funcdctl apply -f grant.yaml
 funcdctl apply -f changes.yaml
@@ -79,8 +79,8 @@ funcdctl apply -f changes.yaml
 | File | What |
 |---|---|
 | `orders-db.yaml` | SQLDatabase `orders-db`, owned by `orders` |
-| `orders.yaml`, `migrate.yaml`, `audit.yaml` | the Functions, each binding `orders-db` as alias `app` |
-| `grant.yaml` | `SQL Data Writer` on `orders-db` for `migrate` and `audit` |
+| `orders.yaml`, `orders-migrate.yaml`, `audit.yaml` | the Functions, each binding `orders-db` as alias `app` |
+| `grant.yaml` | `SQL Data Writer` on `orders-db` for `orders-migrate` and `audit` |
 | `changes.yaml` | the EventSource on table `orders` and the Sensor that calls `audit` |
 | `funcdconfig.yaml` | a daemon config with file storage, and the bridge address the engine posts its changes to |
 

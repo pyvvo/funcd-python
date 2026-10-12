@@ -59,9 +59,9 @@ def test_audit_records_a_change(ctx: FunctionContext) -> None:
         "after": {"status": "shipped"},
     }
     assert audit.handle(ctx, _event(change)) == {"recorded": 1}
-    assert ctx.sql.query("app", "SELECT order_id, change, status FROM order_events") == [
-        {"order_id": 7, "change": "Update", "status": "shipped"}
-    ]
+    assert orders.handle(ctx, _event({"op": "history", "id": 7})) == {
+        "history": [{"change": "Update", "status": "shipped"}]
+    }
 
 
 def test_the_rendered_migrations_are_current() -> None:

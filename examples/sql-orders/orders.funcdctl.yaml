@@ -21,6 +21,7 @@ contract:
           - ship
           - cancel
           - note
+          - history
       email:
         type: string
       item:
@@ -63,5 +64,20 @@ contract:
             - quantity
             - status
             - note
+      history:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          properties:
+            change:
+              type: string
+            status:
+              type:
+                - string
+                - "null"
+          required:
+            - change
+            - status
       changed:
         type: integer

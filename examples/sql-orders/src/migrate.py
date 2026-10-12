@@ -1,6 +1,6 @@
-"""The migrate function: it applies the migrations of migrations_sql that table _migrations lacks, each with
-its _migrations row, in one context.sql call, so a failed migration records nothing (funcd ADR-0236 Decision
-5). Run it after each deploy, or as an App's preApply hook."""
+"""The orders-migrate function: it applies the migrations of migrations_sql that table _migrations lacks, each
+with its _migrations row, in one context.sql call, so a failed migration records nothing (funcd ADR-0236
+Decision 5). Run it after each deploy, or as an App's preApply hook."""
 
 from typing import TypedDict
 
