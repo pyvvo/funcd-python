@@ -1,0 +1,38 @@
+# The client config of the audit function (funcd ADR-0122): its input is a change event of orders-db's change feed
+# (funcd ADR-0235), which the Sensor of changes.yaml hands it.
+runtime: python314
+handler: handle
+main: src/audit.py
+dev:
+  python: .venv/bin/python
+bindings:
+  sql:
+    - alias: app
+      database: orders-db
+contract:
+  input:
+    type: object
+    additionalProperties: false
+    properties:
+      op:
+        type: string
+      table:
+        type: string
+      rowId:
+        type: integer
+      before: {}
+      after: {}
+      index:
+        type: integer
+      commitTimestamp:
+        type: integer
+      truncated:
+        type: boolean
+  output:
+    type: object
+    additionalProperties: false
+    properties:
+      recorded:
+        type: integer
+    required:
+      - recorded

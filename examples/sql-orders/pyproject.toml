@@ -1,0 +1,42 @@
+[project]
+name = "funcd-example-sql-orders"
+version = "0.1.0"
+description = "A funcd SQL example (FEAT-0011): orders in a SQL database with SQLModel, Alembic migrations rendered to SQL at build time, and a change feed that audits every order change."
+authors = [{ name = "The funcd Authors" }]
+requires-python = ">=3.12"
+# funcd-shim is the typed authoring contract. SQLModel builds the statements, compiled with the SQLite dialect and
+# sent through context.sql; funcd-bundle vendors it for the runtime. Alembic only renders the migrations, at build time.
+dependencies = ["funcd-shim", "sqlalchemy==2.0.54", "sqlmodel==0.0.47"]
+
+[dependency-groups]
+dev = ["alembic==1.20.0", "funcd-bundle", "mypy>=1.13", "pytest>=8.3", "ruff>=0.8"]
+
+[tool.uv.sources]
+funcd-shim = { path = "../../shim", editable = true }
+funcd-bundle = { path = "../../bundle", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = ["src", "tests", "scripts"]
+mypy_path = "src:tests:scripts"
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "tests", "scripts"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]

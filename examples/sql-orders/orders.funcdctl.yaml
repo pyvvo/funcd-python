@@ -1,0 +1,83 @@
+# The client config of the orders function (funcd ADR-0122); `funcdctl dev .` runs it with orders-db (funcd ADR-0237).
+runtime: python314
+handler: handle
+main: src/orders.py
+dev:
+  python: .venv/bin/python
+bindings:
+  sql:
+    - alias: app
+      database: orders-db
+contract:
+  input:
+    type: object
+    additionalProperties: false
+    properties:
+      op:
+        type: string
+        enum:
+          - place
+          - list
+          - ship
+          - cancel
+          - note
+          - history
+      email:
+        type: string
+      item:
+        type: string
+      quantity:
+        type: integer
+        minimum: 1
+      id:
+        type: integer
+      note:
+        type: string
+  output:
+    type: object
+    additionalProperties: false
+    properties:
+      orders:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          properties:
+            id:
+              type: integer
+            email:
+              type: string
+            item:
+              type: string
+            quantity:
+              type: integer
+            status:
+              type: string
+            note:
+              type:
+                - string
+                - "null"
+          required:
+            - id
+            - email
+            - item
+            - quantity
+            - status
+            - note
+      history:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          properties:
+            change:
+              type: string
+            status:
+              type:
+                - string
+                - "null"
+          required:
+            - change
+            - status
+      changed:
+        type: integer
