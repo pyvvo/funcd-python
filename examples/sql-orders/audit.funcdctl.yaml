@@ -20,12 +20,8 @@ contract:
         type: string
       rowId:
         type: integer
-      before:
-        type: object
-        additionalProperties: true
-      after:
-        type: object
-        additionalProperties: true
+      before: {}
+      after: {}
       index:
         type: integer
       commitTimestamp:
