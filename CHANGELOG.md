@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/pyvvo/funcd-python/compare/v0.8.1...v0.8.2) (2026-10-12)
+
+
+### Bug Fixes
+
+* **examples:** catalog-quack's Quack client follows funcd's engine to duckdb 1.5.6 ([#80](https://github.com/pyvvo/funcd-python/issues/80)) ([ad9e0c9](https://github.com/pyvvo/funcd-python/commit/ad9e0c9213dada0446ae25e65c72ae322a191db4))
+
 ## [0.8.1](https://github.com/pyvvo/funcd-python/compare/v0.8.0...v0.8.1) (2026-10-11)
 
 
