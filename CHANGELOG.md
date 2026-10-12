@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/pyvvo/funcd-python/compare/v0.8.2...v0.9.0) (2026-10-12)
+
+
+### Features
+
+* **shim:** context.sql, SQL over the local API (funcd ADR-0233) ([#82](https://github.com/pyvvo/funcd-python/issues/82)) ([170a6d5](https://github.com/pyvvo/funcd-python/commit/170a6d5a89b16fafa0af70b80860e6fe7b3ba456))
+
 ## [0.8.2](https://github.com/pyvvo/funcd-python/compare/v0.8.1...v0.8.2) (2026-10-12)
 
 
