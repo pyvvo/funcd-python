@@ -16,6 +16,7 @@ class Change(TypedDict, total=False):
     rowId: int
     before: dict[str, Any]
     after: dict[str, Any]
+    index: int
 
 
 class FuncOutput(TypedDict):
@@ -28,7 +29,10 @@ def handle(context: FunctionContext, event: CloudEvent[Change]) -> FuncOutput:
     execute(
         context,
         insert(OrderEvent).values(
-            order_id=change.get("rowId", 0), change=change.get("op", ""), status=row.get("status")
+            order_id=change.get("rowId", 0),
+            change_index=change.get("index", 0),
+            change=change.get("op", ""),
+            status=row.get("status"),
         ),
     )
     return {"recorded": 1}

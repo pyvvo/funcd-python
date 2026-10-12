@@ -73,7 +73,7 @@ def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput
                 context,
                 select(OrderEvent.change, OrderEvent.status)
                 .where(OrderEvent.order_id == data.get("id", 0))
-                .order_by(col(OrderEvent.id)),
+                .order_by(col(OrderEvent.change_index), col(OrderEvent.id)),
             )
             return {"history": [EventOut(change=e["change"], status=e["status"]) for e in events]}
     stmt = (

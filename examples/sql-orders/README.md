@@ -47,6 +47,10 @@ rows(context, stmt)
 `audit` with each insert, update and delete. The engine posts each committed change to funcd, which publishes it as
 event `order-changed` with the row before and after (funcd ADR-0235). A change delivered twice starts `audit` once.
 
+The Sensor calls `audit` once per change, and the calls run independently: the first one may wake the function
+from zero and finish after the next. So `audit` stores each change's commit `index`, and `history` sorts by it, not
+by arrival. The changes of one commit share an index.
+
 ## Run it locally
 
 `funcdctl dev` runs the three functions from source with `orders-db` on a local rqlite engine (funcd ADR-0237); a

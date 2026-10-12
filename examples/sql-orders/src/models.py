@@ -21,10 +21,12 @@ class Order(SQLModel, table=True):
 
 
 class OrderEvent(SQLModel, table=True):
-    """One change of an order, as the audit function records it from the change feed."""
+    """One change of an order, as the audit function records it from the change feed, with the commit index
+    that orders it: the Sensor's calls can finish in any order."""
 
     __tablename__ = "order_events"
     id: int | None = Field(default=None, primary_key=True)
     order_id: int
+    change_index: int
     change: str
     status: str | None = None

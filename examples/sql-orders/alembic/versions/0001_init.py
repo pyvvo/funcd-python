@@ -30,6 +30,8 @@ def upgrade() -> None:
         "order_events",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("order_id", sa.Integer(), nullable=False),
+        sa.Column("change_index", sa.Integer(), nullable=False),
         sa.Column("change", sa.String(), nullable=False),
         sa.Column("status", sa.String()),
     )
+    op.create_index("order_events_by_order", "order_events", ["order_id", "change_index"])

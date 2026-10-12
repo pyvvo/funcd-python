@@ -50,18 +50,14 @@ def test_orders_are_placed_listed_and_changed(ctx: FunctionContext) -> None:
     assert len(ctx.sql.query("app", "SELECT id FROM customers")) == 2, "a customer is added once"
 
 
-def test_audit_records_a_change(ctx: FunctionContext) -> None:
-    change = {
-        "op": "Update",
-        "table": "orders",
-        "rowId": 7,
-        "before": {"status": "placed"},
-        "after": {"status": "shipped"},
-    }
-    assert audit.handle(ctx, _event(change)) == {"recorded": 1}
+def test_the_audit_trail_follows_the_commit_order(ctx: FunctionContext) -> None:
+    update = {"op": "Update", "table": "orders", "rowId": 7, "index": 12, "after": {"status": "shipped"}}
+    insert = {"op": "Insert", "table": "orders", "rowId": 7, "index": 10, "after": {"status": "placed"}}
+    assert audit.handle(ctx, _event(update)) == {"recorded": 1}
+    assert audit.handle(ctx, _event(insert)) == {"recorded": 1}
     assert orders.handle(ctx, _event({"op": "history", "id": 7})) == {
-        "history": [{"change": "Update", "status": "shipped"}]
-    }
+        "history": [{"change": "Insert", "status": "placed"}, {"change": "Update", "status": "shipped"}]
+    }, "the update arrived first, the insert committed first"
 
 
 def test_the_rendered_migrations_are_current() -> None:
