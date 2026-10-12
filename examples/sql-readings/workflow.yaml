@@ -1,0 +1,25 @@
+# Workflow readings: ingest stores a batch of a sensor's values in readings-db, then summarize reads them back with a
+# CTE and window functions. Each step binds the database (funcd ADR-0233); the engine materializes each image step
+# as Function readings-<step>, and readings-ingest owns the database (readings-db.yaml).
+apiVersion: funcd.io/v1alpha1
+kind: Workflow
+metadata:
+  name: readings
+  namespace: default
+  resourceGroup: rg1
+spec:
+  steps:
+    - name: ingest
+      function:
+        image: oci-layout:///mnt/funcd-deps/registry:ingest
+        sql:
+          - alias: app
+            database: readings-db
+    - name: summarize
+      function:
+        image: oci-layout:///mnt/funcd-deps/registry:summarize
+        sql:
+          - alias: app
+            database: readings-db
+      dependsOn:
+        - ingest

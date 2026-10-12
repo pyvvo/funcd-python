@@ -1,0 +1,9 @@
+# SQLDatabase readings-db (funcd ADR-0232), written by its owner, the ingest step's Function readings-ingest.
+apiVersion: funcd.io/v1alpha1
+kind: SQLDatabase
+metadata:
+  name: readings-db
+  namespace: default
+  resourceGroup: rg1
+spec:
+  owner: readings-ingest
