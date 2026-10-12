@@ -16,10 +16,10 @@ EXTENSIONS = ("quack", "httpfs")
 # SHA-256 of each extension file DuckDB downloads, keyed "<duckdb version>/<platform>/<extension>". DuckDB
 # rebuilds them now and then under one version, so a bundle is reproducible only if each file is checked.
 PINS = {
-    "v1.5.4/linux_arm64/httpfs": "6d30a487968cbe5553b7272fd5bad0e4485c4117db96e21fd1e5e2a225a5a538",
-    "v1.5.4/linux_arm64/quack": "52612f68c5c7f9a5e0f4316c01b8e81d7e9ed32171473e71cff279e7a353faa7",
-    "v1.5.4/linux_amd64/httpfs": "2e020c7e89b11364e413ddfab8b9ca870b1fc0a16eaf612c9445773ef68989ef",
-    "v1.5.4/linux_amd64/quack": "1f3a4a1ccaf5388c7b32ec8822c40cd29b9acb3ce69936212ac6fb6e5e22cc5d",
+    "v1.5.6/linux_arm64/httpfs": "ae940d800b7f938a4848d0eebcffb28dda0bbed76987f11dc55faa6d1a86db0d",
+    "v1.5.6/linux_arm64/quack": "618af63cf01e07c396fca03cc887d8784658347f0fc346e426a2fec12f66b421",
+    "v1.5.6/linux_amd64/httpfs": "ff36e7d2561e21b958c243c6bd5f6a10cfc055a98ea76c0280b94728b57588e2",
+    "v1.5.6/linux_amd64/quack": "efd924d2a87b0cbcdda8a7418aa1daf33e0267388c87817d2e622b0a918c0800",
 }
 
 ext_dir = os.path.join(os.environ["FUNCD_BUNDLE_DIR"], "duckdb-ext")
