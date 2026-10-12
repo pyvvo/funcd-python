@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/pyvvo/funcd-python/compare/v0.9.0...v0.10.0) (2026-10-12)
+
+
+### Features
+
+* **examples:** sql-orders and sql-readings, SQL databases from Python (funcd FEAT-0011) ([#84](https://github.com/pyvvo/funcd-python/issues/84)) ([dc8018d](https://github.com/pyvvo/funcd-python/commit/dc8018d48763eee6c84ab2d62599c76cd6d6dcc0))
+
 ## [0.9.0](https://github.com/pyvvo/funcd-python/compare/v0.8.2...v0.9.0) (2026-10-12)
 
 
