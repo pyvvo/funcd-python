@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.11.0](https://github.com/pyvvo/funcd-python/compare/v0.10.1...v0.11.0) (2026-10-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* **examples:** the ADR-0241 exposure shape in the catalog and releve examples ([#88](https://github.com/pyvvo/funcd-python/issues/88))
+
+### Features
+
+* **examples:** the ADR-0241 exposure shape in the catalog and releve examples ([#88](https://github.com/pyvvo/funcd-python/issues/88)) ([891c85b](https://github.com/pyvvo/funcd-python/commit/891c85bd9cbdbfc7f3fa0db41bc0c64c3e6973d1))
+
 ## [0.10.1](https://github.com/pyvvo/funcd-python/compare/v0.10.0...v0.10.1) (2026-10-12)
 
 
