@@ -68,9 +68,21 @@ def test_an_absent_or_empty_key_list_is_no_keys(lists: dict[str, str]) -> None:
 
 
 def test_the_clients_read_os_environ_at_call_time(monkeypatch: pytest.MonkeyPatch) -> None:
-    config = ConfigClient()
+    config, secret, catalog = ConfigClient(), SecretClient(), CatalogClient()
+    for var in ("FUNCD_SECRET_KEYS", "FUNCD_CATALOG_LAKE_URL", "FUNCD_CATALOG_LAKE_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("FUNCD_CONFIG_KEYS", "A")
     monkeypatch.setenv("A", "1")
     assert config.get("A") == "1"
+    assert secret.list() == []
+    with pytest.raises(KeyError):
+        catalog.get("lake")
     monkeypatch.setenv("A", "2")
+    monkeypatch.setenv("FUNCD_SECRET_KEYS", "S")
+    monkeypatch.setenv("S", "s")
+    monkeypatch.setenv("FUNCD_CATALOG_LAKE_URL", "127.0.0.1:9100")
+    monkeypatch.setenv("FUNCD_CATALOG_LAKE_TOKEN", "tok")
     assert config.get("A") == "2"
+    assert secret.list() == ["S"]
+    assert secret.get("S") == "s"
+    assert catalog.get("lake") == {"url": "127.0.0.1:9100", "token": "tok"}
