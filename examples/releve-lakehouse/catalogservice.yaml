@@ -11,11 +11,11 @@ metadata:
   resourceGroup: rg1
 spec:
   buckets:
-    - ref: releves             # bucket.yaml: shared with the functions; gold's owner is this catalog
+    - ref: releves
   configMaps:
-    - ref: lake-engine-config  # configmap.yaml
+    - ref: lake-engine-config
   secrets:
-    - name: lake-quack-token   # secret.yaml holds the value
+    - name: lake-quack-token
       keys:
         - QUACK_TOKEN
   bindings:

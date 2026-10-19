@@ -17,14 +17,14 @@ metadata:
   resourceGroup: rg1
 spec:
   buckets:
-    - name: lakehouse          # the Bucket this catalog owns (funcd ADR-0251): Parquet + the DuckLake catalog
+    - name: lakehouse
       prefixes:
-        - name: gold           # its owner defaults to the CatalogService lake (single writer)
+        - name: gold
       maxObjectBytes: 1073741824
   configMaps:
-    - ref: lake-engine-config  # configmap.yaml
+    - ref: lake-engine-config
   secrets:
-    - name: lake-quack-token   # secret.yaml holds the value; the engine waits until it holds the key
+    - name: lake-quack-token
       keys:
         - QUACK_TOKEN
   bindings:
