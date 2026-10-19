@@ -29,6 +29,7 @@ spec:
   # The consumer binding (ADR-0091): bind the `lake` CatalogService under alias `lake`. funcd injects
   # FUNCD_CATALOG_LAKE_URL (= lake's status.endpoint) + FUNCD_CATALOG_LAKE_TOKEN (= its QUACK_TOKEN), and
   # requeues this function until `lake` is Ready — so the SQL invoke reaches Quack with a real endpoint+token.
-  catalogs:
-    - alias: lake
-      catalog: lake
+  bindings:
+    catalog:
+      - alias: lake
+        catalog: lake

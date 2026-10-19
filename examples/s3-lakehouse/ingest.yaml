@@ -17,7 +17,8 @@ spec:
   replicas: 1
   scaling:
     minReplicas: 1
-  blob:
-    - alias: lake           # the in-code handle / DuckDB s3 path scope
-      bucket: lakehouse     # the Bucket (domain)
-      prefix: bronze        # the sub-domain it writes (it is bronze's owner → single writer)
+  bindings:
+    blob:
+      - alias: lake           # the in-code handle / DuckDB s3 path scope
+        bucket: lakehouse     # the Bucket (domain)
+        prefix: bronze        # the sub-domain it writes (it is bronze's owner → single writer)

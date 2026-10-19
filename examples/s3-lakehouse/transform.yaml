@@ -16,13 +16,14 @@ spec:
   replicas: 1
   scaling:
     minReplicas: 1
-  blob:
-    - alias: bronze-in      # READ bronze (not its owner → read-only)
-      bucket: lakehouse
-      prefix: bronze
-    - alias: silver-out     # WRITE silver (transform is silver's owner → single writer)
-      bucket: lakehouse
-      prefix: silver
-    - alias: gold-out       # WRITE gold (transform is gold's owner → single writer)
-      bucket: lakehouse
-      prefix: gold
+  bindings:
+    blob:
+      - alias: bronze-in      # READ bronze (not its owner → read-only)
+        bucket: lakehouse
+        prefix: bronze
+      - alias: silver-out     # WRITE silver (transform is silver's owner → single writer)
+        bucket: lakehouse
+        prefix: silver
+      - alias: gold-out       # WRITE gold (transform is gold's owner → single writer)
+        bucket: lakehouse
+        prefix: gold

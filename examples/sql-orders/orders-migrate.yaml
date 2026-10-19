@@ -9,6 +9,7 @@ spec:
   runtime: python314
   handler: handle
   image: oci-layout:///mnt/funcd-deps/registry:orders-migrate
-  sql:
-    - alias: app
-      database: orders-db
+  bindings:
+    sql:
+      - alias: app
+        database: orders-db

@@ -15,7 +15,8 @@ spec:
   replicas: 1
   scaling:
     minReplicas: 1
-  kv:
-    - alias: pycounters       # the in-code handle: context.kv.*('pycounters', …)
-      store: py-counters      # the KVStore (domain)
-      table: table-counters   # the sub-domain pycounter owns (single writer)
+  bindings:
+    kv:
+      - alias: pycounters       # the in-code handle: context.kv.*('pycounters', …)
+        store: py-counters      # the KVStore (domain)
+        table: table-counters   # the sub-domain pycounter owns (single writer)

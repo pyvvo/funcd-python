@@ -10,20 +10,21 @@ metadata:
   namespace: default
   resourceGroup: rg1
 spec:
-  blob:
-    - alias: silver             # READ the conformed silver tables (to build marts)
-      bucket: releves
-      prefix: silver
-    - alias: gold              # OWN + WRITE gold (the catalog + Parquet marts live here)
-      bucket: releves
-      prefix: gold
+  bindings:
+    blob:
+      - alias: silver             # READ the conformed silver tables (to build marts)
+        bucket: releves
+        prefix: silver
+      - alias: gold              # OWN + WRITE gold (the catalog + Parquet marts live here)
+        bucket: releves
+        prefix: gold
+    secret:
+      - lake-quack-token         # Secret Data key QUACK_TOKEN → engine env
+    config:
+      - lake-engine-config       # ConfigMap Data keys (DUCKDB_*) → engine env
   catalog:
     bucket: releves
     prefix: gold               # SQLite catalog at gold/_ducklake/catalog.db; Parquet under gold/
   resources:
     cpu: "2"
     memory: "4Gi"
-  secrets:
-    - lake-quack-token         # Secret Data key QUACK_TOKEN → engine env
-  config:
-    - lake-engine-config       # ConfigMap Data keys (DUCKDB_*) → engine env

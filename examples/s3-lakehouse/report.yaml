@@ -16,7 +16,8 @@ spec:
   replicas: 1
   scaling:
     minReplicas: 1
-  blob:
-    - alias: lake           # ctx handle / DuckDB s3 read scope: s3://lakehouse/gold/*.parquet
-      bucket: lakehouse     # the Bucket (domain)
-      prefix: gold          # the sub-domain it may read (read-only — not the owner)
+  bindings:
+    blob:
+      - alias: lake           # ctx handle / DuckDB s3 read scope: s3://lakehouse/gold/*.parquet
+        bucket: lakehouse     # the Bucket (domain)
+        prefix: gold          # the sub-domain it may read (read-only — not the owner)

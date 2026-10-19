@@ -14,20 +14,21 @@ metadata:
   namespace: default
   resourceGroup: rg1
 spec:
-  blob:
-    - alias: gold
-      bucket: lakehouse
-      prefix: gold
+  bindings:
+    blob:
+      - alias: gold
+        bucket: lakehouse
+        prefix: gold
+    secret:
+      - lake-quack-token         # Secret Data key QUACK_TOKEN → engine env (the Quack auth token)
+    config:
+      - lake-engine-config       # ConfigMap Data keys (DUCKDB_*) → engine env
   catalog:
     bucket: lakehouse
     prefix: gold               # SQLite catalog at gold/_ducklake/catalog.db; Parquet under gold/
   resources:
     cpu: "2"
     memory: "4Gi"
-  secrets:
-    - lake-quack-token         # Secret Data key QUACK_TOKEN → engine env (the Quack auth token)
-  config:
-    - lake-engine-config       # ConfigMap Data keys (DUCKDB_*) → engine env
   ingress:                     # ADR-0138/0241: OPT-IN external edge exposure of the catalog::query PEP proxy
     enabled: true              # a catalog ingress is off unless enabled
     path: /catalog/lake        # the gateway routes this edge path to the PROXY (never the engine); the
