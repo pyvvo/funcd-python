@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.13.0](https://github.com/pyvvo/funcd-python/compare/v0.12.0...v0.13.0) (2026-10-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* bindings under spec.bindings and stores at the root (funcd ADR-0246, ADR-0248) ([#93](https://github.com/pyvvo/funcd-python/issues/93))
+
+### Features
+
+* bindings under spec.bindings and stores at the root (funcd ADR-0246, ADR-0248) ([#93](https://github.com/pyvvo/funcd-python/issues/93)) ([54060e2](https://github.com/pyvvo/funcd-python/commit/54060e25d6bacb8a650d35f9b5659a074ac57539))
+
 ## [0.12.0](https://github.com/pyvvo/funcd-python/compare/v0.11.0...v0.12.0) (2026-10-19)
 
 
