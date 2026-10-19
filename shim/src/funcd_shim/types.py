@@ -13,7 +13,10 @@ from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
 
 if TYPE_CHECKING:
     from .blob import BlobClient
+    from .catalog import CatalogClient
+    from .config import ConfigClient
     from .kv import KVClient
+    from .secret import SecretClient
     from .sql import SQLClient
 
 #: Json — the explicit "arbitrary JSON value" contract type (ADR-0058). Declare ``FuncInput``/
@@ -77,6 +80,22 @@ class FunctionContext(Protocol):
         """The SQL databases a function binds (funcd ADR-0233): ``query`` reads, ``query_values`` keeps
         every column of a join, ``execute`` writes in one transaction. A write needs the database's owner or
         a writer role."""
+        ...
+
+    @property
+    def config(self) -> ConfigClient:
+        """The keys of the ConfigMaps a function binds (funcd ADR-0245); a key a bound Secret overrides is
+        a secret."""
+        ...
+
+    @property
+    def secret(self) -> SecretClient:
+        """The keys of the Secrets a function binds (funcd ADR-0245)."""
+        ...
+
+    @property
+    def catalog(self) -> CatalogClient:
+        """A bound catalog's proxy URL and this function's token, by spec.catalogs alias (funcd ADR-0245)."""
         ...
 
     def remaining_ms(self) -> int | None:

@@ -21,10 +21,13 @@ from typing import Any, AnyStr, NoReturn
 
 from . import contract, invcontext, jsonwire, runtime
 from .blob import BlobClient
+from .catalog import CatalogClient
+from .config import ConfigClient
 from .funclog import install_log_capture, open_channel
 from .invoke import invoke as _invoke
 from .kv import KVClient
 from .runtime import Validators, call_handler
+from .secret import SecretClient
 from .sql import SQLClient
 from .tracespan import InvocationSpan
 from .types import CloudEvent, Handler
@@ -199,6 +202,18 @@ class _Ctx:
     @property
     def sql(self) -> SQLClient:
         return SQLClient(_member)
+
+    @property
+    def config(self) -> ConfigClient:
+        return ConfigClient()
+
+    @property
+    def secret(self) -> SecretClient:
+        return SecretClient()
+
+    @property
+    def catalog(self) -> CatalogClient:
+        return CatalogClient()
 
     def remaining_ms(self) -> int | None:
         return invcontext.remaining_ms()
