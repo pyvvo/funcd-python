@@ -1113,9 +1113,11 @@ CTX_READER = (
 )
 
 
-def test_ctx_pooled_member(tmp_path: Path) -> None:
-    # scenario: ctx-pooled-member — each member reads its own catalog token, and both read the pool's config
-    # and secrets (funcd ADR-0245).
+def test_ctx_pooled_member(tmp_path: Path, dependency_api: DependencyAPI) -> None:
+    # scenario: ctx-pooled-member — each member reads its own catalog token and the pool's config (funcd
+    # ADR-0245), and reads its secrets from funcd as itself (funcd ADR-0249): the fake names the member.
+    for name in ("a", "b"):
+        dependency_api.replies[name] = (200, json.dumps({"value": f"sk-{name}"}).encode())
     entries = []
     for name in ("a", "b"):
         art = tmp_path / f"{name}.py"
@@ -1132,10 +1134,9 @@ def test_ctx_pooled_member(tmp_path: Path) -> None:
     manifest.write_text(json.dumps(entries))
     shared = {
         "LOG_LEVEL": "debug",
-        "STRIPE_KEY": "sk",
         "FUNCD_CONFIG_KEYS": "LOG_LEVEL",
-        "FUNCD_SECRET_KEYS": "STRIPE_KEY",
         "FUNCD_CATALOG_LAKE_URL": "127.0.0.1:9100",
+        "FUNCD_INVOKE_SOCKET": dependency_api.path,
     }
     proc, port = _start(tmp_path, manifest, env=shared)
     try:
@@ -1145,7 +1146,7 @@ def test_ctx_pooled_member(tmp_path: Path) -> None:
             assert json.loads(body) == {
                 "lake": {"url": "127.0.0.1:9100", "token": f"tok-{name}"},
                 "level": "debug",
-                "key": "sk",
+                "key": f"sk-{name}",
             }
     finally:
         proc.terminate()

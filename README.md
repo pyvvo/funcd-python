@@ -23,6 +23,7 @@ lake = context.catalog.get("lake")  # {"url": ..., "token": ...}
 
 `config` holds the keys of the Function's bound ConfigMaps and `secret` those of its Secrets; a key a secret overrides
 reads only through `secret`, and an unbound key reads as `None`. `list()` returns the bound keys, sorted.
+`secret` asks funcd on every call (funcd ADR-0249), so no secret sits in the worker's environment.
 `catalog.get(alias)` raises `KeyError` naming the alias when it is not bound.
 
 ## Develop
