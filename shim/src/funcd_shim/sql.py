@@ -42,7 +42,7 @@ def _statement(s: SQLStatement) -> list[Any]:
 
 
 class SQLClient:
-    """The SQL databases a function binds (``spec.sql``), by alias."""
+    """The SQL databases a function binds (``spec.bindings.sql``), by alias."""
 
     def __init__(self, member: str | None = None) -> None:
         # In a pool, every request names the calling member; funcd checks it against the pool.

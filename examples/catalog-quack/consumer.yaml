@@ -10,7 +10,7 @@
 # funcd untars the bundle into the artifact dir and sets PYTHONPATH + FUNCD_BUNDLE_DIR so `import duckdb`
 # and the offline `duckdb-ext/` extensions resolve with zero runtime changes.
 #
-# The consumer binding (`spec.catalogs`, ADR-0091) injects FUNCD_CATALOG_LAKE_URL (the `lake` catalog's
+# The consumer binding (`spec.bindings.catalog`, ADR-0091) injects FUNCD_CATALOG_LAKE_URL (the `lake` catalog's
 # status.endpoint) + FUNCD_CATALOG_LAKE_TOKEN (its QUACK_TOKEN) — declaring the binding IS the grant, and
 # the reconcile requeues until `lake` is Ready. The handler reads that env pair to reach Quack.
 apiVersion: funcd.io/v1alpha1
@@ -29,6 +29,8 @@ spec:
   # The consumer binding (ADR-0091): bind the `lake` CatalogService under alias `lake`. funcd injects
   # FUNCD_CATALOG_LAKE_URL (= lake's status.endpoint) + FUNCD_CATALOG_LAKE_TOKEN (= its QUACK_TOKEN), and
   # requeues this function until `lake` is Ready — so the SQL invoke reaches Quack with a real endpoint+token.
+  catalogs:
+    - ref: lake
   bindings:
     catalog:
       - alias: lake

@@ -1,7 +1,7 @@
 # The ELT functions (ADR-0080 blob bindings + ADR-0089 bundled native deps). Each runs on the STOCK curated
 # `python314` runtime; pdfplumber/pyarrow/duckdb travel IN the artifact as a deployment-package bundle
 # (`uv run funcd-bundle` → dist/<function>/), pushed with `funcdctl push dist/<function> registry:<step> --entry
-# handler.py`. A spec.blob binding IS the capability (default-deny — no binding ⇒ Forbidden); a function
+# handler.py`. A spec.bindings.blob binding IS the capability (default-deny — no binding ⇒ Forbidden); a function
 # writes a prefix only if it is that prefix's `owner` in bucket.yaml. DuckDB uses anonymous S3 against the
 # sandbox-scoped endpoint — nothing issued or rotated for in-platform functions.
 apiVersion: funcd.io/v1alpha1
@@ -17,6 +17,10 @@ spec:
   replicas: 1
   scaling:
     minReplicas: 1
+  configMaps:
+    - ref: releve-project-config
+  buckets:
+    - ref: releves
   bindings:
     config:
       - releve-project-config      # STOP_KEYWORDS (the account number etc.) — kept out of code
@@ -41,6 +45,10 @@ spec:
   replicas: 1
   scaling:
     minReplicas: 1
+  configMaps:
+    - ref: releve-project-config
+  buckets:
+    - ref: releves
   bindings:
     config:
       - releve-project-config
@@ -65,6 +73,8 @@ spec:
   replicas: 1
   scaling:
     minReplicas: 1
+  buckets:
+    - ref: releves
   bindings:
     blob:
       - alias: bronze              # READ bronze (not owner → read-only)
@@ -93,6 +103,10 @@ spec:
   replicas: 1
   scaling:
     minReplicas: 1
+  buckets:
+    - ref: releves
+  catalogs:
+    - ref: lake
   bindings:
     blob:
       - alias: silver              # READ the conformed silver table
@@ -117,6 +131,8 @@ spec:
   replicas: 1
   scaling:
     minReplicas: 1
+  catalogs:
+    - ref: lake
   bindings:
     catalog:
       - alias: lake

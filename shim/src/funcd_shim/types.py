@@ -55,7 +55,7 @@ class FunctionContext(Protocol):
         ...
 
     def invoke(self, alias: str, payload: Any) -> Any:
-        """Synchronously invoke a linked function by its spec.links alias (ADR-0064).
+        """Synchronously invoke a linked function by its spec.bindings.links alias (ADR-0064).
 
         An object *payload* with a top-level ``"data"`` or ``"specversion"`` key is taken as a full
         CloudEvent envelope (ADR-0134): the target's ``event["data"]`` is only its ``data`` value,
@@ -95,7 +95,7 @@ class FunctionContext(Protocol):
 
     @property
     def catalog(self) -> CatalogClient:
-        """A bound catalog's proxy URL and this function's token, by spec.catalogs alias (funcd ADR-0245)."""
+        """A bound catalog's proxy URL and token, by spec.bindings.catalog alias (funcd ADR-0245)."""
         ...
 
     def remaining_ms(self) -> int | None:

@@ -1,4 +1,4 @@
-# Function orders: its spec.sql binding is its access to orders-db as alias app (funcd ADR-0233).
+# Function orders: its spec.bindings.sql binding is its access to orders-db as alias app (funcd ADR-0233).
 apiVersion: funcd.io/v1alpha1
 kind: Function
 metadata:
@@ -9,6 +9,8 @@ spec:
   runtime: python314
   handler: handle
   image: oci-layout:///mnt/funcd-deps/registry:orders
+  sql:
+    - ref: orders-db
   bindings:
     sql:
       - alias: app

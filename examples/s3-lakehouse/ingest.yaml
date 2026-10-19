@@ -1,5 +1,5 @@
 # ingest — writes raw Parquet into the lakehouse "bronze" layer via DuckDB over the S3 endpoint (ADR-0080).
-# The spec.blob binding (alias "lake" → bucket "lakehouse", prefix "bronze") IS the capability: default-deny,
+# The spec.bindings.blob binding (alias "lake" → bucket "lakehouse", prefix "bronze") IS the capability: default-deny,
 # without it the S3 access is Forbidden. ingest is bronze's `owner` (bucket.yaml), so it is the single WRITER
 # of bronze (write = caller == prefix.owner, mirroring KV owner-write — ADR-0076). Identity is connection-
 # scoped (no key issued/rotated); DuckDB uses anonymous S3 against the sandbox-scoped endpoint, e.g.
@@ -17,6 +17,8 @@ spec:
   replicas: 1
   scaling:
     minReplicas: 1
+  buckets:
+    - ref: lakehouse          # bucket.yaml, shared by ingest, transform and report
   bindings:
     blob:
       - alias: lake           # the in-code handle / DuckDB s3 path scope

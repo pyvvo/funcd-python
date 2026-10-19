@@ -1,5 +1,5 @@
 # Non-secret configuration (ADR-0057/0093). Two ConfigMaps:
-#   * releve-project-config — PROJECT tuning consumed by extract/verify (spec.config). STOP_KEYWORDS holds
+#   * releve-project-config — PROJECT tuning consumed by extract/verify (spec.bindings.config). STOP_KEYWORDS holds
 #     the header/footer/balance markers to skip during extraction — INCLUDING the statement's account number,
 #     which the prototype hard-coded. Keeping it here means no PII (the real account number) lives in code.
 #   * lake-engine-config — DuckDB engine tuning for the CatalogService (DUCKDB_* → engine env).

@@ -1,7 +1,7 @@
 # transform — reads bronze, writes the silver + gold layers via DuckDB over the S3 endpoint (ADR-0080).
 # It binds three prefixes of the lakehouse Bucket: bronze (READ — it is NOT bronze's owner, ingest is, so the
 # binding grants read only) and silver + gold (it IS their `owner` in bucket.yaml → the single WRITER). One
-# function, multiple spec.blob bindings, each scoped to a (bucket, prefix). Identity is connection-scoped (no
+# function, multiple spec.bindings.blob bindings, each scoped to a (bucket, prefix). Identity is connection-scoped (no
 # key); DuckDB uses anonymous S3, e.g. CREATE TABLE silver AS SELECT … FROM 's3://lakehouse/bronze/*.parquet'.
 apiVersion: funcd.io/v1alpha1
 kind: Function
@@ -16,6 +16,8 @@ spec:
   replicas: 1
   scaling:
     minReplicas: 1
+  buckets:
+    - ref: lakehouse          # bucket.yaml, shared by ingest, transform and report
   bindings:
     blob:
       - alias: bronze-in      # READ bronze (not its owner → read-only)

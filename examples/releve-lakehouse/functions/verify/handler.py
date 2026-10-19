@@ -7,8 +7,8 @@ reconciles line-by-line against `extract`'s bronze Parquet, and against the stat
 (`TOTAL DES OPERATIONS`). Two independent methods agreeing (and matching the bank's own printed figures) is
 the trust signal. ANY discrepancy → raise → the run fails BEFORE the data is conformed. No write.
 
-funcd wiring: spec.blob `landing` (read PDF) + `bronze` (read the Parquet to reconcile). Both read-only,
-through `context.blob` (ADR-0127) — no S3 keypair, no boto3.
+funcd wiring: spec.bindings.blob `landing` (read PDF) + `bronze` (read the Parquet to reconcile). Both
+read-only, through `context.blob` (ADR-0127) — no S3 keypair, no boto3.
 """
 
 from __future__ import annotations
