@@ -209,7 +209,7 @@ class _Ctx:
 
     @property
     def secret(self) -> SecretClient:
-        return SecretClient()
+        return SecretClient(_member)
 
     @property
     def catalog(self) -> CatalogClient:

@@ -1,9 +1,8 @@
 """``context.config``: the keys of a function's bound ConfigMaps (funcd ADR-0245).
 
-funcd sets ``FUNCD_CONFIG_KEYS`` and ``FUNCD_SECRET_KEYS``, comma-separated lists of the bound keys of each
-kind in the environment; an absent or empty list is no keys. The clients read the environment at call time, so
-a pooled member reads its own copy (ADR-0158). ``context.secret`` reads its list with the same helpers.
-"""
+funcd sets ``FUNCD_CONFIG_KEYS``, the comma-separated bound config keys in the environment; an absent or empty
+list is no keys. The client reads the environment at call time, so a pooled member reads its own copy
+(ADR-0158). Secrets are read from funcd instead (``context.secret``, funcd ADR-0249)."""
 
 from __future__ import annotations
 

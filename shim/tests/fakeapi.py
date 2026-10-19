@@ -12,14 +12,17 @@ class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer)
 
 
 class DependencyAPI:
-    """A fake worker-node local API serving funcd's ``GET /health/dependencies`` (funcd ADR-0215).
+    """A fake worker-node local API serving funcd's ``GET /health/dependencies`` (funcd ADR-0215) or its
+    secret routes (funcd ADR-0249).
 
-    ``replies`` maps the ``X-Funcd-Member`` value (``"-"`` for none) to a ``(status, body)``, to ``HOLD``
-    (no answer until the test ends) or to ``CLOSE`` (the connection closes without an answer); a caller
-    with no entry gets 200. ``calls`` records ``"<method> <path> <member>"`` per request."""
+    ``routes`` maps a request path to a ``(status, body)``, answered first. ``replies`` maps the
+    ``X-Funcd-Member`` value (``"-"`` for none) to a ``(status, body)``, to ``HOLD`` (no answer until the test
+    ends) or to ``CLOSE`` (the connection closes without an answer); a caller with no entry gets 200.
+    ``calls`` records ``"<method> <path> <member>"`` per request."""
 
     def __init__(self, path: str) -> None:
         self.path = path
+        self.routes: dict[str, tuple[int, bytes]] = {}
         self.replies: dict[str, tuple[int, bytes] | str] = {}
         self.calls: list[str] = []
         self.release = threading.Event()

@@ -90,7 +90,8 @@ class FunctionContext(Protocol):
 
     @property
     def secret(self) -> SecretClient:
-        """The keys of the Secrets a function binds (funcd ADR-0245)."""
+        """The keys and values of the Secrets a function binds, read from funcd on every call (funcd
+        ADR-0249)."""
         ...
 
     @property

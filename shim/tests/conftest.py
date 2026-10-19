@@ -35,7 +35,7 @@ def dependency_api(sock_dir: Path) -> Iterator[DependencyAPI]:
         def do_GET(self) -> None:  # noqa: N802 - stdlib signature
             member = self.headers.get("X-Funcd-Member") or "-"
             api.calls.append(f"{self.command} {self.path} {member}")
-            reply = api.replies.get(member, (200, b""))
+            reply = api.routes.get(self.path) or api.replies.get(member, (200, b""))
             if reply == HOLD:
                 api.release.wait(10)
             if isinstance(reply, str):
