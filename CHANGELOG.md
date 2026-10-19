@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.14.0](https://github.com/pyvvo/funcd-python/compare/v0.13.0...v0.14.0) (2026-10-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **examples:** CatalogServices and the sql-readings Workflow declare their stores at their root (funcd ADR-0251, ADR-0250) ([#94](https://github.com/pyvvo/funcd-python/issues/94))
+* contract files in place of funcdctl.yaml (funcd ADR-0247) ([#92](https://github.com/pyvvo/funcd-python/issues/92))
+* **shim:** context.secret reads each secret from funcd's local API (funcd ADR-0249) ([#95](https://github.com/pyvvo/funcd-python/issues/95))
+
+### Features
+
+* contract files in place of funcdctl.yaml (funcd ADR-0247) ([#92](https://github.com/pyvvo/funcd-python/issues/92)) ([b47d0ed](https://github.com/pyvvo/funcd-python/commit/b47d0ed41d919eb35acab8fb7e7907f4d6513f1d))
+* **examples:** CatalogServices and the sql-readings Workflow declare their stores at their root (funcd ADR-0251, ADR-0250) ([#94](https://github.com/pyvvo/funcd-python/issues/94)) ([2b033b2](https://github.com/pyvvo/funcd-python/commit/2b033b2ffc25be23c57a90a9f277488a70d701cf))
+* **shim:** context.secret reads each secret from funcd's local API (funcd ADR-0249) ([#95](https://github.com/pyvvo/funcd-python/issues/95)) ([9d0a6d5](https://github.com/pyvvo/funcd-python/commit/9d0a6d5bf5076c8a1be843df307e6f74e6bf74e8))
+
 ## [0.13.0](https://github.com/pyvvo/funcd-python/compare/v0.12.0...v0.13.0) (2026-10-19)
 
 
