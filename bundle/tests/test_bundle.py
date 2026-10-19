@@ -1,4 +1,4 @@
-"""Scenario tests for funcd-bundle (funcd ADR-0144).
+"""Scenario tests for funcd-bundle (funcd ADR-0144, ADR-0247).
 
 They build a small uv workspace and lock it, so they need the network; the container cases also need Docker.
 Each skips with the reason when its requirement is absent. CI has both.
@@ -16,7 +16,6 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-import yaml
 
 from funcd_bundle import BundleError, bundle, discover, host_platform
 from funcd_bundle.bundle import BASE_IMAGES, PLATFORMS, _check
@@ -24,7 +23,8 @@ from funcd_bundle.cli import main
 
 FOREIGN = {"linux/arm64": "linux/amd64", "linux/amd64": "linux/arm64"}
 ELF_MACHINE = {"linux/amd64": 0x3E, "linux/arm64": 0xB7}
-MANIFEST = "runtime: python314\nhandler: handle\nmain: src/handler.py\n"
+CONTRACT = "runtime: python314\ninput:\n  type: object\noutput:\n  type: object\n"
+CONTRACT_JSON = '{"runtime": "python314", "input": {"type": "object"}, "output": {"type": "object"}}\n'
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples"
 
 
@@ -84,8 +84,8 @@ def workspace(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
                 '[dependency-groups]\ndev = ["iniconfig>=2"]\n\n'
                 "[tool.uv.sources]\npy-common = { workspace = true }\n"
             ),
-            "functions/reader/funcdctl.yaml": MANIFEST,
-            "functions/reader/src/handler.py": (
+            "functions/reader/reader.contract.yaml": CONTRACT,
+            "functions/reader/src/main.py": (
                 "import orjson\nimport py_common\n\n\n"
                 "def handle(ctx, event):\n    return orjson.loads(orjson.dumps({'c': py_common.hello()}))\n"
             ),
@@ -106,8 +106,11 @@ def _locked(project: Path, name: str) -> str:
 def test_scenario_bundle_vendors_locked_deps(workspace: Path, tmp_path: Path) -> None:
     out = bundle(workspace, "reader", host_platform(), tmp_path / "reader", hermetic=False, check=False)
 
-    assert (out / "handler.py").is_file()
-    assert (out / "funcdctl.yaml").read_text() == MANIFEST.replace("main: src/handler.py", "main: handler.py")
+    assert (out / "main.py").is_file()
+    assert (out / "reader.contract.yaml").read_text() == CONTRACT, (
+        "the contract file sits at the bundle's root"
+    )
+    assert not (out / "funcdctl.yaml").exists(), "no manifest is written"
     assert not (out / "tests").exists(), "the handler's tests are not bundled"
     assert (out / f"orjson-{_locked(workspace, 'orjson')}.dist-info").is_dir()
     assert (out / f"six-{_locked(workspace, 'six')}.dist-info").is_dir()
@@ -151,8 +154,8 @@ def test_scenario_bundle_refuses_source_builds(tmp_path: Path) -> None:
                 '[project]\nname = "old"\nversion = "0.1.0"\nrequires-python = ">=3.12"\n'
                 'dependencies = ["pyyaml==5.4.1"]\n'
             ),
-            "funcdctl.yaml": MANIFEST,
-            "src/handler.py": "import yaml\n",
+            "old.contract.yaml": CONTRACT,
+            "src/main.py": "import yaml\n",
         },
     )
     _uv("lock", "--python", "3.14", cwd=project)
@@ -217,13 +220,14 @@ def test_post_install_needs_hermetic(tmp_path: Path) -> None:
         {
             "pyproject.toml": (
                 '[project]\nname = "x"\nversion = "0"\n\n[tool.funcd-bundle]\npost-install = ["true"]\n'
+                '\n[tool.funcd-bundle.functions]\nx = "src/main.py"\n'
             ),
-            "funcdctl.yaml": MANIFEST,
-            "src/handler.py": "",
+            "x.contract.yaml": CONTRACT,
+            "src/main.py": "",
         },
     )
     with pytest.raises(BundleError, match="hermetic"):
-        bundle(tmp_path, tmp_path.name, host_platform(), tmp_path / "out", hermetic=False, check=False)
+        bundle(tmp_path, "x", host_platform(), tmp_path / "out", hermetic=False, check=False)
 
 
 def test_cli_post_install_needs_hermetic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -232,9 +236,10 @@ def test_cli_post_install_needs_hermetic(tmp_path: Path, monkeypatch: pytest.Mon
         {
             "pyproject.toml": (
                 '[project]\nname = "x"\nversion = "0"\n\n[tool.funcd-bundle]\npost-install = ["true"]\n'
+                '\n[tool.funcd-bundle.functions]\nx = "src/main.py"\n'
             ),
-            "funcdctl.yaml": MANIFEST,
-            "src/handler.py": "",
+            "x.contract.yaml": CONTRACT,
+            "src/main.py": "",
         },
     )
     monkeypatch.chdir(tmp_path)
@@ -244,123 +249,121 @@ def test_cli_post_install_needs_hermetic(tmp_path: Path, monkeypatch: pytest.Mon
     assert not (tmp_path / "out").exists(), "nothing is bundled"
 
 
-def test_default_handler_follows_funcdctl(tmp_path: Path) -> None:
+# scenario: dev-python-in-place (the entries funcd-bundle and funcdctl dev share)
+def test_functions_table_names_each_entry(tmp_path: Path) -> None:
     _write(
-        tmp_path, {"counter.funcdctl.yaml": "runtime: python314\n", "counter.py": "def handle(c, e): ...\n"}
+        tmp_path,
+        {
+            "pyproject.toml": (
+                '[project]\nname = "app"\nversion = "0"\n\n[tool.funcd-bundle.functions]\n'
+                'intake = "src/intake/main.py"\nstats = "src/stats/main.py"\n'
+            ),
+            "intake.contract.yaml": CONTRACT,
+            "stats.contract.json": CONTRACT_JSON,
+            "src/intake/main.py": "",
+            "src/stats/main.py": "",
+        },
     )
-    assert discover(tmp_path)["counter"].handler == tmp_path / "counter.py", (
-        "a stem manifest's default is <name>.py"
-    )
-    _write(tmp_path / "g", {"funcdctl.yaml": "runtime: python314\n", "handler.py": ""})
-    assert discover(tmp_path / "g")["g"].handler == tmp_path / "g" / "handler.py", (
-        "the generic default is handler.py"
-    )
+    found = discover(tmp_path)
+    assert {n: f.handler for n, f in found.items()} == {
+        "intake": tmp_path / "src/intake/main.py",
+        "stats": tmp_path / "src/stats/main.py",
+    }
+    assert found["stats"].contract == tmp_path / "stats.contract.json"
 
 
-def test_issue_r54_every_example_manifest_names_a_handler_it_ships() -> None:
-    examples = sorted({m.parent for m in EXAMPLES.glob("*/*funcdctl.yaml")})
-    assert examples, f"no example manifests under {EXAMPLES}"
+def test_without_the_table_one_function_named_after_the_folder(tmp_path: Path) -> None:
+    project = tmp_path / "counter"
+    _write(project, {"counter.contract.yaml": CONTRACT, "src/main.py": ""})
+    [(name, fn)] = discover(project).items()
+    assert (name, fn.handler) == ("counter", project / "src/main.py")
+
+
+def test_every_example_names_an_entry_and_a_contract_it_ships() -> None:
+    examples = sorted(p.parent for p in EXAMPLES.glob("*/pyproject.toml"))
+    assert examples, f"no example projects under {EXAMPLES}"
     missing = []
     for example in examples:
         try:
             discover(example)
         except BundleError as err:
             missing.append(str(err))
-    assert not missing, f"funcdctl dev and funcd-bundle cannot find these handlers: {missing}"
+    assert not missing, f"funcdctl dev and funcd-bundle cannot find these functions: {missing}"
 
 
-def test_issue_154_stem_manifest_without_main_names_bundled_handler(tmp_path: Path) -> None:
-    manifest = "runtime: python314\nhandler: handle\n"
-    project = tmp_path / "project"
-    _write(
-        project,
-        {
-            "pyproject.toml": '[project]\nname = "extract"\nversion = "0.1.0"\nrequires-python = ">=3.12"\n',
-            "extract.funcdctl.yaml": manifest,
-            "extract.py": "def handle(ctx, event): ...\n",
-        },
-    )
-    _uv("lock", "--offline", "--python", "3.14", cwd=project)
-    out = bundle(project, "extract", host_platform(), tmp_path / "extract", hermetic=False, check=False)
-
-    assert discover(out)["extract"].handler == out / "extract.py", (
-        "the bundle's generic manifest resolves to the bundled handler, not handler.py"
-    )
-    assert (out / "funcdctl.yaml").read_text() == manifest + "main: extract.py\n"
-
-
-@pytest.mark.parametrize(
-    "main",
-    [
-        '"main": src/handler.py\n',
-        "'main': src/handler.py\n",
-        "main:\n  src/handler.py\n",
-    ],
-    ids=["double-quoted-key", "single-quoted-key", "value-on-next-line"],
-)
-def test_issue_r29_main_key_is_rewritten_not_duplicated(tmp_path: Path, main: str) -> None:
+# scenario: bundlers-copy-the-contract
+def test_scenario_bundlers_copy_the_contract(tmp_path: Path) -> None:
     project = tmp_path / "reader"
     _write(
         project,
         {
             "pyproject.toml": '[project]\nname = "reader"\nversion = "0.1.0"\nrequires-python = ">=3.12"\n',
-            "funcdctl.yaml": "runtime: python314\n" + main + "handler: handle\n",
-            "src/handler.py": "def handle(ctx, event): ...\n",
+            "reader.contract.json": CONTRACT_JSON,
+            "src/main.py": "def handle(ctx, event): ...\n",
         },
     )
     _uv("lock", "--offline", "--python", "3.14", cwd=project)
     out = bundle(project, "reader", host_platform(), tmp_path / "out", hermetic=False, check=False)
 
-    assert (out / "funcdctl.yaml").read_text() == "runtime: python314\nmain: handler.py\nhandler: handle\n", (
-        "the manifest's one main names the bundled handler"
+    assert (out / "reader.contract.json").read_text() == CONTRACT_JSON
+    assert (out / "main.py").is_file(), "the entry sits at the bundle's root, where push looks for main.py"
+    assert not (out / "funcdctl.yaml").exists()
+
+
+def test_scenario_bundlers_copy_the_contract_a_function_without_one_fails(tmp_path: Path) -> None:
+    _write(tmp_path / "reader", {"src/main.py": ""})
+    with pytest.raises(BundleError, match=r"no contract file: neither .*reader\.contract\.yaml nor .*\.json"):
+        discover(tmp_path / "reader")
+
+
+def test_two_contract_files_of_one_function_fail(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "reader",
+        {"reader.contract.yaml": CONTRACT, "reader.contract.json": CONTRACT_JSON, "src/main.py": ""},
     )
+    with pytest.raises(BundleError, match="two contract files"):
+        discover(tmp_path / "reader")
 
 
-@pytest.mark.parametrize(
-    ("manifest", "want"),
-    [
-        ("{runtime: python314, handler: handle}\n", {"runtime": "python314", "handler": "handle"}),
-        ("!!map &m {\n  runtime: python314,\n}\n", {"runtime": "python314"}),
-        ("{}\n", {}),
-    ],
-    ids=["one-line", "tagged-multi-line", "empty"],
-)
-def test_issue_r49_flow_mapping_manifest_gets_main(
-    tmp_path: Path, manifest: str, want: dict[str, str]
+# scenario: old-manifest-refused
+@pytest.mark.parametrize("manifest", ["funcdctl.yaml", "reader.funcdctl.yaml"])
+def test_scenario_old_manifest_refused(
+    tmp_path: Path, manifest: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     project = tmp_path / "reader"
+    _write(project, {"reader.contract.yaml": CONTRACT, "src/main.py": "", manifest: "runtime: python314\n"})
+    monkeypatch.chdir(project)
+
+    assert main(["--no-check", "--out", str(tmp_path / "out")]) == 1
+    err = capsys.readouterr().err
+    assert f"{project / manifest}: funcdctl.yaml is no longer read" in err, err
+    assert "<name>.contract.yaml" in err and "[tool.funcd-bundle.functions]" in err, (
+        "it names what replaces it"
+    )
+    assert not (tmp_path / "out").exists(), "nothing is bundled"
+
+
+def test_missing_entry_is_named(tmp_path: Path) -> None:
     _write(
-        project,
+        tmp_path,
         {
-            "pyproject.toml": '[project]\nname = "reader"\nversion = "0.1.0"\nrequires-python = ">=3.12"\n',
-            "funcdctl.yaml": manifest,
-            "handler.py": "def handle(ctx, event): ...\n",
+            "pyproject.toml": '[project]\nname = "x"\n\n[tool.funcd-bundle.functions]\nx = "src/nope.py"\n',
+            "x.contract.yaml": CONTRACT,
         },
     )
-    _uv("lock", "--offline", "--python", "3.14", cwd=project)
-    out = bundle(project, "reader", host_platform(), tmp_path / "out", hermetic=False, check=False)
-
-    assert yaml.safe_load((out / "funcdctl.yaml").read_text()) == want | {"main": "handler.py"}, (
-        "the bundle's manifest is valid YAML whose main names the bundled handler"
-    )
-
-
-def test_missing_handler_is_named(tmp_path: Path) -> None:
-    _write(tmp_path, {"funcdctl.yaml": "runtime: python314\nmain: src/nope.py\n"})
     with pytest.raises(BundleError, match="nope.py"):
-        bundle(tmp_path, tmp_path.name, host_platform(), tmp_path / "out", hermetic=False, check=False)
+        discover(tmp_path)
 
 
-def test_issue_r48_invalid_manifest_yaml_is_reported(
+def test_invalid_functions_table_is_reported(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _write(tmp_path, {"funcdctl.yaml": "runtime: [\n", "handler.py": ""})
+    _write(tmp_path, {"pyproject.toml": '[project]\nname = "x"\n\n[tool.funcd-bundle.functions]\nx = 1\n'})
     monkeypatch.chdir(tmp_path)
 
-    assert main(["--no-check", "--out", str(tmp_path / "out")]) == 1, "a manifest that does not parse fails"
+    assert main(["--no-check", "--out", str(tmp_path / "out")]) == 1
     err = capsys.readouterr().err
-    assert err.startswith(f"funcd-bundle: {tmp_path / 'funcdctl.yaml'}: "), err
-    assert "while parsing a flow node" in err, "the parser message names the problem"
+    assert "[tool.funcd-bundle.functions] must map each function name to its entry" in err, err
     assert "Traceback" not in err
 
 
