@@ -10,6 +10,14 @@ metadata:
   namespace: default
   resourceGroup: rg1
 spec:
+  buckets:
+    - ref: releves             # bucket.yaml: shared with the functions; gold's owner is this catalog
+  configMaps:
+    - ref: lake-engine-config  # configmap.yaml
+  secrets:
+    - name: lake-quack-token   # secret.yaml holds the value
+      keys:
+        - QUACK_TOKEN
   bindings:
     blob:
       - alias: silver             # READ the conformed silver tables (to build marts)
