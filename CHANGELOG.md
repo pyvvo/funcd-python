@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/pyvvo/funcd-python/compare/v0.11.0...v0.12.0) (2026-10-19)
+
+
+### Features
+
+* **shim:** context.config, context.secret and context.catalog (funcd ADR-0245) ([#90](https://github.com/pyvvo/funcd-python/issues/90)) ([04dc44a](https://github.com/pyvvo/funcd-python/commit/04dc44a9d18992e686c7b227ac1e0a7c4fbdaa78))
+
 ## [0.11.0](https://github.com/pyvvo/funcd-python/compare/v0.10.1...v0.11.0) (2026-10-17)
 
 
