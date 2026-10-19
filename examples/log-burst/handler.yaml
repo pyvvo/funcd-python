@@ -2,7 +2,7 @@
 # platform's Path B function-log capture (ADR-0081) has something to capture and persist. Python has no
 # `console`; the shim's Path B hook point is a `logging.Handler` on the root logger, so the function
 # logs with `logging.info/.warning/.error` (a bare `print()` would fall to Path A / raw stdout instead).
-# Runs on the curated python314 runtime image. The deliverable artifact is src/handler.py.
+# Runs on the curated python314 runtime image. The deliverable artifact is src/main.py, pushed as log-burst.py.
 apiVersion: funcd.io/v1alpha1
 kind: Function
 metadata:
@@ -12,7 +12,7 @@ metadata:
 spec:
   runtime: python314
   handler: handle
-  image: oci-layout:///mnt/funcd-deps/registry:log-burst   # funcdctl push src/handler.py
+  image: oci-layout:///mnt/funcd-deps/registry:log-burst   # funcdctl push dist/log-burst.py (README)
   replicas: 1
   scaling:
     minReplicas: 1

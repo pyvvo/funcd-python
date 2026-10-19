@@ -27,31 +27,38 @@ funcd-shim = { path = "../../shim", editable = true }
 funcd-bundle = { path = "../../bundle", editable = true }
 
 # `uv run funcd-bundle` builds inside the pinned python:3.14-slim-bookworm, then installs the quack and httpfs
-# extensions to-gold and query-transactions load offline (checked by SHA-256).
+# extensions to-gold and catalog-reader load offline (checked by SHA-256).
 [tool.funcd-bundle]
 hermetic = true
 post-install = ["python", "scripts/install_extensions.py"]
 
-# Each function is pushed as its own bundle (dist/<function>/) — there is no importable wheel; the code is
-# authored + typechecked in place under functions/.
+# Each function is pushed as its own bundle (dist/<function>/) from its entry here (funcd ADR-0247) — there is no
+# importable wheel; the code is authored + typechecked in place under src/<function>/.
+[tool.funcd-bundle.functions]
+extract = "src/extract/main.py"
+verify = "src/verify/main.py"
+build-silver = "src/build-silver/main.py"
+to-gold = "src/to-gold/main.py"
+catalog-reader = "src/catalog-reader/main.py"
+
 [tool.mypy]
 strict = true
 python_version = "3.12"
-files = ["functions", "tests"]
-mypy_path = "functions"
-explicit_package_bases = true    # functions/<fn>/handler.py are distinct namespace modules (extract.handler, …)
-namespace_packages = true
+# Each src/<function>/ is checked on its own, from inside it (tests/test_typecheck.py): every function has a
+# main.py and a funcd_types.py, and a function name such as build-silver is no package name.
+files = ["tests"]
 exclude = ['dist/']
 
 [[tool.mypy.overrides]]
 module = "pyarrow.*"  # ships no type stubs
 ignore_missing_imports = true
 
-# Each step imports the funcd_types.py generated beside its handler, the bundle root at runtime. One mypy run
-# cannot put every step directory at the top of its search path, so that import stays unresolved here.
+# Each step imports the funcd_types.py generated beside its handler, the bundle root at runtime. Those generated
+# types are not checked: the import stays Any, as it was when mypy could not resolve it.
 [[tool.mypy.overrides]]
 module = "funcd_types"
 ignore_missing_imports = true
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -60,7 +67,7 @@ testpaths = ["tests"]
 line-length = 110
 target-version = "py312"
 # the vendored wheel closure, and the types `funcdctl types` generates
-extend-exclude = ["dist", "functions/*/funcd_types.py"]
+extend-exclude = ["dist", "src/*/funcd_types.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B"]

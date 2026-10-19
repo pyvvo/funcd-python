@@ -7,7 +7,7 @@ checkpointing its SQLite catalog to blob.
 
 ## Run it locally (`funcdctl dev`)
 
-`funcdctl dev` runs the consumer function from source — no hand-written CRDs — printing a colored
+`funcdctl dev` runs the consumer function from its resource and contract files (funcd ADR-0247) — printing a colored
 services banner + live logs (it builds the `-tags dev` funcdctl for you). The **first** run fetches
 the embedded DuckDB+Quack catalog engine for your platform (once — `just dev-example` handles it),
 and the example's `catalogs` binding (alias `lake`) is wired automatically:
@@ -16,9 +16,9 @@ and the example's `catalogs` binding (alias `lake`) is wired automatically:
 just dev-example python/catalog-quack      # gateway :3005 · S3 :3006 — override: just dev-example python/catalog-quack 4000 4001
 ```
 
-Invoke the gateway the banner prints (default `http://127.0.0.1:3005`). The single generic
-`funcdctl.yaml` names the function after its directory (`catalog-quack`); POST the input **directly**
-— the gateway builds the CloudEvent (ADR-0134), matching the manifest's `contract.input`
+Invoke the gateway the banner prints (default `http://127.0.0.1:3005`). Dev runs the Function its
+resource file names (`catalog-reader`), from `src/main.py` with `catalog-reader.contract.yaml`; POST the input **directly**
+— the gateway builds the CloudEvent (ADR-0134), matching the contract file's `input`
 (`{sql: string, catalog?: string}`); a full `{"data": <input>}` envelope still works too:
 
 ```bash
@@ -49,7 +49,7 @@ for f in configmap.yaml secret.yaml catalogservice.yaml bucket.yaml consumer.yam
 
 ## Consuming the catalog — a funcd Function
 
-The consumer is a **funcd Function** (`src/handler.py` + `consumer.yaml`) — the funcd-native shape, not a
+The consumer is a **funcd Function** (`src/main.py` + `consumer.yaml`) — the funcd-native shape, not a
 CLI. Invoke it (`POST /function/catalog-reader {"data":{"sql":"SELECT …"}}`) and it runs the SQL on the
 `lake` CatalogService over Quack and returns the rows. A Quack client *is* a local DuckDB with the
 `quack` extension (there is no separate JS/Python Quack library — Quack is DuckDB-to-DuckDB, Protobuf
@@ -61,8 +61,8 @@ into a deployment-package **bundle** (a directory) that `funcdctl push` turns in
 Build it with `funcd-bundle` (funcd ADR-0144) and push it:
 
 ```bash
-uv run funcd-bundle                                      # → dist/catalog-quack/  (handler + vendored duckdb + duckdb-ext/ + funcdctl.yaml)
-funcdctl push dist/catalog-quack <ref> --entry handler.py
+uv run funcd-bundle                                      # → dist/catalog-reader/  (main.py + vendored duckdb + duckdb-ext/ + catalog-reader.contract.yaml)
+funcdctl push dist/catalog-reader <ref>
 ```
 
 The build is hermetic (`[tool.funcd-bundle]` in `pyproject.toml`): it installs the locked `duckdb` inside
@@ -72,7 +72,7 @@ the other architecture under emulation.
 
 funcd untars the bundle into the artifact dir and sets `PYTHONPATH` + `FUNCD_BUNDLE_DIR`, so `import duckdb`
 and the offline `duckdb-ext/` extensions resolve with **zero** runtime changes. `funcdctl push` takes the
-`{input, output}` contract from the bundle's `funcdctl.yaml`, gates it and promotes it to the OCI
+runtime and the `{input, output}` contract from the bundle's `catalog-reader.contract.yaml`, gates it and promotes it to the OCI
 contract layer (`funcdctl inspect`).
 
 **One remaining deploy prerequisite** (a follow-up — Project #4 *"Provider consumption binding"*):
@@ -114,5 +114,5 @@ funcd's `scripts/lanes.yaml` `duckdb` lane + `e2e/duckdb.venom.yml` + `just lima
 real containerd. They assert the **provider** side end-to-end: the CatalogService deploys (no backing
 Function) → the provider-runtime brings up the `duckdb` engine → it reaches Ready → it serves Quack
 (`GET /`→`200`) and its S3 access is authorized (ADR-0088 — no `403`). The **consumer Function**
-(`consumer.yaml` + `src/handler.py`) round-trip lands with the two follow-ups above (the duckdb-capable
+(`consumer.yaml` + `src/main.py`) round-trip lands with the two follow-ups above (the duckdb-capable
 function runtime + the `spec.bindings.catalog` binding).

@@ -1,0 +1,14 @@
+[project]
+name = "orders-core"
+version = "0.1.0"
+description = "The models, the SQL runner and the rendered migrations the sql-orders functions share."
+authors = [{ name = "The funcd Authors" }]
+requires-python = ">=3.12"
+dependencies = ["funcd-shim", "sqlalchemy==2.0.54", "sqlmodel==0.0.47"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/orders_core"]

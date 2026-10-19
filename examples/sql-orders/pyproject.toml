@@ -6,14 +6,25 @@ authors = [{ name = "The funcd Authors" }]
 requires-python = ">=3.12"
 # funcd-shim is the typed authoring contract. SQLModel builds the statements, compiled with the SQLite dialect and
 # sent through context.sql; funcd-bundle vendors it for the runtime. Alembic only renders the migrations, at build time.
-dependencies = ["funcd-shim", "sqlalchemy==2.0.54", "sqlmodel==0.0.47"]
+dependencies = ["orders-core", "funcd-shim", "sqlalchemy==2.0.54", "sqlmodel==0.0.47"]
 
 [dependency-groups]
 dev = ["alembic==1.20.0", "funcd-bundle", "mypy>=1.13", "pytest>=8.3", "ruff>=0.8"]
 
+[tool.uv.workspace]
+members = ["packages/*"]
+
 [tool.uv.sources]
+orders-core = { workspace = true }
 funcd-shim = { path = "../../shim", editable = true }
 funcd-bundle = { path = "../../bundle", editable = true }
+
+# Each function is bundled from its entry (funcd ADR-0247); the code they share is the orders-core workspace
+# package, which funcd-bundle vendors as a wheel (funcd ADR-0144).
+[tool.funcd-bundle.functions]
+orders = "src/orders/main.py"
+orders-migrate = "src/orders-migrate/main.py"
+audit = "src/audit/main.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
@@ -25,11 +36,13 @@ build-backend = "hatchling.build"
 [tool.mypy]
 strict = true
 python_version = "3.12"
-files = ["src", "tests", "scripts"]
-mypy_path = "src:tests:scripts"
+# Each src/<function>/main.py is checked on its own, from inside its directory (tests/test_typecheck.py).
+files = ["packages", "tests", "scripts"]
+mypy_path = "tests:scripts"
+explicit_package_bases = true
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "tests", "scripts"]
+pythonpath = ["tests", "scripts"]
 
 [tool.ruff]
 line-length = 110

@@ -10,7 +10,7 @@ from typing import cast
 
 from funcd_shim import CloudEvent, FunctionContext
 
-from handler import FuncInput, handle
+from main import FuncInput, handle
 
 
 class _Ctx:

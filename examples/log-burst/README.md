@@ -7,9 +7,10 @@ the Lima e2e deploys it, invokes it once, and asserts funcd captured ≥ 100 rec
 as OTLP-JSON-Lines on the blob substrate.
 
 ```
-src/handler.py        # the function: handle(context, event) -> {"emitted": <count>}
+src/main.py           # the function: handle(context, event) -> {"emitted": <count>}
 tests/test_handler.py # the author's unit tests (no platform needed)
-handler.yaml          # the Function manifest (runtime: python314, handler: handle)
+handler.yaml          # the Function resource (runtime: python314, handler: handle)
+log-burst.contract.yaml # the artifact's runtime and I/O contract (funcd ADR-0247)
 pyproject.toml        # uv project; depends on funcd-shim for the typed contract
 ```
 
@@ -57,7 +58,7 @@ log record:
 
 ## Run it locally (`funcdctl dev`)
 
-`funcdctl dev` runs the function from source — no hand-written CRDs — printing a colored services
+`funcdctl dev` runs the function from its resource and contract files (funcd ADR-0247) — printing a colored services
 banner + **live logs** (it builds the `-tags dev` funcdctl for you), so the burst streams straight
 into your terminal:
 
@@ -65,9 +66,9 @@ into your terminal:
 just dev-example python/log-burst      # gateway :3005 · S3 :3006 — override: just dev-example python/log-burst 4000 4001
 ```
 
-Invoke the gateway the banner prints (default `http://127.0.0.1:3005`). The single generic
-`funcdctl.yaml` names the function after its directory (`log-burst`); the invoke is a **CloudEvent
-envelope** — `{"data": <input>}` matching the manifest's `contract.input` (`{count?: integer}`):
+Invoke the gateway the banner prints (default `http://127.0.0.1:3005`). Dev runs the Function its
+resource file names (`log-burst`), from `src/main.py` with `log-burst.contract.yaml`; the invoke is a **CloudEvent
+envelope** — `{"data": <input>}` matching the contract file's `input` (`{count?: integer}`):
 
 ```bash
 curl -sS -XPOST http://127.0.0.1:3005/function/log-burst \
@@ -88,13 +89,15 @@ uv run pytest      # run the unit tests (asserts >= 100 records emitted)
 
 ## Deploy
 
-The deliverable is `src/handler.py`. Push it and apply [`handler.yaml`](handler.yaml)
+It needs no third-party package, so it is pushed as one file: `src/main.py`, staged as `log-burst.py` beside its
+contract file (funcd ADR-0247). Push it and apply [`handler.yaml`](handler.yaml)
 (`runtime: python314`, `handler: handle`):
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/pyvvo/funcd/main/examples/funcdconfig.yaml
 funcd --config funcdconfig.yaml &         # start the daemon (zero-infra dev config, ADR-0061)
-funcdctl push src/handler.py
+mkdir -p dist && cp src/main.py dist/log-burst.py && cp log-burst.contract.yaml dist/   # a single file pushes with the contract file of its name
+funcdctl push dist/log-burst.py oci-layout:///tmp/funcd-demo/layout:log-burst
 funcdctl apply -f handler.yaml
 ```
 

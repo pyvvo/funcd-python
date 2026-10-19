@@ -28,36 +28,37 @@ keys = context.kv.list("py-counters", "a")         # GET  /kv/py-counters?prefix
 
 ## Contract (ADR-0122/0123)
 
-The `contract` in [`funcdctl.yaml`](funcdctl.yaml) is the function's I/O contract. `funcdctl push`
-reads it from the manifest beside the handler and pushes it as OCI metadata; the shim compiles a
+[`pycounter.contract.yaml`](pycounter.contract.yaml) is the function's runtime and I/O contract (funcd
+ADR-0247). `funcdctl push` reads it from the bundle's root and pushes it as OCI metadata; the shim compiles a
 validator from it when the worker starts, so a malformed call is rejected (**422**) before the handler
 runs — KV functions are contract-validated, not just KV-enabled.
 
-The handler needs no third-party package, so it needs no build: `src/counter.py` (the manifest's `main`)
-is the artifact. Push it with the manifest beside it, or bundle it with `funcd-bundle` (funcd ADR-0144):
+The function is `pycounter`, not the folder's name, so `pyproject.toml` lists its entry in
+`[tool.funcd-bundle.functions]`, which `funcdctl dev` reads. It needs no third-party package, so it is pushed as one
+file: `src/main.py`, staged as `pycounter.py` beside its contract file:
 
 ```bash
-uv run funcd-bundle                                      # → dist/kv-counter/ (counter.py + funcdctl.yaml)
-funcdctl push dist/kv-counter <ref> --entry counter.py
+mkdir -p dist && cp src/main.py dist/pycounter.py && cp pycounter.contract.yaml dist/   # a single file pushes with the contract file of its name
+funcdctl push dist/pycounter.py <ref>
 ```
 
 ## Run it locally (`funcdctl dev`)
 
-`funcdctl dev` runs the function from source — no hand-written CRDs — printing a colored services
+`funcdctl dev` runs the function from its resource and contract files (funcd ADR-0247) — printing a colored services
 banner + live logs (it builds the `-tags dev` funcdctl for you):
 
 ```bash
 just dev-example python/kv-counter      # gateway :3005 · S3 :3006 — override: just dev-example python/kv-counter 4000 4001
 ```
 
-Invoke the gateway the banner prints (default `http://127.0.0.1:3005`). The single generic
-`funcdctl.yaml` names the function after its directory (`kv-counter`); POST the input **directly** —
-the gateway builds the CloudEvent (ADR-0134), matching the manifest's `contract.input`
+Invoke the gateway the banner prints (default `http://127.0.0.1:3005`). Dev runs the Function its
+resource file names (`pycounter`), from `src/main.py` with `pycounter.contract.yaml`; POST the input **directly** —
+the gateway builds the CloudEvent (ADR-0134), matching the contract file's `input`
 (`{name: string}`); a full `{"data": <input>}` envelope still works too. POST **twice** and the
 durable `context.kv` counter increments `1 → 2`:
 
 ```bash
-curl -sS -XPOST http://127.0.0.1:3005/function/kv-counter \
+curl -sS -XPOST http://127.0.0.1:3005/function/pycounter \
   -H 'Content-Type: application/json' -d '{"name":"alice"}'
 # → {"name":"alice","count":1}   then, on the second POST,   {"name":"alice","count":2}
 ```

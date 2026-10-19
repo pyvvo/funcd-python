@@ -14,3 +14,10 @@ def test_issue_r51_strict_mypy_config_passes(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.chdir(_ROOT)
     stdout, stderr, status = api.run([])
     assert status == 0, stdout + stderr
+
+
+@pytest.mark.parametrize("function", sorted(p.name for p in (_ROOT / "src").iterdir() if p.is_dir()))
+def test_each_function_passes_strict_mypy(monkeypatch: pytest.MonkeyPatch, function: str) -> None:
+    monkeypatch.chdir(_ROOT / "src" / function)
+    stdout, stderr, status = api.run(["--config-file", str(_ROOT / "pyproject.toml"), "main.py"])
+    assert status == 0, stdout + stderr

@@ -7,9 +7,7 @@ authors = [{ name = "The funcd Authors" }]
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12"
-dependencies = [
-    "pyyaml>=6.0.2",
-]
+dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/pyvvo/funcd-python"
@@ -30,7 +28,6 @@ dev = [
     "mypy>=1.13",
     "pytest>=8.3",
     "ruff>=0.8",
-    "types-pyyaml>=6.0.12",
 ]
 
 [tool.mypy]

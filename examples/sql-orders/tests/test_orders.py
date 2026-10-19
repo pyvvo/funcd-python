@@ -3,11 +3,12 @@ from typing import Any, cast
 import pytest
 from fakesql import FakeContext
 from funcd_shim import CloudEvent, FunctionContext
+from handlers import load
+from orders_core.migrations_sql import MIGRATIONS
 
-import audit
-import migrate
-import orders
-from migrations_sql import MIGRATIONS
+audit = load("audit")
+migrate = load("orders-migrate")
+orders = load("orders")
 
 
 def _event(data: Any) -> CloudEvent[Any]:

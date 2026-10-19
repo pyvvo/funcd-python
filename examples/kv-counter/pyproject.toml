@@ -5,7 +5,7 @@ description = "A funcd function authored in Python that uses durable KV via cont
 authors = [{ name = "The funcd Authors" }]
 requires-python = ">=3.12"
 # funcd-shim is the typed authoring contract (CloudEvent/FunctionContext/KVClient). At deploy time the
-# artifact is src/counter.py (the runtime provides the shim); this dependency is for local typecheck +
+# artifact is src/main.py (the runtime provides the shim); this dependency is for local typecheck +
 # tests + the contract build only.
 dependencies = ["funcd-shim"]
 
@@ -40,3 +40,7 @@ select = ["E", "F", "I", "N", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
+
+# the function is pycounter, not the folder's name (funcd ADR-0247)
+[tool.funcd-bundle.functions]
+pycounter = "src/main.py"

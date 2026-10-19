@@ -1,6 +1,6 @@
 """Tests for the security-critical PII gate — the ROADMAP's rule: an anonymization strategy ships with a
 test proving NO PII survives on its fixtures. We load the build-silver handler by path (its basename
-`handler.py` collides with the other steps', so importlib gives it a unique module name) and exercise the
+`main.py` collides with the other steps', so importlib gives it a unique module name) and exercise the
 pure `_anonymize` + `RESIDUAL` scan on SYNTHETIC libellés — never real statement data.
 """
 
@@ -17,7 +17,7 @@ from types import ModuleType
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-_HANDLER = Path(__file__).resolve().parent.parent / "functions" / "build_silver" / "handler.py"
+_HANDLER = Path(__file__).resolve().parent.parent / "src" / "build-silver" / "main.py"
 
 
 def _load() -> ModuleType:

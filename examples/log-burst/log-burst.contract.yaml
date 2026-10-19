@@ -1,0 +1,17 @@
+runtime: python314
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    count:
+      type: integer
+    big:
+      type: integer
+output:
+  type: object
+  additionalProperties: false
+  properties:
+    emitted:
+      type: integer
+  required:
+    - emitted

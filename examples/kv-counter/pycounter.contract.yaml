@@ -1,0 +1,20 @@
+runtime: python314
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    name:
+      type: string
+  required:
+    - name
+output:
+  type: object
+  additionalProperties: false
+  properties:
+    name:
+      type: string
+    count:
+      type: integer
+  required:
+    - name
+    - count

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import handler
+import main as handler
 
 
 def test_quack_uri_adds_scheme_to_bare_host_port() -> None:

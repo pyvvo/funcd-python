@@ -22,6 +22,9 @@ funcd-bundle = { path = "../../bundle", editable = true }
 hermetic = true
 post-install = ["python", "scripts/install_extensions.py"]
 
+[tool.funcd-bundle.functions]
+catalog-reader = "src/main.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 

@@ -54,9 +54,11 @@ CI runs the same checks, so never bypass a hook with `--no-verify`.
 
 - **ruff owns formatting**, from the flake so every project uses one version. Run `just fmt`
   instead of formatting by hand. CI runs `ruff format --check`.
-- **The contract lives in `funcdctl.yaml`.** No example derives or commits a schema file, and the
-  manifest's `main` names the handler source. A handler without third-party dependencies is pushed as
-  is; one with dependencies is bundled by `funcd-bundle`.
+- **The contract lives in `<name>.contract.yaml`** at the project root (funcd ADR-0247), the bindings in the
+  Function's resource file, and no `funcdctl.yaml` exists. Each entry is `src/main.py`, or `src/<name>/main.py`
+  listed in `[tool.funcd-bundle.functions]`; code several functions share is a workspace package. A handler
+  without third-party dependencies is pushed as one file, `<name>.py` beside its contract file; one with
+  dependencies is bundled by `funcd-bundle`.
 - **Bundles are not committed.** `uv run funcd-bundle` writes `dist/<name>/`, a per-architecture
   closure. funcd's `duckdb` lane builds the catalog-quack bundle itself.
 - **Lockfiles are exact.** CI runs `uv run --locked`, so a `pyproject.toml` change needs `uv lock`.

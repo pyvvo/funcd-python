@@ -1,0 +1,18 @@
+runtime: python314
+input:
+  # build-silver fans in from extract + verify (ADR-0094 join: all), so it receives a composite of their
+  # outputs — which it IGNORES (it reads the WHOLE bronze layer via context.blob). Input-agnostic ⇒ accept
+  # any object.
+  type: object
+  additionalProperties: true
+output:
+  type: object
+  additionalProperties: false
+  properties:
+    silver:
+      type: string
+    rows:
+      type: integer
+  required:
+    - silver
+    - rows

@@ -1,9 +1,9 @@
-"""Build a funcd Python bundle (funcd ADR-0144).
+"""Build a funcd Python bundle (funcd ADR-0144, ADR-0247).
 
-A bundle is a directory `funcdctl push <dir> <ref> --entry <handler>` turns into one OCI layer (ADR-0089):
-the handler, the exact locked versions of its runtime dependencies installed for the runtime's Linux
-platform, and the function's ``funcdctl.yaml``. The runtime ships ``funcd_shim`` and its dependencies, so
-they are pruned.
+A bundle is a directory `funcdctl push <dir> <ref>` turns into one OCI layer (ADR-0089): the handler, the
+exact locked versions of its runtime dependencies installed for the runtime's Linux platform, and the
+function's contract file ``<name>.contract.yaml`` (or ``.json``) at its root. The runtime ships ``funcd_shim``
+and its dependencies, so they are pruned.
 
 Every container step copies its inputs in and its outputs out as a tar stream (``docker cp``) and binds no
 host path, so it also works from a job container that drives another Docker daemon.
@@ -25,8 +25,6 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
 BASE_IMAGE = "python:3.14-slim-bookworm"
 # BASE_IMAGE pinned per platform (its index is sha256:48b13b00…0f83), so a bundle builds from one image on
 # every machine. Not the index digest: the classic image store maps one digest to one image, so it cannot hold
@@ -37,9 +35,13 @@ BASE_IMAGES = {
 }
 PYTHON_VERSION = "3.14"
 GLIBC = "2_36"
+CONTRACT_SUFFIXES = (".contract.yaml", ".contract.json")
 MANIFEST_SUFFIX = ".funcdctl.yaml"
 GENERIC_MANIFEST = "funcdctl.yaml"
-DEFAULT_HANDLER = "handler.py"
+# a project without [tool.funcd-bundle.functions] is one function, named after its directory, from this entry
+DEFAULT_ENTRY = "src/main.py"
+# funcdctl push's --entry default for a python bundle (funcd ADR-0247 Decision 2)
+PUSH_ENTRY = "main.py"
 # The runtime provides the shim and everything only it needs (ADR-0071: fastjsonschema).
 RUNTIME_PACKAGE = "funcd-shim"
 PLATFORMS = {"linux/amd64": "x86_64", "linux/arm64": "aarch64"}
@@ -57,7 +59,7 @@ class BundleError(Exception):
 @dataclass(frozen=True)
 class Function:
     name: str
-    manifest: Path
+    contract: Path
     handler: Path
 
 
@@ -78,38 +80,66 @@ def host_platform() -> str:
 
 
 def discover(project: Path) -> dict[str, Function]:
-    """Each <name>.funcdctl.yaml is a function <name>; with none, funcdctl.yaml is one named after the
-    project. The handler is the manifest's `main`, relative to the project root, else funcdctl's default
-    beside the manifest: <name>.py for a stem manifest, handler.py for the generic one (sdk Manifest.Main)."""
-    manifests = {p.name[: -len(MANIFEST_SUFFIX)]: p for p in sorted(project.glob("*" + MANIFEST_SUFFIX))}
-    defaults = {name: f"{name}.py" for name in manifests}
-    if not manifests:
-        generic = project / GENERIC_MANIFEST
-        if not generic.is_file():
-            raise BundleError(f"no {GENERIC_MANIFEST} or *{MANIFEST_SUFFIX} in {project}")
-        manifests = {project.resolve().name: generic}
-        defaults = {project.resolve().name: DEFAULT_HANDLER}
+    """The functions [tool.funcd-bundle.functions] lists (name → entry, relative to the project root), else
+    one named after the project directory, from src/main.py. Each needs its contract file <name>.contract.yaml
+    or .json at the project root; a funcdctl.yaml is refused, since nothing reads it (funcd ADR-0247)."""
+    old = sorted(project.glob("*" + MANIFEST_SUFFIX)) + [
+        p for p in [project / GENERIC_MANIFEST] if p.is_file()
+    ]
+    if old:
+        names = ", ".join(str(p) for p in old)
+        raise BundleError(
+            f"{names}: funcdctl.yaml is no longer read (funcd ADR-0247): put each function's runtime and "
+            f"contract in <name>.contract.yaml at {project}, its bindings in its Function resource file, and "
+            "its entry in [tool.funcd-bundle.functions]"
+        )
+    entries = _functions_table(project)
+    if entries is None:
+        entries = {project.resolve().name: DEFAULT_ENTRY}
     functions = {}
-    for name, manifest in manifests.items():
-        try:
-            data = yaml.safe_load(manifest.read_text()) or {}
-        except yaml.YAMLError as err:
-            raise BundleError(f"{manifest}: {err}") from err
-        if not isinstance(data, dict):
-            raise BundleError(f"{manifest} is not a mapping")
-        main = data.get("main") or defaults[name]
-        handler = project / str(main)
+    for name, entry in entries.items():
+        handler = project / entry
         if not handler.is_file():
-            raise BundleError(f"function {name}: handler {handler} (from {manifest.name}) does not exist")
-        functions[name] = Function(name=name, manifest=manifest, handler=handler)
+            raise BundleError(f"function {name}: entry {handler} does not exist")
+        functions[name] = Function(name=name, contract=_contract(project, name), handler=handler)
     return functions
+
+
+def _functions_table(project: Path) -> dict[str, str] | None:
+    pyproject = project / "pyproject.toml"
+    if not pyproject.is_file():
+        return None
+    try:
+        table = tomllib.loads(pyproject.read_text()).get("tool", {}).get("funcd-bundle", {}).get("functions")
+    except tomllib.TOMLDecodeError as err:
+        raise BundleError(f"{pyproject}: {err}") from err
+    if table is None:
+        return None
+    if not isinstance(table, dict) or not table or not all(isinstance(v, str) for v in table.values()):
+        raise BundleError(
+            f"{pyproject}: [tool.funcd-bundle.functions] must map each function name to its entry, a path"
+        )
+    return table
+
+
+def _contract(project: Path, name: str) -> Path:
+    paths = [project / (name + suffix) for suffix in CONTRACT_SUFFIXES]
+    found = [p for p in paths if p.is_file()]
+    if not found:
+        raise BundleError(f"function {name} has no contract file: neither {paths[0]} nor {paths[1]} exists")
+    if len(found) > 1:
+        raise BundleError(f"function {name} has two contract files, {paths[0]} and {paths[1]}: keep one")
+    return found[0]
 
 
 def settings(project: Path) -> Settings:
     pyproject = project / "pyproject.toml"
     table: dict[str, object] = {}
     if pyproject.is_file():
-        tool = tomllib.loads(pyproject.read_text()).get("tool", {})
+        try:
+            tool = tomllib.loads(pyproject.read_text()).get("tool", {})
+        except tomllib.TOMLDecodeError as err:
+            raise BundleError(f"{pyproject}: {err}") from err
         table = tool.get("funcd-bundle", {})
     hermetic = table.get("hermetic", False)
     post_install = table.get("post-install", [])
@@ -328,8 +358,8 @@ def _copy_out(cid: str, src: str, dest: Path) -> None:
 
 
 def _copy_handler(project: Path, fn: Function, out: Path) -> list[Path]:
-    """The handler file alone when it sits at the project root, else its directory tree; then the manifest.
-    Returns the copied Python sources."""
+    """The handler file alone when it sits at the project root, else its directory tree; then the contract
+    file, at the bundle's root, where funcdctl push reads it. Returns the copied Python sources."""
     source = fn.handler.parent
     if source.resolve() == project.resolve():
         shutil.copy2(fn.handler, out / fn.handler.name)
@@ -341,38 +371,8 @@ def _copy_handler(project: Path, fn: Function, out: Path) -> list[Path]:
 
         shutil.copytree(source, out, dirs_exist_ok=True, ignore=ignore)
         sources = [p for p in source.rglob("*.py") if not SKIPPED.intersection(p.relative_to(source).parts)]
-    # inside the bundle the handler sits at the root, so `main` must name it there (funcdctl dev reads it); a
-    # manifest without one gets one, else the bundle's generic manifest would default to handler.py
-    (out / GENERIC_MANIFEST).write_text(_with_main(fn.manifest.read_text(), fn.handler.name))
+    shutil.copy2(fn.contract, out / fn.contract.name)
     return sources
-
-
-def _with_main(text: str, handler: str) -> str:
-    """The manifest with its top-level `main` set to handler. The YAML parser finds the key, however it is
-    written; the rest stays as written, since a PyYAML dump would re-resolve YAML 1.1 scalars funcd reads as
-    YAML 1.2 text."""
-    entry = f"main: {handler}"
-    root = yaml.compose(text, Loader=yaml.SafeLoader)
-    if isinstance(root, yaml.MappingNode):
-        for key, value in root.value:
-            if isinstance(key, yaml.ScalarNode) and key.value == "main":
-                start, end = key.start_mark.index, value.end_mark.index
-                # a block scalar's span ends past its line break
-                if text[start:end].endswith("\n"):
-                    entry += "\n"
-                return text[:start] + entry + text[end:]
-        if root.flow_style:
-            # a block line after a flow mapping is a second root: the key goes inside, after its brace
-            brace = next(
-                t
-                for t in yaml.scan(text, Loader=yaml.SafeLoader)
-                if isinstance(t, yaml.FlowMappingStartToken)
-            )
-            at = brace.end_mark.index
-            return text[:at] + entry + (", " if root.value else "") + text[at:]
-    if text and not text.endswith("\n"):
-        text += "\n"
-    return text + entry + "\n"
 
 
 def _top_level_modules(out: Path) -> set[str]:

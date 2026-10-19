@@ -1,4 +1,4 @@
-"""`uv run funcd-bundle`: build every function of the project in the current directory (funcd ADR-0144)."""
+"""`uv run funcd-bundle`: build every function of the project in the current directory (funcd ADR-0247)."""
 
 from __future__ import annotations
 
@@ -6,14 +6,23 @@ import argparse
 import sys
 from pathlib import Path
 
-from funcd_bundle.bundle import BASE_IMAGE, PLATFORMS, BundleError, bundle, discover, host_platform, settings
+from funcd_bundle.bundle import (
+    BASE_IMAGE,
+    PLATFORMS,
+    PUSH_ENTRY,
+    BundleError,
+    bundle,
+    discover,
+    host_platform,
+    settings,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="funcd-bundle",
         description="Bundle each function of this uv project for the funcd runtime: the handler, its locked "
-        "dependencies for the target Linux platform, and its funcdctl.yaml.",
+        "dependencies for the target Linux platform, and its contract file.",
     )
     parser.add_argument("names", nargs="*", metavar="NAME", help="functions to build (default: all)")
     parser.add_argument("--out", default="dist", type=Path, help="output directory (default: dist)")
@@ -47,7 +56,8 @@ def main(argv: list[str] | None = None) -> int:
                     out = args.out / platform.replace("/", "-") / name
                 path = bundle(project, name, platform, out, hermetic=hermetic, check=args.check)
                 print(f"built {name} for {platform}: {path}")
-                print(f"funcdctl push {path} <ref> --entry {functions[name].handler.name}")
+                entry = functions[name].handler.name
+                print(f"funcdctl push {path} <ref>" + ("" if entry == PUSH_ENTRY else f" --entry {entry}"))
     except BundleError as err:
         print(f"funcd-bundle: {err}", file=sys.stderr)
         return 1

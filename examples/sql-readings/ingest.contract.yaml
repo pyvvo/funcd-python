@@ -1,0 +1,25 @@
+runtime: python314
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    sensor:
+      type: string
+    values:
+      type: array
+      items:
+        type: number
+  required:
+    - sensor
+    - values
+output:
+  type: object
+  additionalProperties: false
+  properties:
+    sensor:
+      type: string
+    stored:
+      type: integer
+  required:
+    - sensor
+    - stored

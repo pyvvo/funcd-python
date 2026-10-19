@@ -6,9 +6,10 @@ A minimal funcd function authored in **Python**, typed against the `funcd_shim` 
 `FuncInput`/`FuncOutput` model, validated identically by the platform's Python runtime shim.
 
 ```
-src/handler.py        # the function: handle(context, event) + the FuncInput/FuncOutput contract
+src/main.py           # the function: handle(context, event) + its FuncInput/FuncOutput types
 tests/test_handler.py # the author's unit tests (no platform needed)
-handler.yaml          # the Function manifest (runtime: python314, handler: handle)
+handler.yaml          # the Function resource (runtime: python314, handler: handle)
+hello-world.contract.yaml # the artifact's runtime and I/O contract (funcd ADR-0247)
 pyproject.toml        # uv project; depends on funcd-shim for the typed contract
 ```
 
@@ -112,16 +113,16 @@ collapses the generic `TypedDict` subscript to `Any`).
 
 ## Run it locally (`funcdctl dev`)
 
-`funcdctl dev` runs the function from source — no hand-written CRDs — printing a colored services
+`funcdctl dev` runs the function from its resource and contract files (funcd ADR-0247) — printing a colored services
 banner + live logs (it builds the `-tags dev` funcdctl for you):
 
 ```bash
 just dev-example python/hello-world      # gateway :3005 · S3 :3006 — override: just dev-example python/hello-world 4000 4001
 ```
 
-Invoke the gateway the banner prints (default `http://127.0.0.1:3005`). The single generic
-`funcdctl.yaml` names the function after its directory (`hello-world`); POST the input **directly** —
-the gateway builds the CloudEvent (ADR-0134). It matches the manifest's `contract.input`
+Invoke the gateway the banner prints (default `http://127.0.0.1:3005`). Dev runs the Function its
+resource file names (`hello-world`), from `src/main.py` with `hello-world.contract.yaml`; POST the input **directly** —
+the gateway builds the CloudEvent (ADR-0134). It matches the contract file's `input`
 (`{name: string}`); a full `{"data": <input>}` envelope still works too:
 
 ```bash
@@ -132,13 +133,14 @@ curl -sS -XPOST http://127.0.0.1:3005/function/hello-world \
 
 ## Deploy
 
-The deliverable is `src/handler.py` itself. Push it to the image that [`handler.yaml`](handler.yaml)
-names, then apply it (`runtime: python314`, `handler: handle`):
+It needs no third-party package, so it is pushed as one file: `src/main.py`, staged as `hello-world.py` beside
+its contract file (funcd ADR-0247). Push it to the image that [`handler.yaml`](handler.yaml) names, then apply it (`runtime: python314`, `handler: handle`):
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/pyvvo/funcd/main/examples/funcdconfig.yaml
 funcd --config funcdconfig.yaml &         # start the daemon (zero-infra dev config, ADR-0061)
-funcdctl push src/handler.py oci-layout:///tmp/funcd-demo/layout:hello-world
+mkdir -p dist && cp src/main.py dist/hello-world.py && cp hello-world.contract.yaml dist/   # a single file pushes with the contract file of its name
+funcdctl push dist/hello-world.py oci-layout:///tmp/funcd-demo/layout:hello-world
 funcdctl apply -f handler.yaml
 ```
 

@@ -19,7 +19,7 @@ Usage:
     uv run --group build python landing/generate_synthetic.py --period-months 2 --seed 7 \
         --min-tx 8 --max-tx 22 --opening-balance 1500
 
-Geometry mirrors what `functions/extract` keys on (parse geometry): date-comptable 48-100 · libellé
+Geometry mirrors what `src/extract` keys on (parse geometry): date-comptable 48-100 · libellé
 100-335 · date-valeur 335-400 · amount >= 400, with the debit/credit split at right-edge x=500 (debit
 right edge < 500, credit >= 500). The SEMANTIC sense (matching `verify._classify`) is kept consistent
 with the geometric column: credit libellés start `VIR RECU` / `REMBOURST`; debit start
@@ -48,7 +48,7 @@ fake = Faker("fr_FR")
 
 PAGE_W, PAGE_H = A4  # 595 × 842 pt
 
-# Column geometry the extractor keys on (must not drift from functions/extract/handler.py).
+# Column geometry the extractor keys on (must not drift from src/extract/main.py).
 X_DATE = 50  # date comptable (band 48-100)
 X_LIB = 110  # libellé (band 100-335)
 X_VAL = 340  # date valeur (band 335-400)
