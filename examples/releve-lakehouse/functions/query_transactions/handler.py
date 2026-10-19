@@ -4,8 +4,8 @@ Unlike a direct file read, this sends a SELECT over Quack to the CatalogService 
 engine, ADR-0091). That engine reads the conformed silver Parquet with its own S3 access and returns the
 rows. It demonstrates querying a layer via the catalog query engine, not by touching the blob directly.
 
-funcd wiring: spec.catalogs `lake` (consumer) injects FUNCD_CATALOG_LAKE_URL / _TOKEN. No blob binding —
-the catalog engine does the read, using its own silver binding. Returns the top 100 transactions.
+funcd wiring: spec.bindings.catalog `lake` (consumer) injects FUNCD_CATALOG_LAKE_URL / _TOKEN. No blob
+binding — the catalog engine does the read, using its own silver binding. Returns the top 100 transactions.
 """
 
 from __future__ import annotations

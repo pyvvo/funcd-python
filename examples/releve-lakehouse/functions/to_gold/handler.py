@@ -4,7 +4,7 @@ Mirrors examples/catalog-quack/consumer.py, but runs a WRITE statement: it sends
 SQL (mart_depenses_mensuelles.sql) to the CatalogService, which reads the conformed `silver` Parquet (its
 own binding) and persists the result as a DuckLake table under gold/ (the catalog is gold's owner/writer —
 ADR-0087, so no gold write-binding is needed here). The catalog's Quack endpoint + token are injected by the
-`spec.catalogs: [lake]` consumer binding as FUNCD_CATALOG_LAKE_URL / _TOKEN (ADR-0091).
+`spec.bindings.catalog: [lake]` consumer binding as FUNCD_CATALOG_LAKE_URL / _TOKEN (ADR-0091).
 """
 
 from __future__ import annotations

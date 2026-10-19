@@ -1,4 +1,4 @@
-# Non-secret engine tuning consumed by the CatalogService via spec.config (ADR-0087, the ADR-0057
+# Non-secret engine tuning consumed by the CatalogService via spec.bindings.config (ADR-0087, the ADR-0057
 # convention). Each Data key becomes an env var the duckdb shim applies as a DuckDB `SET` before
 # `lock_configuration=true`. (A reserved FUNCD_* key here would be dropped — it can't shadow the
 # runtime contract.)

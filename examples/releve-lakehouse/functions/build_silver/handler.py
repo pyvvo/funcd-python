@@ -8,9 +8,10 @@ downstream read), types the columns, deduplicates overlapping statements, and wr
 `silver/transactions.parquet`. Silver is Parquet; the DuckLake marts live in gold (managed by the `lake`
 catalog).
 
-funcd wiring: spec.blob `bronze` (read all) + `silver` (write, owner), through `context.blob` (ADR-0127) —
-no S3 keypair, no httpfs. Each bronze Parquet is fetched as bytes and registered as an in-memory Arrow
-table for DuckDB to conform over; the conformed silver Parquet is written back with `context.blob.put`.
+funcd wiring: spec.bindings.blob `bronze` (read all) + `silver` (write, owner), through `context.blob`
+(ADR-0127) — no S3 keypair, no httpfs. Each bronze Parquet is fetched as bytes and registered as an
+in-memory Arrow table for DuckDB to conform over; the conformed silver Parquet is written back with
+`context.blob.put`.
 """
 
 from __future__ import annotations

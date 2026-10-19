@@ -2,7 +2,7 @@
 
 Dials the same per-sandbox socket as ``context.kv``/``context.invoke`` (``FUNCD_INVOKE_SOCKET``); the
 platform routes ``/blob/…`` to the binding-gated, PDP-authorized Facade with the sandbox's function
-identity (bind-as-grant on ``spec.blob``). Stdlib-only — no boto3, no keypair. The blob twin of
+identity (bind-as-grant on ``spec.bindings.blob``). Stdlib-only — no boto3, no keypair. The blob twin of
 ``context.kv``; v1 is bytes-in-memory (streaming is a v2 follow-up).
 """
 

@@ -6,7 +6,7 @@ over Quack and returns the rows, the funcd-native way: a deployed, invokable fun
 
 How a function reaches the catalog (the bindings funcd injects):
   * FUNCD_CATALOG_<ALIAS>_URL / _TOKEN — the catalog's Quack endpoint + auth token, injected from a
-    `spec.catalogs` consumer binding (the follow-up consumer-binding ADR) or, until that lands, from a
+    `spec.bindings.catalog` consumer binding (the follow-up consumer-binding ADR) or, until that lands, from a
     bound Secret/ConfigMap. The egress PDP authorizes the function→catalog path (binding-as-grant).
 
 DuckDB travels in the artifact (ADR-0089): this handler runs on the STOCK curated `python314` runtime.
@@ -16,7 +16,7 @@ layer. funcd sets PYTHONPATH + FUNCD_BUNDLE_DIR so `import duckdb` and the offli
 resolve with no runtime changes — no `python-duckdb` image needed.
 
 DEPLOY PREREQUISITE (a follow-up, tracked on Project #4):
-  * The consumer binding (`spec.catalogs`) that injects FUNCD_CATALOG_*_URL/_TOKEN + opens the egress
+  * The consumer binding (`spec.bindings.catalog`) that injects FUNCD_CATALOG_*_URL/_TOKEN + opens the egress
     grant. Until it exists, the URL/TOKEN come from a Secret/ConfigMap the function binds.
 """
 
@@ -33,7 +33,7 @@ class FuncInput(TypedDict, total=False):
     """The event payload: the SQL to run, and which catalog alias to run it against."""
 
     sql: str
-    catalog: str  # the spec.catalogs alias (defaults to "lake")
+    catalog: str  # the spec.bindings.catalog alias (defaults to "lake")
 
 
 class FuncOutput(TypedDict):

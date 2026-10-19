@@ -7,13 +7,13 @@ is kept here — anonymization happens downstream in build-silver, so bronze is 
 
 funcd wiring:
   * runtime  python314 (stock); pdfplumber + pyarrow travel in the ADR-0089 bundle.
-  * spec.blob `landing` (read) → the dropped PDF;  `bronze` (write, owner) → the Parquet output.
-  * spec.config `releve-project-config` → STOP_KEYWORDS / BANK via env.
+  * spec.bindings.blob `landing` (read) → the dropped PDF;  `bronze` (write, owner) → the Parquet output.
+  * spec.bindings.config `releve-project-config` → STOP_KEYWORDS / BANK via env.
   * the run input is ignored: a run starts with none, or with the releve-ingest Sensor's event data.
 
 Reads/writes go through `context.blob` (ADR-0127) — the native, binding-gated blob accessor over the
 worker-node local API: no S3 keypair, no boto3. The PDF is fetched as raw bytes (`context.blob.get`), the
-Parquet is written back (`context.blob.put`); the same `spec.blob` bindings authorize each access.
+Parquet is written back (`context.blob.put`); the same `spec.bindings.blob` bindings authorize each access.
 """
 
 from __future__ import annotations

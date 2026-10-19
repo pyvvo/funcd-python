@@ -1,7 +1,7 @@
 # The ELT functions (ADR-0080 blob bindings + ADR-0089 bundled native deps). Each runs on the STOCK curated
 # `python314` runtime; pdfplumber/pyarrow/duckdb travel IN the artifact as a deployment-package bundle
 # (`uv run funcd-bundle` → dist/<function>/), pushed with `funcdctl push dist/<function> registry:<step> --entry
-# handler.py`. A spec.blob binding IS the capability (default-deny — no binding ⇒ Forbidden); a function
+# handler.py`. A spec.bindings.blob binding IS the capability (default-deny — no binding ⇒ Forbidden); a function
 # writes a prefix only if it is that prefix's `owner` in bucket.yaml. DuckDB uses anonymous S3 against the
 # sandbox-scoped endpoint — nothing issued or rotated for in-platform functions.
 apiVersion: funcd.io/v1alpha1
@@ -17,15 +17,20 @@ spec:
   replicas: 1
   scaling:
     minReplicas: 1
-  config:
-    - releve-project-config      # STOP_KEYWORDS (the account number etc.) — kept out of code
-  blob:
-    - alias: landing             # READ the dropped PDF (not owner → read-only)
-      bucket: releves
-      prefix: landing
-    - alias: bronze              # WRITE bronze (extract is its owner → single writer)
-      bucket: releves
-      prefix: bronze
+  configMaps:
+    - ref: releve-project-config
+  buckets:
+    - ref: releves
+  bindings:
+    config:
+      - releve-project-config      # STOP_KEYWORDS (the account number etc.) — kept out of code
+    blob:
+      - alias: landing             # READ the dropped PDF (not owner → read-only)
+        bucket: releves
+        prefix: landing
+      - alias: bronze              # WRITE bronze (extract is its owner → single writer)
+        bucket: releves
+        prefix: bronze
 ---
 apiVersion: funcd.io/v1alpha1
 kind: Function
@@ -40,15 +45,20 @@ spec:
   replicas: 1
   scaling:
     minReplicas: 1
-  config:
-    - releve-project-config
-  blob:
-    - alias: landing             # READ the PDF (independent re-extraction)
-      bucket: releves
-      prefix: landing
-    - alias: bronze              # READ extract's output to reconcile against (read-only — not owner)
-      bucket: releves
-      prefix: bronze
+  configMaps:
+    - ref: releve-project-config
+  buckets:
+    - ref: releves
+  bindings:
+    config:
+      - releve-project-config
+    blob:
+      - alias: landing             # READ the PDF (independent re-extraction)
+        bucket: releves
+        prefix: landing
+      - alias: bronze              # READ extract's output to reconcile against (read-only — not owner)
+        bucket: releves
+        prefix: bronze
 ---
 apiVersion: funcd.io/v1alpha1
 kind: Function
@@ -63,16 +73,19 @@ spec:
   replicas: 1
   scaling:
     minReplicas: 1
-  blob:
-    - alias: bronze              # READ bronze (not owner → read-only)
-      bucket: releves
-      prefix: bronze
-    - alias: silver              # WRITE silver (build-silver is its owner → single writer)
-      bucket: releves
-      prefix: silver
-    - alias: reports             # WRITE the BI bundle (build-silver owns reports here)
-      bucket: releves
-      prefix: reports
+  buckets:
+    - ref: releves
+  bindings:
+    blob:
+      - alias: bronze              # READ bronze (not owner → read-only)
+        bucket: releves
+        prefix: bronze
+      - alias: silver              # WRITE silver (build-silver is its owner → single writer)
+        bucket: releves
+        prefix: silver
+      - alias: reports             # WRITE the BI bundle (build-silver owns reports here)
+        bucket: releves
+        prefix: reports
 ---
 # to-gold drives the mart SQL THROUGH the `lake` catalog (the catalog engine owns + writes gold — ADR-0087),
 # so it needs no gold write-binding, only the consumer binding to `lake` (ADR-0091). It binds silver READ so
@@ -90,13 +103,18 @@ spec:
   replicas: 1
   scaling:
     minReplicas: 1
-  blob:
-    - alias: silver              # READ the conformed silver table
-      bucket: releves
-      prefix: silver
+  buckets:
+    - ref: releves
   catalogs:
-    - alias: lake                # run CREATE TABLE gold.mart AS … over Quack; the engine persists to gold/
-      catalog: lake
+    - ref: lake
+  bindings:
+    blob:
+      - alias: silver              # READ the conformed silver table
+        bucket: releves
+        prefix: silver
+    catalog:
+      - alias: lake                # run CREATE TABLE gold.mart AS … over Quack; the engine persists to gold/
+        catalog: lake
 ---
 # catalog-reader — the interactive SQL surface (behind the authenticated query Route). Mirrors
 # examples/catalog-quack/consumer.yaml: it binds the `lake` catalog and runs read SQL over Quack.
@@ -114,5 +132,8 @@ spec:
   scaling:
     minReplicas: 1
   catalogs:
-    - alias: lake
-      catalog: lake
+    - ref: lake
+  bindings:
+    catalog:
+      - alias: lake
+        catalog: lake

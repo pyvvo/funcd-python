@@ -1,4 +1,4 @@
-# Function orders-migrate: its spec.sql binding is its access to orders-db as alias app (funcd ADR-0233).
+# Function orders-migrate: its spec.bindings.sql binding is its access to orders-db as alias app (funcd ADR-0233).
 apiVersion: funcd.io/v1alpha1
 kind: Function
 metadata:
@@ -10,5 +10,8 @@ spec:
   handler: handle
   image: oci-layout:///mnt/funcd-deps/registry:orders-migrate
   sql:
-    - alias: app
-      database: orders-db
+    - ref: orders-db
+  bindings:
+    sql:
+      - alias: app
+        database: orders-db

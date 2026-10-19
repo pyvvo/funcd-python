@@ -39,9 +39,9 @@ for f in configmap.yaml secret.yaml catalogservice.yaml bucket.yaml consumer.yam
 
 - **`bucket.yaml`** — the `lakehouse` Bucket + the `gold` prefix the catalog owns (Parquet + the
   `_ducklake/catalog.db` SQLite catalog live here).
-- **`configmap.yaml`** — non-secret engine tuning (`DUCKDB_*`), consumed via `spec.config` (the
+- **`configmap.yaml`** — non-secret engine tuning (`DUCKDB_*`), consumed via `spec.bindings.config` (the
   ADR-0057 convention, extended to `CatalogService` by ADR-0087).
-- **`secret.yaml`** — the Quack auth token, consumed via `spec.secrets`. A Quack client **always**
+- **`secret.yaml`** — the Quack auth token, consumed via `spec.bindings.secret`. A Quack client **always**
   needs a token (a token-less client is refused), so the engine serves with `QUACK_TOKEN` and every
   consumer presents the same; the ingress gateway is the authoritative *outer* gate.
 - **`catalogservice.yaml`** — the `lake` CatalogService: the `gold` blob binding, the catalog ref,
@@ -77,8 +77,8 @@ contract layer (`funcdctl inspect`).
 
 **One remaining deploy prerequisite** (a follow-up — Project #4 *"Provider consumption binding"*):
 
-- **The `spec.catalogs` consumer binding** — it injects `FUNCD_CATALOG_LAKE_URL`/`_TOKEN` and opens the
-  egress grant (function → catalog). Until it lands, bind the token via `spec.secrets` + the URL via a
+- **The `spec.bindings.catalog` consumer binding** — it injects `FUNCD_CATALOG_LAKE_URL`/`_TOKEN` and opens the
+  egress grant (function → catalog). Until it lands, bind the token via `spec.bindings.secret` + the URL via a
   ConfigMap.
 
 So the live `just lima-example duckdb` lane asserts the **provider** side end-to-end (deploy → Ready →
@@ -100,7 +100,7 @@ on its HTTP readiness probe (`curl http://<status.address>/` → `200`), and its
 through the F47 PEP (`HEAD` on the catalog → `404` fresh, **not** `403`).
 
 The keystone was **ADR-0088 (provider F47/Cedar identity)**: the Cedar EntityProvider now sources a
-provider principal's `blobBindings` from the `CatalogService.spec.blob` (Function-first) and the
+provider principal's `blobBindings` from the `CatalogService.spec.bindings.blob` (Function-first) and the
 prefix-owner admission accepts a `CatalogService` owner — so `owner: lake` on `bucket.yaml` is admitted
 and the engine's S3 access is authorized, all under the same binding-as-grant as a function (the S3
 policy is unchanged). Two earlier provider-runtime fixes also fell out of building this lane: the
@@ -115,4 +115,4 @@ real containerd. They assert the **provider** side end-to-end: the CatalogServic
 Function) → the provider-runtime brings up the `duckdb` engine → it reaches Ready → it serves Quack
 (`GET /`→`200`) and its S3 access is authorized (ADR-0088 — no `403`). The **consumer Function**
 (`consumer.yaml` + `src/handler.py`) round-trip lands with the two follow-ups above (the duckdb-capable
-function runtime + the `spec.catalogs` binding).
+function runtime + the `spec.bindings.catalog` binding).

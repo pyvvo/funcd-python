@@ -25,7 +25,7 @@ gold DuckLake mart included); the **containerd/prod deploy is not yet**.
   ruff check` clean.
 - ✅ **ADR-0089 bundle** builds (`uv run funcd-bundle` → the locked wheel closure, installed inside the pinned base
   image, plus the SHA-256-checked DuckDB extensions).
-- ✅ **Native blob I/O** (ADR-0127): `extract`, `verify` and `build_silver` read and write their `spec.blob`
+- ✅ **Native blob I/O** (ADR-0127): `extract`, `verify` and `build_silver` read and write their `spec.bindings.blob`
   bindings through `context.blob` over the worker-node local API — no S3 client, no keypair, no httpfs. The
   SigV4 keypair (ADR-0085) is for S3 tools only: the drop into `landing/` and the `aws s3` commands below.
 - ✅ **Full medallion pipeline runs end-to-end under `funcdctl dev`** (from source): landing → bronze →
