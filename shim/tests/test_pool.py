@@ -1104,3 +1104,49 @@ def test_pool_host_as_pid_1_exits_143_on_sigterm_with_a_call_in_flight(tmp_path:
         conn.close()
         proc.kill()
         proc.wait(timeout=5)
+
+
+CTX_READER = (
+    "def handle(context, event):\n"
+    "    return {'lake': context.catalog.get('lake'), 'level': context.config.get('LOG_LEVEL'),\n"
+    "            'key': context.secret.get('STRIPE_KEY')}\n"
+)
+
+
+def test_ctx_pooled_member(tmp_path: Path) -> None:
+    # scenario: ctx-pooled-member — each member reads its own catalog token, and both read the pool's config
+    # and secrets (funcd ADR-0245).
+    entries = []
+    for name in ("a", "b"):
+        art = tmp_path / f"{name}.py"
+        art.write_text(CTX_READER)
+        entries.append(
+            {
+                "name": name,
+                "artifact": str(art),
+                "handler": "handle",
+                "env": {"FUNCD_CATALOG_LAKE_TOKEN": f"tok-{name}"},
+            }
+        )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(entries))
+    shared = {
+        "LOG_LEVEL": "debug",
+        "STRIPE_KEY": "sk",
+        "FUNCD_CONFIG_KEYS": "LOG_LEVEL",
+        "FUNCD_SECRET_KEYS": "STRIPE_KEY",
+        "FUNCD_CATALOG_LAKE_URL": "127.0.0.1:9100",
+    }
+    proc, port = _start(tmp_path, manifest, env=shared)
+    try:
+        for name in ("a", "b"):
+            st, body = _post(port, name, json.dumps({"data": {}}))
+            assert st == 200, body
+            assert json.loads(body) == {
+                "lake": {"url": "127.0.0.1:9100", "token": f"tok-{name}"},
+                "level": "debug",
+                "key": "sk",
+            }
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)

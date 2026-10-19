@@ -40,11 +40,14 @@ from typing import TYPE_CHECKING, Any
 
 from . import contract, invcontext, jsonwire, runtime
 from .blob import BlobClient
+from .catalog import CatalogClient
+from .config import ConfigClient
 from .deadline import deadline_from, stuck
 from .funclog import install_log_capture, open_channel
 from .invoke import MEMBER_HEADER, _UnixHTTPConnection
 from .invoke import invoke as _invoke
 from .kv import KVClient
+from .secret import SecretClient
 from .sql import SQLClient
 from .tracespan import InvocationSpan, parse_links
 from .types import CloudEvent, FunctionContext, Handler
@@ -76,6 +79,18 @@ class _Context:
     @property
     def sql(self) -> SQLClient:
         return SQLClient()
+
+    @property
+    def config(self) -> ConfigClient:
+        return ConfigClient()
+
+    @property
+    def secret(self) -> SecretClient:
+        return SecretClient()
+
+    @property
+    def catalog(self) -> CatalogClient:
+        return CatalogClient()
 
     def remaining_ms(self) -> int | None:
         return invcontext.remaining_ms()
