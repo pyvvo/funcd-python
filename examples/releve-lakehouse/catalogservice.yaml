@@ -10,6 +10,14 @@ metadata:
   namespace: default
   resourceGroup: rg1
 spec:
+  buckets:
+    - ref: releves
+  configMaps:
+    - ref: lake-engine-config
+  secrets:
+    - name: lake-quack-token
+      keys:
+        - QUACK_TOKEN
   bindings:
     blob:
       - alias: silver             # READ the conformed silver tables (to build marts)

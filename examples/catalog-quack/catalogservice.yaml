@@ -6,7 +6,9 @@
 #
 # spec.bindings.blob MUST include the catalog's (bucket, prefix) — it is the bound, owned binding the engine
 # writes its catalog + Parquet through (the Validate rule). spec.bindings.secret carries the Quack token the
-# engine serves with (every consumer presents the same — a Quack client always needs a token).
+# engine serves with (every consumer presents the same — a Quack client always needs a token). Every binding
+# names an entry of the root (funcd ADR-0251): the catalog owns its lakehouse Bucket, and declares the
+# ConfigMap and the Secret it reads.
 apiVersion: funcd.io/v1alpha1
 kind: CatalogService
 metadata:
@@ -14,6 +16,17 @@ metadata:
   namespace: default
   resourceGroup: rg1
 spec:
+  buckets:
+    - name: lakehouse
+      prefixes:
+        - name: gold
+      maxObjectBytes: 1073741824
+  configMaps:
+    - ref: lake-engine-config
+  secrets:
+    - name: lake-quack-token
+      keys:
+        - QUACK_TOKEN
   bindings:
     blob:
       - alias: gold

@@ -30,22 +30,20 @@ curl -sS -XPOST http://127.0.0.1:3005/function/catalog-quack \
 ## What you apply (the user-facing flow)
 
 ```bash
-# ADR-0121: apply in ANY order — owner/binding existence is reconcile-time. The CatalogService binding
-# the not-yet-applied Bucket is admitted and waits (Ready=False/BucketNotFound); the Bucket (owner: lake)
-# resolves it and the engine converges. No two-phase bucket-base. funcdctl apply -f takes one file
-# (or - for stdin), so apply each file:
-for f in configmap.yaml secret.yaml catalogservice.yaml bucket.yaml consumer.yaml; do funcdctl apply -f "$f"; done
+# Apply in any order: the CatalogService creates its own Bucket (funcd ADR-0251) and waits for the ConfigMap
+# and the Secret it declares. funcdctl apply -f takes one file (or - for stdin), so apply each file:
+for f in configmap.yaml secret.yaml catalogservice.yaml consumer.yaml; do funcdctl apply -f "$f"; done
 ```
 
-- **`bucket.yaml`** — the `lakehouse` Bucket + the `gold` prefix the catalog owns (Parquet + the
-  `_ducklake/catalog.db` SQLite catalog live here).
 - **`configmap.yaml`** — non-secret engine tuning (`DUCKDB_*`), consumed via `spec.bindings.config` (the
   ADR-0057 convention, extended to `CatalogService` by ADR-0087).
 - **`secret.yaml`** — the Quack auth token, consumed via `spec.bindings.secret`. A Quack client **always**
   needs a token (a token-less client is refused), so the engine serves with `QUACK_TOKEN` and every
   consumer presents the same; the ingress gateway is the authoritative *outer* gate.
-- **`catalogservice.yaml`** — the `lake` CatalogService: the `gold` blob binding, the catalog ref,
-  resources, `config`, and `secrets`.
+- **`catalogservice.yaml`** — the `lake` CatalogService: at its root the `lakehouse` Bucket it owns (its
+  `gold` prefix holds the Parquet and the `_ducklake/catalog.db` SQLite catalog), the ConfigMap by `ref` and the
+  Secret's declaration (funcd ADR-0251); then the `gold` blob binding, the catalog ref, resources, `config` and
+  `secret`.
 
 ## Consuming the catalog — a funcd Function
 
@@ -101,7 +99,7 @@ through the F47 PEP (`HEAD` on the catalog → `404` fresh, **not** `403`).
 
 The keystone was **ADR-0088 (provider F47/Cedar identity)**: the Cedar EntityProvider now sources a
 provider principal's `blobBindings` from the `CatalogService.spec.bindings.blob` (Function-first) and the
-prefix-owner admission accepts a `CatalogService` owner — so `owner: lake` on `bucket.yaml` is admitted
+prefix-owner admission accepts a `CatalogService` owner — so `lake` owning the `gold` prefix of its Bucket is admitted
 and the engine's S3 access is authorized, all under the same binding-as-grant as a function (the S3
 policy is unchanged). Two earlier provider-runtime fixes also fell out of building this lane: the
 readiness probe addresses the fixed `spec.Port` (not the portfile-resolved `Instance.Port`, which is 0

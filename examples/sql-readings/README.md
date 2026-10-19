@@ -38,7 +38,6 @@ sed 's/resourceGroup: rg1/resourceGroup: dev/' run.yaml | FUNCD_SERVER=http://12
 uv run funcd-bundle
 funcdctl push dist/ingest <registry>:ingest
 funcdctl push dist/summarize <registry>:summarize
-funcdctl apply -f readings-db.yaml
 funcdctl apply -f workflow.yaml
 funcdctl apply -f run.yaml
 ```
