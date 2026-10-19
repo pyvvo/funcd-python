@@ -1,5 +1,5 @@
 {
-  "include": ["functions", "tests"],
+  "include": ["src", "tests"],
   "venvPath": ".",
   "venv": ".venv",
   "pythonVersion": "3.12",

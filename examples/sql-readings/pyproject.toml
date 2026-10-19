@@ -6,14 +6,24 @@ authors = [{ name = "The funcd Authors" }]
 requires-python = ">=3.12"
 # SQLAlchemy Core builds the statements, compiled with the SQLite dialect and sent through context.sql; funcd-bundle
 # vendors it for the runtime.
-dependencies = ["funcd-shim", "sqlalchemy==2.0.54"]
+dependencies = ["readings-core", "funcd-shim", "sqlalchemy==2.0.54"]
 
 [dependency-groups]
 dev = ["funcd-bundle", "mypy>=1.13", "pytest>=8.3", "ruff>=0.8"]
 
+[tool.uv.workspace]
+members = ["packages/*"]
+
 [tool.uv.sources]
+readings-core = { workspace = true }
 funcd-shim = { path = "../../shim", editable = true }
 funcd-bundle = { path = "../../bundle", editable = true }
+
+# Each function is bundled from its entry (funcd ADR-0247); the code they share is the readings-core workspace
+# package, which funcd-bundle vendors as a wheel (funcd ADR-0144).
+[tool.funcd-bundle.functions]
+ingest = "src/ingest/main.py"
+summarize = "src/summarize/main.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
@@ -25,11 +35,13 @@ build-backend = "hatchling.build"
 [tool.mypy]
 strict = true
 python_version = "3.12"
-files = ["src", "tests"]
-mypy_path = "src:tests"
+# Each src/<function>/main.py is checked on its own, from inside its directory (tests/test_typecheck.py).
+files = ["packages", "tests"]
+mypy_path = "tests"
+explicit_package_bases = true
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "tests"]
+pythonpath = ["tests"]
 
 [tool.ruff]
 line-length = 110

@@ -2,9 +2,10 @@ from typing import Any, cast
 
 from fakesql import FakeContext
 from funcd_shim import CloudEvent, FunctionContext
+from handlers import load
 
-import ingest
-import summarize
+ingest = load("ingest")
+summarize = load("summarize")
 
 
 def _event(data: Any) -> CloudEvent[Any]:

@@ -1,0 +1,52 @@
+runtime: python314
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    sensor:
+      type: string
+    stored:
+      type: integer
+  required:
+    - sensor
+    - stored
+output:
+  type: object
+  additionalProperties: false
+  properties:
+    sensor:
+      type: string
+    count:
+      type: integer
+    mean:
+      type: number
+    low:
+      type: number
+    high:
+      type: number
+    latest:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        properties:
+          seq:
+            type: integer
+          value:
+            type: number
+          moving_avg:
+            type: number
+          rank:
+            type: integer
+        required:
+          - seq
+          - value
+          - moving_avg
+          - rank
+  required:
+    - sensor
+    - count
+    - mean
+    - low
+    - high
+    - latest

@@ -41,13 +41,13 @@ def test_issue_r39_readmes_apply_files_the_example_ships() -> None:
     assert not missing, f"a README applies a manifest its example does not ship: {missing}"
 
 
-def test_issue_r39_readmes_name_the_runtime_of_their_funcdctl_yaml() -> None:
+def test_issue_r39_readmes_name_the_runtime_of_their_contract_files() -> None:
     stale = []
     for readme in sorted(_EXAMPLES.glob("*/README.md")):
         example = readme.parent
         declared = {
             runtime
-            for manifest in example.glob("*funcdctl.yaml")
+            for manifest in example.glob("*.contract.yaml")
             for runtime in re.findall(r"^runtime:\s*(\S+)", manifest.read_text(), re.MULTILINE)
         }
         documents = [readme, *(example / f for f in _applied_files(readme) if (example / f).is_file())]
@@ -58,7 +58,7 @@ def test_issue_r39_readmes_name_the_runtime_of_their_funcdctl_yaml() -> None:
             if declared and runtime not in declared
         ]
     assert not stale, (
-        f"a README or the manifest it applies names a runtime its funcdctl.yaml does not: {stale}"
+        f"a README or the manifest it applies names a runtime its contract files do not: {stale}"
     )
 
 

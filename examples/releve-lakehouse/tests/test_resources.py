@@ -1,5 +1,6 @@
-"""The deploy manifests under resources/ must be what `funcdctl apply` accepts: funcd's v1alpha1 shapes
-(api/types/v1alpha1 in pyvvo/funcd, decoded strictly), applied one file at a time."""
+"""The resource files at the project root (what `funcdctl dev` runs) and under resources/ (what only a deploy
+adds) must be what `funcdctl apply` accepts: funcd's v1alpha1 shapes (api/types/v1alpha1 in pyvvo/funcd,
+decoded strictly), applied one file at a time."""
 
 from __future__ import annotations
 
@@ -33,10 +34,15 @@ _ARRIVED: dict[str, Any] = {
 _EVENT_EXPR = re.compile(r"^\$\{\{\s*event\.([\w.]+)\s*\}\}$")
 
 
+def _resource_files() -> list[Path]:
+    root = [p for p in sorted(_ROOT.glob("*.yaml")) if not p.name.endswith(".contract.yaml")]
+    return root + sorted((_ROOT / "resources").glob("*.yaml"))
+
+
 def _resources() -> list[tuple[str, dict[str, Any]]]:
     return [
         (path.name, doc)
-        for path in sorted((_ROOT / "resources").glob("*.yaml"))
+        for path in _resource_files()
         for doc in yaml.safe_load_all(path.read_text())
         if doc is not None
     ]
@@ -96,9 +102,8 @@ def test_issue_r33_root_step_accepts_every_run_input(tmp_path: Path) -> None:
             continue
         ref = step["function"]["ref"]
         contract = tmp_path / f"{ref}.json"
-        contract.write_text(
-            json.dumps(yaml.safe_load((_ROOT / f"{ref}.funcdctl.yaml").read_text())["contract"])
-        )
+        declared = yaml.safe_load((_ROOT / f"{ref}.contract.yaml").read_text())
+        contract.write_text(json.dumps({side: declared[side] for side in ("input", "output")}))
         validate = load_from_path(str(contract)).input
         assert validate is not None
         problems += [
@@ -109,7 +114,7 @@ def test_issue_r33_root_step_accepts_every_run_input(tmp_path: Path) -> None:
 
 def test_issue_r17_readme_applies_one_file_at_a_time() -> None:
     targets = re.findall(r"funcdctl apply -f (\S+)", (_ROOT / "README.md").read_text())
-    assert targets, "the README must say how to apply resources/"
+    assert targets, "the README must say how to apply the resource files"
     for target in targets:
         assert not (_ROOT / target).is_dir(), f"funcdctl apply -f takes a file, not the directory {target}"
 
@@ -117,7 +122,7 @@ def test_issue_r17_readme_applies_one_file_at_a_time() -> None:
 def test_issue_r35_resources_name_only_existing_files() -> None:
     missing = [
         f"{path.name} names {ref}"
-        for path in sorted((_ROOT / "resources").glob("*.yaml"))
+        for path in _resource_files()
         for ref in re.findall(r"[\w./-]+\.yaml\b", path.read_text())
         if not any((base / ref).exists() for base in (path.parent, _ROOT, _REPO))
     ]

@@ -1,0 +1,36 @@
+runtime: python314
+input:
+  # No input — it reads the whole silver layer. With ADR-0134 the gateway builds the CloudEvent, so an
+  # empty-body POST becomes data:null; a `type: null` contract accepts it → invoke with NO body.
+  type: "null"
+output:
+  type: object
+  additionalProperties: false
+  properties:
+    count:
+      type: integer
+    transactions:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        properties:
+          date_comptable:
+            type: string
+          libelle:
+            type: string
+          debit:
+            type: string
+          credit:
+            type: string
+          montant:
+            type: string
+        required:
+          - date_comptable
+          - libelle
+          - debit
+          - credit
+          - montant
+  required:
+    - count
+    - transactions

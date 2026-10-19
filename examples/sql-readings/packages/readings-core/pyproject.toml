@@ -1,0 +1,14 @@
+[project]
+name = "readings-core"
+version = "0.1.0"
+description = "The table definitions and the SQL helpers the sql-readings steps share."
+authors = [{ name = "The funcd Authors" }]
+requires-python = ">=3.12"
+dependencies = ["funcd-shim", "sqlalchemy==2.0.54"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/readings_core"]

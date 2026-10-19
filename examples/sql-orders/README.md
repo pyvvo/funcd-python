@@ -11,19 +11,25 @@ Three Python functions over one SQL database, `orders-db`, served by its own rql
 The functions hold no credential and never reach the engine: `context.sql` calls funcd over the sandbox's socket,
 and funcd checks the binding and the roles before it forwards the statements (funcd ADR-0233).
 
+## Layout
+
+Each function is `src/<name>/main.py`, its entry in `pyproject.toml`'s `[tool.funcd-bundle.functions]`, with
+`<name>.contract.yaml` at the root (funcd ADR-0247). The code the three share is the `orders-core` workspace package
+in [`packages/orders-core`](packages/orders-core), which `funcd-bundle` vendors into each bundle as a wheel.
+
 ## Models and migrations
 
-[`src/models.py`](src/models.py) holds the SQLModel tables. Their schema changes are Alembic revisions in
+[`orders_core/models.py`](packages/orders-core/src/orders_core/models.py) holds the SQLModel tables. Their schema changes are Alembic revisions in
 [`alembic/versions`](alembic/versions): `0001_init` creates the tables and `0002_order_note` adds a column. A revision
 only adds to the schema, so the code one version back still runs on it.
 
 Alembic never connects to the database. [`scripts/render_migrations.py`](scripts/render_migrations.py) renders each
 revision offline to the SQLite statements it runs, without Alembic's own transaction and version table, into
-[`src/migrations_sql.py`](src/migrations_sql.py), which the `orders-migrate` function ships:
+[`orders_core/migrations_sql.py`](packages/orders-core/src/orders_core/migrations_sql.py), which the `orders-migrate` function ships:
 
 ```bash
 uv run alembic revision -m "<what changed>"       # write the upgrade in the new alembic/versions file
-uv run python scripts/render_migrations.py        # regenerate src/migrations_sql.py; a test fails while it is stale
+uv run python scripts/render_migrations.py        # regenerate orders_core/migrations_sql.py; a test fails while it is stale
 ```
 
 `orders-migrate` applies the revisions that table `_migrations` lacks, with their `_migrations` rows, in one `context.sql`
@@ -32,7 +38,7 @@ make it an App's `preApply` hook (funcd ADR-0236).
 
 ## Queries
 
-[`src/sqlrun.py`](src/sqlrun.py) compiles a SQLModel statement with the SQLite dialect into SQL text and parameters
+[`orders_core/sqlrun.py`](packages/orders-core/src/orders_core/sqlrun.py) compiles a SQLModel statement with the SQLite dialect into SQL text and parameters
 for `context.sql`. A call with several statements applies all of them or none: placing an order adds its customer on
 the first order and the order itself together.
 
@@ -69,9 +75,9 @@ curl -XPOST localhost:<gateway>/function/orders -d '{"data":{"op":"list"}}'
 
 ```bash
 uv run funcd-bundle                    # dist/<function>/ with SQLModel vendored for the runtime
-funcdctl push dist/orders <registry>:orders --entry orders.py
-funcdctl push dist/orders-migrate <registry>:orders-migrate --entry migrate.py
-funcdctl push dist/audit <registry>:audit --entry audit.py
+funcdctl push dist/orders <registry>:orders
+funcdctl push dist/orders-migrate <registry>:orders-migrate
+funcdctl push dist/audit <registry>:audit
 funcdctl apply -f orders-db.yaml
 funcdctl apply -f orders.yaml
 funcdctl apply -f orders-migrate.yaml
@@ -94,4 +100,4 @@ Restore loads a copy into an empty database (funcd ADR-0234).
 ## Tests
 
 `uv run pytest` runs the migrations and the three functions against an in-memory SQLite behind a fake
-`context.sql` that runs a batch in one transaction, as rqlite does, and checks that `src/migrations_sql.py` is current.
+`context.sql` that runs a batch in one transaction, as rqlite does, and checks that `orders_core/migrations_sql.py` is current.

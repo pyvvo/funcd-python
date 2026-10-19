@@ -22,7 +22,7 @@ a `spec.bindings.blob` binding **is** the read grant (default-deny — no bindin
 ## Run it
 
 This example is **CRD-only** — it ships resource manifests (`bucket.yaml` + `ingest`/`transform`/`report.yaml`,
-whose images build from the containerd runtime layout) with **no `funcdctl.yaml` and no colocated handler
+whose images build from the containerd runtime layout) with **no contract file and no colocated handler
 source**, so it is **not** runnable via `funcdctl dev`. Deploy it by applying the CRDs against a running
 platform (the containerd/Lima lane), which materializes `ingest → bronze → transform → silver/gold → report`:
 

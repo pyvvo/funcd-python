@@ -1,9 +1,9 @@
-"""Renders each Alembic revision to the SQL statements it runs on SQLite, offline, into src/migrations_sql.py,
-which the migrate function ships (funcd ADR-0236 Decision 5). Alembic's own transaction and alembic_version
-statements are left out: the migrate function runs each revision's statements in one call and records it in
-_migrations.
+"""Renders each Alembic revision to the SQL statements it runs on SQLite, offline, into the orders-core
+package's orders_core/migrations_sql.py, which the migrate function ships (funcd ADR-0236 Decision 5).
+Alembic's own transaction and alembic_version statements are left out: the migrate function runs each
+revision's statements in one call and records it in _migrations.
 
-    uv run python scripts/render_migrations.py           # rewrite src/migrations_sql.py
+    uv run python scripts/render_migrations.py           # rewrite orders_core/migrations_sql.py
     uv run python scripts/render_migrations.py --check   # fail when it is stale
 """
 
@@ -18,7 +18,7 @@ from alembic.script import ScriptDirectory
 from alembic import command
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "src" / "migrations_sql.py"
+OUT = ROOT / "packages" / "orders-core" / "src" / "orders_core" / "migrations_sql.py"
 
 
 def statements(cfg: Config, revision: str, previous: str | None) -> list[str]:
@@ -59,6 +59,6 @@ if __name__ == "__main__":
     text = render()
     if "--check" in sys.argv:
         if OUT.read_text() != text:
-            sys.exit("src/migrations_sql.py is stale: run scripts/render_migrations.py")
+            sys.exit("orders_core/migrations_sql.py is stale: run scripts/render_migrations.py")
     else:
         OUT.write_text(text)

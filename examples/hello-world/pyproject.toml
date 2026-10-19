@@ -5,7 +5,7 @@ description = "A funcd function authored in Python against the funcd_shim typed 
 authors = [{ name = "The funcd Authors" }]
 requires-python = ">=3.12"
 # funcd-shim is the typed authoring contract (Handler/CloudEvent/FunctionContext/Json). At deploy
-# time the artifact is just src/handler.py — the platform's curated Python image provides the shim
+# time the artifact is just src/main.py — the platform's curated Python image provides the shim
 # (and the build bakes the contract validator); this dependency is for local typechecking + tests only.
 dependencies = ["funcd-shim"]
 

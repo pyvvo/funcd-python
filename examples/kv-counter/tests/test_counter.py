@@ -10,7 +10,7 @@ from typing import Any, cast
 from funcd_shim import CloudEvent, FunctionContext
 from funcd_shim.kv import KVClient
 
-from counter import FuncInput, handle
+from main import FuncInput, handle
 
 
 class _KV(KVClient):

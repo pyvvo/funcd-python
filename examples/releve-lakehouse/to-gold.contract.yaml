@@ -1,0 +1,17 @@
+runtime: python314
+input:
+  # to-gold depends on build-silver, receiving its output (ADR-0094 flowing input), which it IGNORES (it
+  # rebuilds the mart from the whole silver layer via the `lake` catalog). Input-agnostic ⇒ accept any object.
+  type: object
+  additionalProperties: true
+output:
+  type: object
+  additionalProperties: false
+  properties:
+    gold:
+      type: string
+    rows:
+      type: integer
+  required:
+    - gold
+    - rows

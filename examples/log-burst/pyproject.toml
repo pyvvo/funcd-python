@@ -5,7 +5,7 @@ description = "A funcd Python function that emits a burst of >=100 structured lo
 authors = [{ name = "The funcd Authors" }]
 requires-python = ">=3.12"
 # funcd-shim is the typed authoring contract (Handler/CloudEvent/FunctionContext). At deploy time the
-# artifact is just src/handler.py — the platform's curated Python image provides the shim (which
+# artifact is just src/main.py — the platform's curated Python image provides the shim (which
 # installs the Path B logging.Handler); this dependency is for local typechecking + tests only.
 dependencies = ["funcd-shim"]
 

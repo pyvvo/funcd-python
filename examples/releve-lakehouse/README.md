@@ -21,15 +21,15 @@ gold DuckLake mart included); the **containerd/prod deploy is not yet**.
 
 - ✅ **Both blocking gates proven correct** on a real statement *and* on the committed synthetic fixture:
   the cross-check gate (geometric `extract` == independent `verify` == the statement's printed totals, to
-  the centime) and the PII gate (`build_silver` anonymize → **0 residual**). `uv run pytest` green; `uv run
+  the centime) and the PII gate (`build-silver` anonymize → **0 residual**). `uv run pytest` green; `uv run
   ruff check` clean.
 - ✅ **ADR-0089 bundle** builds (`uv run funcd-bundle` → the locked wheel closure, installed inside the pinned base
   image, plus the SHA-256-checked DuckDB extensions).
-- ✅ **Native blob I/O** (ADR-0127): `extract`, `verify` and `build_silver` read and write their `spec.bindings.blob`
+- ✅ **Native blob I/O** (ADR-0127): `extract`, `verify` and `build-silver` read and write their `spec.bindings.blob`
   bindings through `context.blob` over the worker-node local API — no S3 client, no keypair, no httpfs. The
   SigV4 keypair (ADR-0085) is for S3 tools only: the drop into `landing/` and the `aws s3` commands below.
 - ✅ **Full medallion pipeline runs end-to-end under `funcdctl dev`** (from source): landing → bronze →
-  silver → **gold**, including the **DuckLake/catalog round-trip** (`to_gold` drives the mart SQL over the
+  silver → **gold**, including the **DuckLake/catalog round-trip** (`to-gold` drives the mart SQL over the
   `lake` catalog via Quack — ADR-0130), with the catalog durable across a restart under `--persist` (ADR-0131).
 - ⏳ **Not yet exercised on funcd:** a full **containerd/prod deploy** — build all five bundles + push and an
   end-to-end lane on containerd (note: the ADR-0119 reactive-source lane has a pre-existing live gap tracked
@@ -42,7 +42,7 @@ embedded in-memory platform (real gateway + S3 frontend + catalog engine), from 
 uv sync
 # boot the dev platform on the workflow DAG (needs the fat -tags dev funcdctl)
 nix develop -c just dev-example releve-lakehouse
-#   …or directly: dist/funcdctl-dev dev workflow.yaml --gport 3005 --s3port 3006 --cport 3007 --persist
+#   …or directly: dist/funcdctl-dev dev . --gport 3005 --s3port 3006 --cport 3007 --persist
 
 # in another shell — seed the input, then trigger a run
 export AWS_ENDPOINT_URL_S3=http://127.0.0.1:3006 AWS_REGION=us-east-1   # + the keypair the banner prints
@@ -54,12 +54,16 @@ funcdctl workflow describe run1        # per-step phase/attempts/errors
 
 # query the gold mart the pipeline just wrote (via the same S3 frontend the engine wrote through)
 aws s3 ls s3://releves/gold/ --recursive
-duckdb -c "SELECT * FROM read_parquet('.funcd-dev/blob/s3/default/releves/gold/main/mart_depenses_mensuelles/*.parquet')"
+aws s3 cp --recursive s3://releves/gold/main/mart_depenses_mensuelles/ mart/
+duckdb -c "SELECT * FROM read_parquet('mart/*.parquet')"
 ```
 
-Each step is a `functions/<step>/handler.py` — **bronze** (`extract`) → **verify** (cross-check gate) →
-**silver** (anonymize + conform) → **gold** (`to_gold` drives the mart SQL over the `lake` catalog via Quack,
-ADR-0130). The DAG is `workflow.yaml`; each step resolves to its `<step>.funcdctl.yaml` from source. Under
+Each step is a `src/<step>/main.py` — **bronze** (`extract`) → **verify** (cross-check gate) →
+**silver** (anonymize + conform) → **gold** (`to-gold` drives the mart SQL over the `lake` catalog via Quack,
+ADR-0130). `funcdctl dev .` applies the resource files at the project root (funcd ADR-0247): the DAG in
+`workflow.yaml`, whose steps name the Functions of `functions.yaml`, each run in place from its entry in
+`pyproject.toml` with its `<step>.contract.yaml`, and the Bucket, ConfigMaps, Secret and CatalogService
+they bind. Under
 `--persist` the blob layers and the DuckLake catalog survive a restart. Also: `uv run pytest`, `uv run ruff check`.
 
 ## The pipeline (medallion, funcd primitives underneath)
@@ -125,43 +129,45 @@ whole run **before** any confidential or wrong data is conformed.
 # ADR-0121: apply in ANY order — owner/binding existence is reconcile-time (no two-phase bucket-base).
 # A Function/CatalogService bound to a not-yet-applied Bucket is admitted and waits Ready=False until it
 # resolves, then converges. funcdctl apply -f takes one file (or - for stdin), so apply each file:
-for f in resources/*.yaml; do funcdctl apply -f "$f"; done
+for f in bucket.yaml configmap.yaml secret.yaml catalogservice.yaml functions.yaml resources/*.yaml; do
+  funcdctl apply -f "$f"
+done
 ```
 
 | File | Kind | Role |
 |---|---|---|
-| `resources/bucket.yaml` | `Bucket` | the `releves` domain; `landing`/`bronze`/`silver`/`gold`/`reports` prefixes + single-writer owners |
-| `resources/functions.yaml` | `Function` ×5 | `extract` · `verify` · `build-silver` · `to-gold` · `catalog-reader` (Python, ADR-0089 bundle) |
-| `resources/workflow.yaml` | `Workflow` | `releve-pipeline` — the DAG with the two gates |
+| `bucket.yaml` | `Bucket` | the `releves` domain; `landing`/`bronze`/`silver`/`gold`/`reports` prefixes + single-writer owners |
+| `functions.yaml` | `Function` ×5 | `extract` · `verify` · `build-silver` · `to-gold` · `catalog-reader` (Python, ADR-0089 bundle) |
+| `resources/workflow.yaml` | `Workflow` | `releve-pipeline` — the DAG with the two gates, each step in its own warm container (`workflow.yaml` at the root is the one dev runs) |
 | `resources/eventsource.yaml` | `EventSource` | `releve-landed` — blob object-created on `landing/` |
 | `resources/sensor.yaml` | `Sensor` | `releve-ingest` — event → start a pipeline run |
-| `resources/catalogservice.yaml` | `CatalogService` | `lake` — DuckLake + Quack query surface over `gold/` |
+| `catalogservice.yaml` | `CatalogService` | `lake` — DuckLake + Quack query surface over `gold/` |
 | `resources/routes.yaml` | `Route` | static BI site (public) + authenticated SQL query route |
-| `resources/secret.yaml` / `configmap.yaml` | `Secret`/`ConfigMap` | Quack token + engine/project config (incl. `STOP_KEYWORDS`) |
+| `secret.yaml` / `configmap.yaml` | `Secret`/`ConfigMap` | Quack token + engine/project config (incl. `STOP_KEYWORDS`) |
 
 ## The functions
 
 Each step is a Python function on the **stock `python314`** runtime; its native deps (`pdfplumber`,
 `pyarrow`, `duckdb`) travel in a deployment-package **bundle** (ADR-0089). `uv run funcd-bundle` (funcd ADR-0144)
-builds one per `*.funcdctl.yaml`: it installs the versions `uv.lock` pins, by hash, inside the pinned
+builds one per entry of `[tool.funcd-bundle.functions]`: it installs the versions `uv.lock` pins, by hash, inside the pinned
 `python:3.14-slim-bookworm`, then adds the quack and httpfs extensions. The project has one lock, so every bundle
 carries the whole closure (about 300 MB). Then push each:
 
 ```bash
 uv run funcd-bundle                                         # → dist/<function>/
-funcdctl push dist/extract registry:extract --entry handler.py
-funcdctl push dist/verify registry:verify --entry handler.py
-funcdctl push dist/build-silver registry:build-silver --entry handler.py
-funcdctl push dist/to-gold registry:to-gold --entry handler.py
-funcdctl push dist/query-transactions registry:catalog-reader --entry handler.py
+funcdctl push dist/extract registry:extract                 # main.py + extract.contract.yaml
+funcdctl push dist/verify registry:verify
+funcdctl push dist/build-silver registry:build-silver
+funcdctl push dist/to-gold registry:to-gold
+funcdctl push dist/catalog-reader registry:catalog-reader
 ```
 
 | Function | Ports | Reads → Writes |
 |---|---|---|
-| `functions/extract/handler.py` | `parse_releves.parse_pdf` (geometric pdfplumber) | `landing/*.pdf` → `bronze/<stmt>.parquet` |
-| `functions/verify/handler.py` | `verify_independent.py` + `run_all.py` totals | `landing/*.pdf` + `bronze` → gate (no write) |
-| `functions/build_silver/handler.py` | `anonymize.py` + typing/dedup | `bronze` → `silver` DuckLake `transactions` |
-| `functions/to_gold/handler.py` | the project's mart SQL | `silver` → `gold` DuckLake `mart_depenses_mensuelles` |
+| `src/extract/main.py` | `parse_releves.parse_pdf` (geometric pdfplumber) | `landing/*.pdf` → `bronze/<stmt>.parquet` |
+| `src/verify/main.py` | `verify_independent.py` + `run_all.py` totals | `landing/*.pdf` + `bronze` → gate (no write) |
+| `src/build-silver/main.py` | `anonymize.py` + typing/dedup | `bronze` → `silver` DuckLake `transactions` |
+| `src/to-gold/main.py` | the project's mart SQL | `silver` → `gold` DuckLake `mart_depenses_mensuelles` |
 
 ## Confidentiality — the invariant, enforced
 

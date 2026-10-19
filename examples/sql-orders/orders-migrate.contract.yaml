@@ -1,0 +1,15 @@
+runtime: python314
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    event:
+      type: string
+output:
+  type: object
+  additionalProperties: false
+  properties:
+    applied:
+      type: integer
+  required:
+    - applied

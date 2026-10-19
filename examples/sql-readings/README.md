@@ -16,18 +16,19 @@ mine = select(readings.c.seq, readings.c.value).where(readings.c.sensor == senso
 func.avg(mine.c.value).over(order_by=mine.c.seq, rows=(-2, 0))   # the average of a value and the two before it
 ```
 
-[`src/tables.py`](src/tables.py) compiles each statement with the SQLite dialect into SQL text and parameters for
+[`readings_core/tables.py`](packages/readings-core/src/readings_core/tables.py), in the `readings-core` workspace package both steps share (each step is
+`src/<name>/main.py` with `<name>.contract.yaml`, funcd ADR-0247), compiles each statement with the SQLite dialect into SQL text and parameters for
 `context.sql`; several statements in one call apply all or none.
 
 ## Run it locally
 
-`funcdctl dev workflow.yaml` runs both steps from source with `readings-db` on a local rqlite engine (funcd
+`funcdctl dev .` runs both steps from source with `readings-db` on a local rqlite engine (funcd
 ADR-0237); a funcdctl built with the engine (`just build-sql-engine` in funcd) is needed. Start a run through its
 control plane; dev puts its objects in resource group `dev`:
 
 ```bash
 uv sync
-funcdctl dev workflow.yaml --cport 3107
+funcdctl dev . --cport 3107
 sed 's/resourceGroup: rg1/resourceGroup: dev/' run.yaml | FUNCD_SERVER=http://127.0.0.1:3107 FUNCD_TOKEN=funcd-dev-token funcdctl apply -f -
 ```
 
@@ -35,8 +36,8 @@ sed 's/resourceGroup: rg1/resourceGroup: dev/' run.yaml | FUNCD_SERVER=http://12
 
 ```bash
 uv run funcd-bundle
-funcdctl push dist/ingest <registry>:ingest --entry ingest.py
-funcdctl push dist/summarize <registry>:summarize --entry summarize.py
+funcdctl push dist/ingest <registry>:ingest
+funcdctl push dist/summarize <registry>:summarize
 funcdctl apply -f readings-db.yaml
 funcdctl apply -f workflow.yaml
 funcdctl apply -f run.yaml

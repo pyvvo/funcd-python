@@ -1,0 +1,24 @@
+runtime: python314
+input:
+  # verify DEPENDS ON extract, so it receives extract's OUTPUT (ADR-0094 flowing input) — the run summary,
+  # which it IGNORES: it reconciles EVERY bronze against an independent re-parse of its landing PDF.
+  # additionalProperties + no required ⇒ it accepts extract's summary (or anything) without needing a field.
+  type: object
+  additionalProperties: true
+output:
+  type: object
+  additionalProperties: false
+  properties:
+    ok:
+      type: boolean
+    statements:
+      type: integer
+    debit:
+      type: string
+    credit:
+      type: string
+  required:
+    - ok
+    - statements
+    - debit
+    - credit
