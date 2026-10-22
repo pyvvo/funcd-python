@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.15.0](https://github.com/pyvvo/funcd-python/compare/v0.14.0...v0.15.0) (2026-10-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **shim:** context.lake replaces context.catalog, and the examples deploy a Lake (funcd ADR-0261) ([#98](https://github.com/pyvvo/funcd-python/issues/98))
+
+### Features
+
+* **shim:** context.lake replaces context.catalog, and the examples deploy a Lake (funcd ADR-0261) ([#98](https://github.com/pyvvo/funcd-python/issues/98)) ([6d0b7ac](https://github.com/pyvvo/funcd-python/commit/6d0b7ac20576f6b247554213d50f9edca2cbce52))
+
 ## [0.14.0](https://github.com/pyvvo/funcd-python/compare/v0.13.0...v0.14.0) (2026-10-19)
 
 
