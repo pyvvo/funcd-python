@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/pyvvo/funcd-python/compare/v0.15.0...v0.16.0) (2026-10-22)
+
+
+### Features
+
+* **examples:** the Lake examples run duckdb 2.0 (funcd ADR-0262) ([#100](https://github.com/pyvvo/funcd-python/issues/100)) ([e9976a0](https://github.com/pyvvo/funcd-python/commit/e9976a01ba98db6bbe7d022a9297b5e7c3ef9c78))
+
 ## [0.15.0](https://github.com/pyvvo/funcd-python/compare/v0.14.0...v0.15.0) (2026-10-22)
 
 
