@@ -5,7 +5,7 @@ input:
   properties:
     sql:
       type: string
-    catalog:
+    lake:
       type: string
 output:
   type: object

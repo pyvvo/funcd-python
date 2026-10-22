@@ -10,4 +10,4 @@ class FuncOutput(TypedDict):
     transactions: list[dict[str, object]]
 
 class Bindings:
-    catalogs: Literal["lake"]
+    lakes: Literal["lake"]

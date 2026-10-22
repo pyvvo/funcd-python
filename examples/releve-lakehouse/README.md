@@ -8,7 +8,7 @@ land in object storage, a reactive trigger runs a typed workflow that extracts �
 It builds on [`../s3-lakehouse`](../s3-lakehouse) (the storage-layer medallion skeleton — bronze/silver/gold
 `Bucket` prefixes with the single-writer `owner` model) and adds the full pipeline: the reactive trigger
 (ADR-0119), the workflow DAG with two **blocking data-quality gates** (ADR-0094), the confidential-egress
-invariant (ADR-0117), the catalog/query surface (ADR-0086/0087), and the static BI route (ADR-0120).
+invariant (ADR-0117), the lake/query surface (ADR-0086/0087), and the static BI route (ADR-0120).
 
 > **No real data, no PII.** Only synthetic sample statements ever go in `landing/`; real bank PDFs are
 > dropped into the `landing/` prefix at runtime and never committed. All layers are **Parquet/DuckLake** —
@@ -29,14 +29,14 @@ gold DuckLake mart included); the **containerd/prod deploy is not yet**.
   bindings through `context.blob` over the worker-node local API — no S3 client, no keypair, no httpfs. The
   SigV4 keypair (ADR-0085) is for S3 tools only: the drop into `landing/` and the `aws s3` commands below.
 - ✅ **Full medallion pipeline runs end-to-end under `funcdctl dev`** (from source): landing → bronze →
-  silver → **gold**, including the **DuckLake/catalog round-trip** (`to-gold` drives the mart SQL over the
-  `lake` catalog via Quack — ADR-0130), with the catalog durable across a restart under `--persist` (ADR-0131).
+  silver → **gold**, including the **DuckLake/lake round-trip** (`to-gold` drives the mart SQL over the
+  `lake` lake via Quack — ADR-0130), with the lake durable across a restart under `--persist` (ADR-0131).
 - ⏳ **Not yet exercised on funcd:** a full **containerd/prod deploy** — build all five bundles + push and an
   end-to-end lane on containerd (note: the ADR-0119 reactive-source lane has a pre-existing live gap tracked
   on the board).
 
 **Run the whole pipeline end-to-end from source** — `funcdctl dev` runs the medallion workflow on the
-embedded in-memory platform (real gateway + S3 frontend + catalog engine), from the working tree, no deploy:
+embedded in-memory platform (real gateway + S3 frontend + lake engine), from the working tree, no deploy:
 
 ```bash
 uv sync
@@ -59,10 +59,10 @@ duckdb -c "SELECT * FROM read_parquet('mart/*.parquet')"
 ```
 
 Each step is a `src/<step>/main.py` — **bronze** (`extract`) → **verify** (cross-check gate) →
-**silver** (anonymize + conform) → **gold** (`to-gold` drives the mart SQL over the `lake` catalog via Quack,
+**silver** (anonymize + conform) → **gold** (`to-gold` drives the mart SQL over the `lake` lake via Quack,
 ADR-0130). `funcdctl dev .` applies the resource files at the project root (funcd ADR-0247): the DAG in
 `workflow.yaml`, whose steps name the Functions of `functions.yaml`, each run in place from its entry in
-`pyproject.toml` with its `<step>.contract.yaml`, and the Bucket, ConfigMaps, Secret and CatalogService
+`pyproject.toml` with its `<step>.contract.yaml`, and the Bucket, ConfigMaps, Secret and Lake
 they bind. Under
 `--persist` the blob layers and the DuckLake catalog survive a restart. Also: `uv run pytest`, `uv run ruff check`.
 
@@ -88,7 +88,7 @@ they bind. Under
    landing/ (PDF) ──► bronze/ (Parquet) ──► silver/ (DuckLake) ──► gold/ (DuckLake)
                                     │
                      ┌──────────────▼───────────────┐   ┌───────────────────────┐
-                     │ CatalogService `lake`         │   │ Route (static)         │
+                     │ Lake `lake`         │   │ Route (static)         │
                      │  DuckLake + Quack over gold/  │   │  bi/ → Observable site │  ADR-0120
                      │  ADR-0086/0087                │   │  (public)              │
                      └───────────────────────────────┘   └───────────────────────┘
@@ -101,11 +101,11 @@ they bind. Under
 | **landing** | `landing/` | PDF | external drop (SigV4) | raw bank statements, as received — immutable |
 | **bronze** | `bronze/` | Parquet | `extract` | faithful geometric extraction of every transaction (raw `libelle`) |
 | **silver** | `silver/` | Parquet | `build-silver` | typed · deduped · **anonymized** `transactions.parquet` |
-| **gold** | `gold/` | DuckLake | `to-gold` → `lake` | business marts (`mart_depenses_mensuelles`), managed by the catalog |
+| **gold** | `gold/` | DuckLake | `to-gold` → `lake` | business marts (`mart_depenses_mensuelles`), managed by the lake |
 
 > **Where DuckLake sits:** functions write **Parquet** to bronze/silver (the s3-lakehouse pattern); only
-> **gold** is a **DuckLake** table, written by the `lake` CatalogService engine (ADR-0087) — DuckLake needs
-> a managed catalog, and the CatalogService is it. `to-gold` drives the mart DDL over Quack.
+> **gold** is a **DuckLake** table, written by the `lake` Lake engine (ADR-0087) — DuckLake needs
+> a managed lake, and the Lake is it. `to-gold` drives the mart DDL over Quack.
 
 ### The two blocking gates (why this is trustworthy, not just parsed)
 
@@ -127,9 +127,9 @@ whole run **before** any confidential or wrong data is conformed.
 
 ```bash
 # ADR-0121: apply in ANY order — owner/binding existence is reconcile-time (no two-phase bucket-base).
-# A Function/CatalogService bound to a not-yet-applied Bucket is admitted and waits Ready=False until it
+# A Function/Lake bound to a not-yet-applied Bucket is admitted and waits Ready=False until it
 # resolves, then converges. funcdctl apply -f takes one file (or - for stdin), so apply each file:
-for f in bucket.yaml configmap.yaml secret.yaml catalogservice.yaml functions.yaml resources/*.yaml; do
+for f in bucket.yaml configmap.yaml secret.yaml lake.yaml functions.yaml resources/*.yaml; do
   funcdctl apply -f "$f"
 done
 ```
@@ -137,11 +137,11 @@ done
 | File | Kind | Role |
 |---|---|---|
 | `bucket.yaml` | `Bucket` | the `releves` domain; `landing`/`bronze`/`silver`/`gold`/`reports` prefixes + single-writer owners |
-| `functions.yaml` | `Function` ×5 | `extract` · `verify` · `build-silver` · `to-gold` · `catalog-reader` (Python, ADR-0089 bundle) |
+| `functions.yaml` | `Function` ×5 | `extract` · `verify` · `build-silver` · `to-gold` · `lake-reader` (Python, ADR-0089 bundle) |
 | `resources/workflow.yaml` | `Workflow` | `releve-pipeline` — the DAG with the two gates, each step in its own warm container (`workflow.yaml` at the root is the one dev runs) |
 | `resources/eventsource.yaml` | `EventSource` | `releve-landed` — blob object-created on `landing/` |
 | `resources/sensor.yaml` | `Sensor` | `releve-ingest` — event → start a pipeline run |
-| `catalogservice.yaml` | `CatalogService` | `lake` — DuckLake + Quack query surface over `gold/` |
+| `lake.yaml` | `Lake` | `lake` — DuckLake + Quack query surface over `gold/` |
 | `resources/routes.yaml` | `Route` | static BI site (public) + authenticated SQL query route |
 | `secret.yaml` / `configmap.yaml` | `Secret`/`ConfigMap` | Quack token + engine/project config (incl. `STOP_KEYWORDS`) |
 
@@ -159,7 +159,7 @@ funcdctl push dist/extract registry:extract                 # main.py + extract.
 funcdctl push dist/verify registry:verify
 funcdctl push dist/build-silver registry:build-silver
 funcdctl push dist/to-gold registry:to-gold
-funcdctl push dist/catalog-reader registry:catalog-reader
+funcdctl push dist/lake-reader registry:lake-reader
 ```
 
 | Function | Ports | Reads → Writes |

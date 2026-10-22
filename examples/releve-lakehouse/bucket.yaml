@@ -6,7 +6,7 @@
 #   * landing — NO owner: written by an EXTERNAL SigV4 client (the human/agent dropping PDFs), read by extract+verify.
 #   * bronze  — owner extract       (the geometric extraction is the sole writer)
 #   * silver  — owner build-silver  (anonymize + type + dedup is the sole writer)
-#   * gold    — owner lake          (the CatalogService engine writes the DuckLake marts — ADR-0087)
+#   * gold    — owner lake          (the Lake engine writes the DuckLake marts — ADR-0087)
 #   * reports — owner build-silver  (reuse: whoever publishes the BI bundle; swap to a dedicated fn if you add one)
 apiVersion: funcd.io/v1alpha1
 kind: Bucket

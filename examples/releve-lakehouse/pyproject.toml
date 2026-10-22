@@ -27,7 +27,7 @@ funcd-shim = { path = "../../shim", editable = true }
 funcd-bundle = { path = "../../bundle", editable = true }
 
 # `uv run funcd-bundle` builds inside the pinned python:3.14-slim-bookworm, then installs the quack and httpfs
-# extensions to-gold and catalog-reader load offline (checked by SHA-256).
+# extensions to-gold and lake-reader load offline (checked by SHA-256).
 [tool.funcd-bundle]
 hermetic = true
 post-install = ["python", "scripts/install_extensions.py"]
@@ -39,7 +39,7 @@ extract = "src/extract/main.py"
 verify = "src/verify/main.py"
 build-silver = "src/build-silver/main.py"
 to-gold = "src/to-gold/main.py"
-catalog-reader = "src/catalog-reader/main.py"
+lake-reader = "src/lake-reader/main.py"
 
 [tool.mypy]
 strict = true

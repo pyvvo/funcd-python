@@ -1,4 +1,4 @@
-"""Unit tests for the catalog-quack consumer handler (no live catalog needed)."""
+"""Unit tests for the lake-quack consumer handler (no live lake needed)."""
 
 from __future__ import annotations
 
