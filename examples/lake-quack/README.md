@@ -22,7 +22,7 @@ resource file names (`lake-reader`), from `src/main.py` with `lake-reader.contra
 (`{sql: string, lake?: string}`); a full `{"data": <input>}` envelope still works too:
 
 ```bash
-curl -sS -XPOST http://127.0.0.1:3005/function/lake-quack \
+curl -sS -XPOST http://127.0.0.1:3005/function/lake-reader \
   -H 'Content-Type: application/json' -d '{"sql":"SELECT 42 AS answer"}'
 # → {"rows":[[42]]}
 ```
