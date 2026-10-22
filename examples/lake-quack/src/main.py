@@ -70,7 +70,7 @@ def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput
     if ext_dir:
         con.execute("SET autoinstall_known_extensions=false")
         con.execute("SET autoload_known_extensions=false")
-        con.execute(f"SET extension_directory='{ext_dir}'")
+        con.execute(f"SET extension_directories=['{ext_dir}']")
     con.execute("LOAD quack")
     rows = con.execute(
         "SELECT * FROM quack_query(?, ?, token := ?, disable_ssl := true)",
