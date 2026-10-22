@@ -1,4 +1,4 @@
-"""Install the DuckDB extensions catalog-quack needs into its bundle (the post-install of funcd-bundle).
+"""Install the DuckDB extensions lake-quack needs into its bundle (the post-install of funcd-bundle).
 
 It runs inside the build container with the bundle on PYTHONPATH, so the vendored duckdb downloads the
 extensions built for the target platform. At runtime the handler points DuckDB at the same directory

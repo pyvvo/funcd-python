@@ -1,5 +1,5 @@
 -- mart_depenses_mensuelles — monthly debit/credit/balance rollup, the gold serving table (ADR-0086).
--- Runs INSIDE the `lake` catalog over Quack: it reads the conformed silver Parquet (the catalog's own
+-- Runs INSIDE the `lake` database over Quack: it reads the conformed silver Parquet (the lake's own
 -- `silver` binding) and materializes a DuckLake table under gold/. One snapshot per run (DuckLake
 -- versioning), so the dashboard reads a small aggregated table, not the raw transactions.
 CREATE OR REPLACE TABLE mart_depenses_mensuelles AS

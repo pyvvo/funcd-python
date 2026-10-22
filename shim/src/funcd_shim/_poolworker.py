@@ -21,11 +21,11 @@ from typing import Any, AnyStr, NoReturn
 
 from . import contract, invcontext, jsonwire, runtime
 from .blob import BlobClient
-from .catalog import CatalogClient
 from .config import ConfigClient
 from .funclog import install_log_capture, open_channel
 from .invoke import invoke as _invoke
 from .kv import KVClient
+from .lake import LakeClient
 from .runtime import Validators, call_handler
 from .secret import SecretClient
 from .sql import SQLClient
@@ -212,8 +212,8 @@ class _Ctx:
         return SecretClient(_member)
 
     @property
-    def catalog(self) -> CatalogClient:
-        return CatalogClient()
+    def lake(self) -> LakeClient:
+        return LakeClient()
 
     def remaining_ms(self) -> int | None:
         return invcontext.remaining_ms()

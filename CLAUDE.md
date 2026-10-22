@@ -60,7 +60,7 @@ CI runs the same checks, so never bypass a hook with `--no-verify`.
   without third-party dependencies is pushed as one file, `<name>.py` beside its contract file; one with
   dependencies is bundled by `funcd-bundle`.
 - **Bundles are not committed.** `uv run funcd-bundle` writes `dist/<name>/`, a per-architecture
-  closure. funcd's `duckdb` lane builds the catalog-quack bundle itself.
+  closure. funcd's `duckdb` lane builds the lake-quack bundle itself.
 - **Lockfiles are exact.** CI runs `uv run --locked`, so a `pyproject.toml` change needs `uv lock`.
 - **Conventional Commits.** A PR title must be a Conventional Commit, and CI checks it. PRs are
   squash-merged through a merge queue, which uses the PR title as the commit message on `main`, so

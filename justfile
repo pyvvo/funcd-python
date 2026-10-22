@@ -2,7 +2,7 @@
 
 python := "3.14"
 # releve-lakehouse's handlers do not pass mypy --strict yet, so mypy skips it
-typed := "shim bundle examples/catalog-quack examples/hello-world examples/kv-counter examples/log-burst examples/sql-orders examples/sql-readings"
+typed := "shim bundle examples/lake-quack examples/hello-world examples/kv-counter examples/log-burst examples/sql-orders examples/sql-readings"
 projects := typed + " examples/releve-lakehouse"
 
 default:

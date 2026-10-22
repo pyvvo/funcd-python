@@ -6,7 +6,7 @@ scrubs ONLY the `libelle` column (all numeric/date columns are untouched, byte-f
 scan that RAISES if any sensitive pattern survives (the blocking PII gate — anonymization precedes every
 downstream read), types the columns, deduplicates overlapping statements, and writes the conformed
 `silver/transactions.parquet`. Silver is Parquet; the DuckLake marts live in gold (managed by the `lake`
-catalog).
+lake).
 
 funcd wiring: spec.bindings.blob `bronze` (read all) + `silver` (write, owner), through `context.blob`
 (ADR-0127) — no S3 keypair, no httpfs. Each bronze Parquet is fetched as bytes and registered as an

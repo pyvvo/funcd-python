@@ -87,7 +87,7 @@ spec:
         bucket: releves
         prefix: reports
 ---
-# to-gold drives the mart SQL THROUGH the `lake` catalog (the catalog engine owns + writes gold — ADR-0087),
+# to-gold drives the mart SQL THROUGH the `lake` lake (the lake engine owns + writes gold — ADR-0087),
 # so it needs no gold write-binding, only the consumer binding to `lake` (ADR-0091). It binds silver READ so
 # the mart can read the conformed table.
 apiVersion: funcd.io/v1alpha1
@@ -105,35 +105,35 @@ spec:
     minReplicas: 1
   buckets:
     - ref: releves
-  catalogs:
+  lakes:
     - ref: lake
   bindings:
     blob:
       - alias: silver              # READ the conformed silver table
         bucket: releves
         prefix: silver
-    catalog:
+    lake:
       - alias: lake                # run CREATE TABLE gold.mart AS … over Quack; the engine persists to gold/
-        catalog: lake
+        lake: lake
 ---
-# catalog-reader — the interactive SQL surface (behind the authenticated query Route). Mirrors
-# examples/catalog-quack/consumer.yaml: it binds the `lake` catalog and runs read SQL over Quack.
+# lake-reader — the interactive SQL surface (behind the authenticated query Route). Mirrors
+# examples/lake-quack/consumer.yaml: it binds the `lake` lake and runs read SQL over Quack.
 apiVersion: funcd.io/v1alpha1
 kind: Function
 metadata:
-  name: catalog-reader
+  name: lake-reader
   namespace: default
   resourceGroup: rg1
 spec:
   runtime: python314
   handler: handle
-  image: oci-layout:///mnt/funcd-deps/registry:catalog-reader
+  image: oci-layout:///mnt/funcd-deps/registry:lake-reader
   replicas: 1
   scaling:
     minReplicas: 1
-  catalogs:
+  lakes:
     - ref: lake
   bindings:
-    catalog:
+    lake:
       - alias: lake
-        catalog: lake
+        lake: lake

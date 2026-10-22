@@ -11,4 +11,4 @@ class FuncOutput(TypedDict):
 
 class Bindings:
     blob: Literal["silver"]
-    catalogs: Literal["lake"]
+    lakes: Literal["lake"]

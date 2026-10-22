@@ -1,16 +1,16 @@
-# The F48 catalog/query service (ADR-0086), deployed as an add-on provider by the provider-runtime
+# The F48 lake/query service (ADR-0086), deployed as an add-on provider by the provider-runtime
 # (ADR-0087) — NOT a Function. The reconciler derives the per-fn S3 keypair over the provider identity
 # (default/lake), resolves spec.bindings.config (the DUCKDB_* ConfigMap) into the engine env, and the
 # provider-runtime Create/Start's the curated `duckdb` engine (image entrypoint = the Python shim),
 # probes GET /=200 readiness, and publishes status.
 #
-# spec.bindings.blob MUST include the catalog's (bucket, prefix) — it is the bound, owned binding the engine
-# writes its catalog + Parquet through (the Validate rule). spec.bindings.secret carries the Quack token the
+# spec.bindings.blob MUST include the lake's (bucket, prefix) — it is the bound, owned binding the engine
+# writes its lake + Parquet through (the Validate rule). spec.bindings.secret carries the Quack token the
 # engine serves with (every consumer presents the same — a Quack client always needs a token). Every binding
-# names an entry of the root (funcd ADR-0251): the catalog owns its lakehouse Bucket, and declares the
+# names an entry of the root (funcd ADR-0251): the lake owns its lakehouse Bucket, and declares the
 # ConfigMap and the Secret it reads.
 apiVersion: funcd.io/v1alpha1
-kind: CatalogService
+kind: Lake
 metadata:
   name: lake
   namespace: default
@@ -36,13 +36,13 @@ spec:
       - lake-quack-token         # Secret Data key QUACK_TOKEN → engine env (the Quack auth token)
     config:
       - lake-engine-config       # ConfigMap Data keys (DUCKDB_*) → engine env
-  catalog:
+  location:
     bucket: lakehouse
     prefix: gold               # SQLite catalog at gold/_ducklake/catalog.db; Parquet under gold/
   resources:
     cpu: "2"
     memory: "4Gi"
-  ingress:                     # ADR-0138/0241: OPT-IN external edge exposure of the catalog::query PEP proxy
-    enabled: true              # a catalog ingress is off unless enabled
-    path: /catalog/lake        # the gateway routes this edge path to the PROXY (never the engine); the
-                               # proxy PEPs catalog::query, so an external caller is authorized like internal
+  ingress:                     # ADR-0138/0241: OPT-IN external edge exposure of the lake::query PEP proxy
+    enabled: true              # a lake ingress is off unless enabled
+    path: /lake/lake        # the gateway routes this edge path to the PROXY (never the engine); the
+                               # proxy PEPs lake::query, so an external caller is authorized like internal

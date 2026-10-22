@@ -1108,13 +1108,13 @@ def test_pool_host_as_pid_1_exits_143_on_sigterm_with_a_call_in_flight(tmp_path:
 
 CTX_READER = (
     "def handle(context, event):\n"
-    "    return {'lake': context.catalog.get('lake'), 'level': context.config.get('LOG_LEVEL'),\n"
+    "    return {'lake': context.lake.get('lake'), 'level': context.config.get('LOG_LEVEL'),\n"
     "            'key': context.secret.get('STRIPE_KEY')}\n"
 )
 
 
 def test_ctx_pooled_member(tmp_path: Path, dependency_api: DependencyAPI) -> None:
-    # scenario: ctx-pooled-member — each member reads its own catalog token and the pool's config (funcd
+    # scenario: ctx-pooled-member — each member reads its own lake token and the pool's config (funcd
     # ADR-0245), and reads its secrets from funcd as itself (funcd ADR-0249): the fake names the member.
     for name in ("a", "b"):
         dependency_api.replies[name] = (200, json.dumps({"value": f"sk-{name}"}).encode())
@@ -1127,7 +1127,7 @@ def test_ctx_pooled_member(tmp_path: Path, dependency_api: DependencyAPI) -> Non
                 "name": name,
                 "artifact": str(art),
                 "handler": "handle",
-                "env": {"FUNCD_CATALOG_LAKE_TOKEN": f"tok-{name}"},
+                "env": {"FUNCD_LAKE_LAKE_TOKEN": f"tok-{name}"},
             }
         )
     manifest = tmp_path / "manifest.json"
@@ -1135,7 +1135,7 @@ def test_ctx_pooled_member(tmp_path: Path, dependency_api: DependencyAPI) -> Non
     shared = {
         "LOG_LEVEL": "debug",
         "FUNCD_CONFIG_KEYS": "LOG_LEVEL",
-        "FUNCD_CATALOG_LAKE_URL": "127.0.0.1:9100",
+        "FUNCD_LAKE_LAKE_URL": "127.0.0.1:9100",
         "FUNCD_INVOKE_SOCKET": dependency_api.path,
     }
     proc, port = _start(tmp_path, manifest, env=shared)

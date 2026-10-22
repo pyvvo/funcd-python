@@ -5,7 +5,7 @@
 #
 #   extract ──┬── verify ────────────┐   (GATE 1: independent cross-check + printed totals)
 #             └────────────► build-silver   (GATE 2: PII residual scan)   [join: all]
-#                                   └──► to-gold   (mart SQL via the `lake` catalog)
+#                                   └──► to-gold   (mart SQL via the `lake` lake)
 apiVersion: funcd.io/v1alpha1
 kind: Workflow
 metadata:

@@ -11,20 +11,20 @@ The Python runtime shim and the Python example functions for
 funcd pins this repo as a Go module at a release tag, embeds the shim's modules, and runs the
 examples in its e2e tests and lanes.
 
-## Read config, secrets and catalogs
+## Read config, secrets and lakes
 
 A handler reads its bound values through the context (funcd ADR-0245):
 
 ```python
 level = context.config.get("LOG_LEVEL")
 key = context.secret.get("STRIPE_KEY")
-lake = context.catalog.get("lake")  # {"url": ..., "token": ...}
+lake = context.lake.get("lake")  # {"url": ..., "token": ...}
 ```
 
 `config` holds the keys of the Function's bound ConfigMaps and `secret` those of its Secrets; a key a secret overrides
 reads only through `secret`, and an unbound key reads as `None`. `list()` returns the bound keys, sorted.
 `secret` asks funcd on every call (funcd ADR-0249), so no secret sits in the worker's environment.
-`catalog.get(alias)` raises `KeyError` naming the alias when it is not bound.
+`lake.get(alias)` raises `KeyError` naming the alias when it is not bound.
 
 ## Develop
 

@@ -1,10 +1,10 @@
-"""to-gold — build the business marts in the gold DuckLake layer by driving the `lake` catalog over Quack.
+"""to-gold — build the business marts in the gold DuckLake layer by driving the `lake` lake over Quack.
 
-Mirrors examples/catalog-quack/consumer.py, but runs a WRITE statement: it sends the project's mart
-SQL (mart_depenses_mensuelles.sql) to the CatalogService, which reads the conformed `silver` Parquet (its
-own binding) and persists the result as a DuckLake table under gold/ (the catalog is gold's owner/writer —
-ADR-0087, so no gold write-binding is needed here). The catalog's Quack endpoint + token are injected by the
-`spec.bindings.catalog: [lake]` consumer binding as FUNCD_CATALOG_LAKE_URL / _TOKEN (ADR-0091).
+Mirrors examples/lake-quack/consumer.py, but runs a WRITE statement: it sends the project's mart
+SQL (mart_depenses_mensuelles.sql) to the Lake, which reads the conformed `silver` Parquet (its
+own binding) and persists the result as a DuckLake table under gold/ (the lake is gold's owner/writer —
+ADR-0087, so no gold write-binding is needed here). The lake's Quack endpoint + token are injected by the
+`spec.bindings.lake: [lake]` consumer binding as FUNCD_LAKE_LAKE_URL / _TOKEN (ADR-0091).
 """
 
 from __future__ import annotations
@@ -39,18 +39,18 @@ def _load_ext(con: duckdb.DuckDBPyConnection) -> None:
 
 
 def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput:
-    """Run the mart SQL on the `lake` catalog over Quack; the catalog persists the DuckLake gold table."""
-    url = os.environ["FUNCD_CATALOG_LAKE_URL"]
-    token = os.environ["FUNCD_CATALOG_LAKE_TOKEN"]
+    """Run the mart SQL on the `lake` lake over Quack; the lake persists the DuckLake gold table."""
+    url = os.environ["FUNCD_LAKE_LAKE_URL"]
+    token = os.environ["FUNCD_LAKE_LAKE_TOKEN"]
     with open(_SQL_PATH, encoding="utf-8") as f:
         mart_sql = f.read()
 
     con = duckdb.connect()
     _load_ext(con)
     uri = _quack_uri(url)
-    # Quack is DuckDB-to-DuckDB (Protobuf over HTTP): quack_query runs SQL ON THE REMOTE catalog engine,
-    # which has the DuckLake attached as the `lakehouse` catalog (the catalog owns gold; ADR-0087). A
-    # served query defaults to the engine's `memory` catalog, so target `lakehouse` explicitly: `USE
+    # Quack is DuckDB-to-DuckDB (Protobuf over HTTP): quack_query runs SQL ON THE REMOTE lake engine,
+    # which has the DuckLake attached as the `lakehouse` database (the lake owns gold; ADR-0087). A
+    # served query defaults to the engine's `memory` database, so target `lakehouse` explicitly: `USE
     # lakehouse` (persists within this one multi-statement call) makes the mart DDL land there, and
     # `CHECKPOINT` flushes the DuckLake's Parquet to gold/. disable_ssl: the engine serves plain HTTP.
     con.execute(
@@ -62,7 +62,7 @@ def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput
         [uri, "SELECT count(*) FROM lakehouse.main.mart_depenses_mensuelles", token],
     ).fetchone()
     if count is None:
-        raise RuntimeError("to-gold: the catalog returned no row for the mart count")
+        raise RuntimeError("to-gold: the lake returned no row for the mart count")
     rows = count[0]
     logging.info("to-gold: mart_depenses_mensuelles — %s month(s)", rows)
     return {"gold": "mart_depenses_mensuelles", "rows": rows}

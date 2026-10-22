@@ -13,9 +13,9 @@ from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
 
 if TYPE_CHECKING:
     from .blob import BlobClient
-    from .catalog import CatalogClient
     from .config import ConfigClient
     from .kv import KVClient
+    from .lake import LakeClient
     from .secret import SecretClient
     from .sql import SQLClient
 
@@ -95,8 +95,8 @@ class FunctionContext(Protocol):
         ...
 
     @property
-    def catalog(self) -> CatalogClient:
-        """A bound catalog's proxy URL and token, by spec.bindings.catalog alias (funcd ADR-0245)."""
+    def lake(self) -> LakeClient:
+        """A bound lake's proxy URL and token, by spec.bindings.lake alias (funcd ADR-0245)."""
         ...
 
     def remaining_ms(self) -> int | None:

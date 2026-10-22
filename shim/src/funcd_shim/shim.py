@@ -40,13 +40,13 @@ from typing import TYPE_CHECKING, Any
 
 from . import contract, invcontext, jsonwire, runtime
 from .blob import BlobClient
-from .catalog import CatalogClient
 from .config import ConfigClient
 from .deadline import deadline_from, stuck
 from .funclog import install_log_capture, open_channel
 from .invoke import MEMBER_HEADER, _UnixHTTPConnection
 from .invoke import invoke as _invoke
 from .kv import KVClient
+from .lake import LakeClient
 from .secret import SecretClient
 from .sql import SQLClient
 from .tracespan import InvocationSpan, parse_links
@@ -89,8 +89,8 @@ class _Context:
         return SecretClient()
 
     @property
-    def catalog(self) -> CatalogClient:
-        return CatalogClient()
+    def lake(self) -> LakeClient:
+        return LakeClient()
 
     def remaining_ms(self) -> int | None:
         return invcontext.remaining_ms()

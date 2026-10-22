@@ -17,5 +17,5 @@ __pycache__/
 # funcd-bundle output (uv run funcd-bundle)
 dist/
 
-# funcdctl dev state (--persist: metastore / kv / blob / catalog)
+# funcdctl dev state (--persist: metastore / kv / blob / lake)
 .funcd-dev/

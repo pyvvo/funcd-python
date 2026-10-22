@@ -32,4 +32,4 @@ for f in bucket.yaml ingest.yaml transform.yaml report.yaml; do funcdctl apply -
 ```
 
 For a lakehouse you can run **locally from source** with `funcdctl dev`, see the DuckLake/Quack example
-[`python/catalog-quack`](../catalog-quack) — `just dev-example python/catalog-quack`.
+[`python/lake-quack`](../lake-quack) — `just dev-example python/lake-quack`.
