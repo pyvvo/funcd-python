@@ -11,7 +11,7 @@ dependencies = [
     "funcd-shim",
     "pdfplumber>=0.11",   # extract + verify: geometric / text PDF extraction
     "pyarrow>=17",        # bronze/silver Parquet I/O
-    "duckdb>=1.5.4",      # build-silver conform/dedup; to-gold Quack client
+    "duckdb>=2.0.0,<2.1", # build-silver conform/dedup; to-gold Quack client
 ]
 
 [dependency-groups]

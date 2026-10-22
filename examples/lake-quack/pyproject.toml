@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 # funcd-shim is the typed authoring contract (CloudEvent/FunctionContext). duckdb is the Quack client
 # (a Quack client IS a local DuckDB) — provided at deploy by the duckdb-capable function runtime; here
 # it is for local typecheck + tests.
-dependencies = ["funcd-shim", "duckdb>=1.5.6"]
+dependencies = ["funcd-shim", "duckdb>=2.0.0,<2.1"]
 
 [dependency-groups]
 dev = ["funcd-bundle", "mypy>=1.13", "pytest>=8.3", "ruff>=0.8"]

@@ -34,7 +34,7 @@ def _load_ext(con: duckdb.DuckDBPyConnection) -> None:
     if not ext_dir and bundle_dir and os.path.isdir(os.path.join(bundle_dir, "duckdb-ext")):
         ext_dir = os.path.join(bundle_dir, "duckdb-ext")
     if ext_dir:
-        con.execute(f"SET extension_directory='{ext_dir}';")
+        con.execute(f"SET extension_directories=['{ext_dir}'];")
     con.execute("LOAD quack;")
 
 
