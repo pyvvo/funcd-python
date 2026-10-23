@@ -1,7 +1,7 @@
-# Non-secret engine tuning consumed by the Lake via spec.bindings.config (ADR-0087, the ADR-0057
-# convention). Each Data key becomes an env var the duckdb shim applies as a DuckDB `SET` before
-# `lock_configuration=true`. (A reserved FUNCD_* key here would be dropped — it can't shadow the
-# runtime contract.)
+# Non-secret engine tuning consumed by the Lake via spec.bindings.config (ADR-0087). The duckdb shim applies three keys
+# as DuckDB settings before any other: DUCKDB_MEMORY_LIMIT, DUCKDB_THREADS and DUCKDB_MAX_TEMP_DIRECTORY_SIZE (funcd
+# ADR-0265); any other DUCKDB_* key stops the engine at start. (A reserved FUNCD_* key here would be dropped — it can't
+# shadow the runtime contract.)
 apiVersion: funcd.io/v1alpha1
 kind: ConfigMap
 metadata:

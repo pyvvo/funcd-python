@@ -35,7 +35,7 @@ spec:
     secret:
       - lake-quack-token         # Secret Data key QUACK_TOKEN → engine env (the Quack auth token)
     config:
-      - lake-engine-config       # ConfigMap Data keys (DUCKDB_*) → engine env
+      - lake-engine-config       # DUCKDB_MEMORY_LIMIT and DUCKDB_THREADS → the engine's settings (funcd ADR-0265)
   location:
     bucket: lakehouse
     prefix: gold               # SQLite catalog at gold/_ducklake/catalog.db; Parquet under gold/
