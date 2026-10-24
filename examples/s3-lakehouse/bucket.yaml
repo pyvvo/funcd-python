@@ -12,9 +12,15 @@ metadata:
 spec:
   prefixes:
     - name: bronze          # raw ingest layer — written by the ingest function
-      owner: ingest
+      owner:
+        kind: Function
+        name: ingest
     - name: silver          # cleaned / conformed — written by the transform function
-      owner: transform
+      owner:
+        kind: Function
+        name: transform
     - name: gold            # serving marts — written by transform, read by reporters
-      owner: transform
+      owner:
+        kind: Function
+        name: transform
   maxObjectBytes: 1073741824   # per-object cap (1 GiB; optional — defaults apply if omitted)

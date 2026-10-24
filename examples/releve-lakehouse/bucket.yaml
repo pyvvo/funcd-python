@@ -18,11 +18,19 @@ spec:
   prefixes:
     - name: landing         # external drop — no in-platform owner
     - name: bronze
-      owner: extract
+      owner:
+        kind: Function
+        name: extract
     - name: silver
-      owner: build-silver
+      owner:
+        kind: Function
+        name: build-silver
     - name: gold
-      owner: lake
+      owner:
+        kind: Lake
+        name: lake
     - name: reports
-      owner: build-silver
+      owner:
+        kind: Function
+        name: build-silver
   maxObjectBytes: 1073741824
