@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.17.0](https://github.com/pyvvo/funcd-python/compare/v0.16.0...v0.17.0) (2026-10-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **examples:** a Bucket prefix's owner names its kind (funcd ADR-0275) ([#104](https://github.com/pyvvo/funcd-python/issues/104))
+
+### Features
+
+* **examples:** a Bucket prefix's owner names its kind (funcd ADR-0275) ([#104](https://github.com/pyvvo/funcd-python/issues/104)) ([e4b71d9](https://github.com/pyvvo/funcd-python/commit/e4b71d91439cc025ed222b9476b08c4f3c9cf880))
+
 ## [0.16.0](https://github.com/pyvvo/funcd-python/compare/v0.15.0...v0.16.0) (2026-10-22)
 
 
