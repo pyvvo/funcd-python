@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.18.0](https://github.com/pyvvo/funcd-python/compare/v0.17.0...v0.18.0) (2026-10-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **examples:** per-item caps move into a store's quota block (funcd ADR-0292) ([#106](https://github.com/pyvvo/funcd-python/issues/106))
+
+### Features
+
+* **examples:** per-item caps move into a store's quota block (funcd ADR-0292) ([#106](https://github.com/pyvvo/funcd-python/issues/106)) ([033141c](https://github.com/pyvvo/funcd-python/commit/033141c7b1a96d2965309173cc643f8a2e3a0282))
+
 ## [0.17.0](https://github.com/pyvvo/funcd-python/compare/v0.16.0...v0.17.0) (2026-10-24)
 
 
