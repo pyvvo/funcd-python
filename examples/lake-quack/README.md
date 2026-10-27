@@ -41,7 +41,7 @@ for f in configmap.yaml secret.yaml lake.yaml consumer.yaml; do funcdctl apply -
   needs a token (a token-less client is refused), so the engine serves with `QUACK_TOKEN` and every
   consumer presents the same; the ingress gateway is the authoritative *outer* gate.
 - **`lake.yaml`** — the `lake` Lake: at its root the `lakehouse` Bucket it owns (its
-  `gold` prefix holds the Parquet and the `_ducklake/catalog.db` SQLite catalog), the ConfigMap by `ref` and the
+  `gold` prefix holds the Parquet, and its catalog sits in funcd's catalog store, funcd ADR-0293), the ConfigMap by `ref` and the
   Secret's declaration (funcd ADR-0251); then the `gold` blob binding, the lake ref, resources, `config` and
   `secret`.
 
