@@ -23,4 +23,5 @@ spec:
       owner:
         kind: Function
         name: transform
-  maxObjectBytes: 1073741824   # per-object cap (1 GiB; optional — defaults apply if omitted)
+  quota:
+    maxObjectBytes: 1073741824   # per-object cap (1 GiB; optional — defaults apply if omitted)

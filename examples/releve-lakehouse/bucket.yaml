@@ -33,4 +33,5 @@ spec:
       owner:
         kind: Function
         name: build-silver
-  maxObjectBytes: 1073741824
+  quota:
+    maxObjectBytes: 1073741824
