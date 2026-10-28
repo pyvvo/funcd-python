@@ -3,7 +3,7 @@
 Deploy a governed SQL **lake + query** engine *on* funcd: a `Lake` that the
 **add-on provider runtime** (ADR-0087) brings up as a curated `duckdb` engine — DuckDB + DuckLake +
 Quack, out-of-process (no cgo in the daemon), reading/writing Parquet through the F47 S3 surface and
-checkpointing its SQLite catalog to blob.
+saving its catalog, a DuckDB file, to funcd's catalog store (funcd ADR-0271, ADR-0293).
 
 ## Run it locally (`funcdctl dev`)
 
