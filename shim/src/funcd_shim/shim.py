@@ -200,6 +200,9 @@ def make_request_handler(
         # TIME_WAIT under load. Safe here because every response carries Content-Length. This also
         # lets the gateway/activator upstream pool (ADR-0041) actually reuse connections to the shim.
         protocol_version = "HTTP/1.1"
+        # The headers and the body are two writes on a kept-alive connection: without TCP_NODELAY the body
+        # waits for the client's delayed ACK of the headers, about 40 ms on Linux.
+        disable_nagle_algorithm = True
 
         # Quieten the default stderr access log; the platform owns logging (ADR-0010).
         def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A002 - stdlib signature

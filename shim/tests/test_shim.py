@@ -27,6 +27,7 @@ from typing import Any
 
 import pytest
 from fakeapi import CLOSE, HOLD, DependencyAPI
+from loopback import warm_calls
 
 from funcd_shim import contract, runtime, shim
 from funcd_shim.types import CloudEvent, FunctionContext, Validator
@@ -371,6 +372,17 @@ def test_keep_alive_no_desync() -> None:
             assert json.loads(r.read())["echoed"] == 42
         finally:
             conn.close()
+
+
+def test_issue_1337_warm_calls_do_not_wait_for_a_delayed_ack() -> None:
+    # A response is two writes, the headers and the body. With Nagle on, a warm call's body waits for the
+    # client's delayed ACK of the headers: about 40 ms on Linux. macOS acknowledges at once on loopback, so
+    # there only the socket option shows it.
+    median_ms, nodelay = warm_calls(
+        shim.make_request_handler(_echo, runtime.Validators()), "POST", "/", b'{"data":{"hello":"world"}}'
+    )
+    assert median_ms < 20
+    assert nodelay
 
 
 @pytest.mark.parametrize(

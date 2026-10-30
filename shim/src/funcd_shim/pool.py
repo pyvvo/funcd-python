@@ -140,6 +140,8 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
         # request — avoids a handshake + TIME_WAIT per call and lets the upstream pool (ADR-0041)
         # reuse connections. Safe: every response carries Content-Length.
         protocol_version = "HTTP/1.1"
+        # TCP_NODELAY (see shim.py): an answer's body must not wait for the client's delayed ACK.
+        disable_nagle_algorithm = True
 
         def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A002 - stdlib signature
             return
