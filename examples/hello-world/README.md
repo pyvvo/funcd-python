@@ -3,7 +3,7 @@
 A minimal funcd function authored in **Python**, typed against the `funcd_shim` contract
 (ADR-0049) with a typed I/O contract (ADR-0058). The Python sibling of
 [`examples/hello-world` in pyvvo/funcd-typescript](https://github.com/pyvvo/funcd-typescript/tree/main/examples/hello-world) — same `handle(context, event)` contract, same
-`FuncInput`/`FuncOutput` model, validated identically by the platform's Python runtime shim.
+`FuncInput`/`FuncOutput` model, checked identically by funcd (funcd ADR-0303).
 
 ```
 src/main.py           # the function: handle(context, event) + its FuncInput/FuncOutput types
@@ -35,23 +35,20 @@ def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput
     return {"greeting": f"Hello, {data['name']}."}
 ```
 
-The build generates the schema from the contract type, then bakes a runtime validator — so you
+The build generates the schema from the contract type, so you
 declare a *type*, never a validator, and `from __future__ import annotations` is fine either way
 (the build resolves the field types). The runtime artifact carries the future-import regardless.
 
-### How the contract is enforced (ADR-0058 / ADR-0060)
+### How the contract is enforced (ADR-0058 / ADR-0303)
 
 You supply a *type*, never a validator. At `funcdctl push` the build:
 
 1. generates a closed **JSON Schema** from `FuncInput` / `FuncOutput` (pydantic
    `TypeAdapter().json_schema()`, **build-time only** — closing records the profile requires);
 2. gates it against the supported **profile** (closed records, scalars, enums, arrays,
-   string-keyed maps, discriminated unions, `Json`; no open records, no recursion);
-3. compiles a **precompiled, eval-free validator** (`fastjsonschema`, pure-Python — so it also
-   runs inside the subinterpreter pool, where pydantic-core cannot, ADR-0050/0060) and bakes it
-   into the artifact.
+   string-keyed maps, discriminated unions, `Json`; no open records, no recursion).
 
-At runtime the shim runs those validators around your handler:
+At call time funcd checks each call against the contract around your handler (funcd ADR-0303):
 
 | Situation | Result |
 |---|---|
@@ -148,7 +145,7 @@ funcdctl apply -f handler.yaml
 pyvvo/funcd is the shared daemon config (in-memory substrate + process runtime + localhost
 addresses); it's optional — `funcd` runs with all defaults if omitted.
 
-The platform's curated Python image runs the shim, which loads this module, validates each
-event's `data` against the validator it compiles from the pushed contract, invokes `handle`, validates
-the result against the output schema, and returns the dict as the 200 JSON body. A mismatched event is rejected
-**422** before `handle` runs.
+The platform's curated Python image runs the shim, which loads this module, invokes `handle` and
+returns the dict as the 200 JSON body. funcd checks each event's `data` against the pushed contract
+first and the result after (funcd ADR-0303), so a mismatched event is rejected **422** before
+`handle` runs.

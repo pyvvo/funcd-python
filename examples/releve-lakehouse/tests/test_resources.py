@@ -12,8 +12,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import fastjsonschema
 import yaml
-from funcd_shim.contract import load_from_path
 
 _ROOT = Path(__file__).resolve().parent.parent
 _REPO = _ROOT.parent.parent
@@ -80,7 +80,7 @@ def _sensor_run_input(fields: dict[str, Any] | None) -> Any:
     return out
 
 
-def test_issue_r33_root_step_accepts_every_run_input(tmp_path: Path) -> None:
+def test_issue_r33_root_step_accepts_every_run_input() -> None:
     run_inputs: list[tuple[str, Any]] = [("workflow run without --input", None)]
     readme = (_ROOT / "README.md").read_text()
     for raw in re.findall(r"funcdctl workflow run releve-pipeline [^\n]*?--input '([^']*)'", readme):
@@ -101,14 +101,13 @@ def test_issue_r33_root_step_accepts_every_run_input(tmp_path: Path) -> None:
         if step.get("dependsOn"):
             continue
         ref = step["function"]["ref"]
-        contract = tmp_path / f"{ref}.json"
         declared = yaml.safe_load((_ROOT / f"{ref}.contract.yaml").read_text())
-        contract.write_text(json.dumps({side: declared[side] for side in ("input", "output")}))
-        validate = load_from_path(str(contract)).input
-        assert validate is not None
-        problems += [
-            f"{ref} rejects {src}: {errs}" for src, run_input in run_inputs if (errs := validate(run_input))
-        ]
+        validate = fastjsonschema.compile(declared["input"])
+        for src, run_input in run_inputs:
+            try:
+                validate(run_input)
+            except fastjsonschema.JsonSchemaValueException as err:
+                problems.append(f"{ref} rejects {src}: {err}")
     assert not problems
 
 

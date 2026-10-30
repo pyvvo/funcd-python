@@ -5,7 +5,7 @@ The Python runtime shim and the Python example functions for
 
 | Path | What |
 |---|---|
-| `shim/` | The shim that loads a function's handler inside a funcd worker. Its one runtime dependency is fastjsonschema |
+| `shim/` | The shim that loads a function's handler inside a funcd worker. It has no runtime dependency |
 | `examples/` | Example functions. Small build outputs are committed, dependency bundles are not |
 
 funcd pins this repo as a Go module at a release tag, embeds the shim's modules, and runs the

@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 
-from funcd_shim import runtime, shim
+from funcd_shim import shim
 from funcd_shim.funclog import _Channel, install_log_capture, open_channel
 from funcd_shim.tracespan import InvocationSpan, new_inv_context, parse_links, parse_traceparent
 from funcd_shim.types import CloudEvent, FunctionContext
@@ -252,7 +252,7 @@ def test_issue_r25_solo_channel_keeps_span_and_log_records_whole(
 def serve_traced(handler: Any, channel: FakeChannel, fn_name: str = "greeter") -> Iterator[str]:
     server = ThreadingHTTPServer(
         ("127.0.0.1", 0),
-        shim.make_request_handler(handler, runtime.Validators(), channel, fn_name),  # type: ignore[arg-type]
+        shim.make_request_handler(handler, channel, fn_name),  # type: ignore[arg-type]
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -289,30 +289,6 @@ def test_server_invocation_emits_span_adopting_traceparent() -> None:
     assert len(spans) == 1
     assert spans[0]["kind"] == "SERVER" and spans[0]["name"] == "greeter"
     assert spans[0]["trace_id"] == TRACE and spans[0]["parent_id"] == CALLER_SPAN
-
-
-def test_server_input_mismatch_emits_no_span() -> None:
-    ch = FakeChannel()
-
-    def reject_input(_data: Any) -> list[Any]:
-        return [{"msg": "bad"}]
-
-    validators = runtime.Validators(input=reject_input)
-    server = ThreadingHTTPServer(
-        ("127.0.0.1", 0),
-        shim.make_request_handler(lambda ctx, ev: {"ok": True}, validators, ch, "greeter"),  # type: ignore[arg-type]
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        base = f"http://127.0.0.1:{server.server_address[1]}"
-        assert _post(base, json.dumps({"data": 1})) == 422
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-    time.sleep(0.1)
-    assert ch.spans() == []  # input-mismatch short-circuits before the handler → no span
 
 
 def test_pooled_span_carries_member_and_solo_omits_it() -> None:

@@ -7,9 +7,7 @@ authors = [{ name = "The funcd Authors" }]
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12"
-dependencies = [
-    "fastjsonschema>=2.21.2",
-]
+dependencies = []
 
 [project.optional-dependencies]
 # the contract build (funcd_shim.build) reads FuncInput/FuncOutput through pydantic
@@ -41,10 +39,6 @@ dev = [
 strict = true
 python_version = "3.12"
 files = ["src", "tests"]
-
-[[tool.mypy.overrides]]
-module = "fastjsonschema.*"  # ships no type stubs; used only as a build-time validator generator
-ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 110

@@ -1,7 +1,7 @@
 """Tests for the Python hello-world function — the author's own unit tests, no shim needed.
 
 The platform owns input/output *validation* (the push build generates the schema from
-``FuncInput``/``FuncOutput`` and bakes a fastjsonschema validator; the shim runs it), so these
+``FuncInput``/``FuncOutput``, and funcd checks each call against it), so these
 tests exercise the handler directly on already-valid input.
 """
 

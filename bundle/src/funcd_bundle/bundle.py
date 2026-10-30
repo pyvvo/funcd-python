@@ -42,7 +42,7 @@ GENERIC_MANIFEST = "funcdctl.yaml"
 DEFAULT_ENTRY = "src/main.py"
 # funcdctl push's --entry default for a python bundle (funcd ADR-0247 Decision 2)
 PUSH_ENTRY = "main.py"
-# The runtime provides the shim and everything only it needs (ADR-0071: fastjsonschema).
+# The runtime provides the shim and everything only it needs.
 RUNTIME_PACKAGE = "funcd-shim"
 PLATFORMS = {"linux/amd64": "x86_64", "linux/arm64": "aarch64"}
 SKIPPED = {"__pycache__", "tests"}

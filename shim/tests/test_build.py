@@ -1,7 +1,8 @@
-"""Tests for funcd_build — the build-time contract compiler (ADR-0058/0060).
+"""Tests for funcd_build — the build-time contract build (ADR-0058/0060).
 
-Proves the integrity invariant for Python: pydantic model → JSON Schema → fastjsonschema validator,
-baked into a runtime artifact the worker loads with NO pydantic (so it runs in a subinterpreter)."""
+Proves that a pydantic model becomes a closed JSON Schema, and that the runtime artifact the worker
+loads carries NO pydantic (so it runs in a subinterpreter) and no validator: funcd checks each call
+against the schema (funcd ADR-0303)."""
 
 from __future__ import annotations
 
@@ -74,21 +75,14 @@ def test_typeddict_contract_closed_schema() -> None:
     assert r.input_schema["additionalProperties"] is False, "a TypedDict record is closed too"
 
 
-def test_built_artifact_validates_in_both_compute_modes() -> None:
-    """The SAME built artifact validates identically SOLO (non-pooled) and inside a SUBINTERPRETER
-    (the ADR-0050 pool). The baked validator is pure-Python fastjsonschema, so it must — this is the
-    whole reason we don't use pydantic-core (which crashes a subinterpreter)."""
+def test_built_artifact_runs_in_both_compute_modes() -> None:
+    """The SAME built artifact loads and handles SOLO (non-pooled) and inside a SUBINTERPRETER (the
+    ADR-0050 pool), which pydantic-core cannot do — so the build strips pydantic from it."""
     rt = build(_TYPEDDICT_SRC).runtime_source
 
     # expressed as asserts so a failure RAISES — works the same in-process and across an interpreter
     # boundary (subinterpreters don't share objects, but a raised exception propagates to the parent).
-    checks = (
-        rt + "\n"
-        "assert __funcd_validate_input({'order_id': 'a', 'qty': 7}) == []\n"
-        "assert __funcd_validate_input({'order_id': 'a', 'qty': 'no'})\n"  # qty not int → errors
-        "assert __funcd_validate_input({'order_id': 'a'})\n"  # missing qty → errors
-        "assert handle(None, {'data': {'order_id': 'a', 'qty': 7}}) == {'echoed': 7}\n"
-    )
+    checks = rt + "\nassert handle(None, {'data': {'order_id': 'a', 'qty': 7}}) == {'echoed': 7}\n"
 
     # NON-POOLED (solo): run in this interpreter.
     exec(compile(checks, "<solo>", "exec"), {})  # noqa: S102 - exercising the generated artifact
@@ -102,14 +96,14 @@ def test_built_artifact_validates_in_both_compute_modes() -> None:
             interp.close()
 
 
-def test_runtime_artifact_strips_pydantic_and_bakes_validators() -> None:
+def test_runtime_artifact_strips_pydantic_and_bakes_no_validator() -> None:
     rt = build(_SRC).runtime_source
-    # pydantic + the contract classes are gone (so a subinterpreter can load it); validators baked.
+    # pydantic + the contract classes are gone (so a subinterpreter can load it), and funcd checks the
+    # calls, so the build bakes no validator (funcd ADR-0303).
     assert "from pydantic" not in rt
     assert "class FuncInput" not in rt
     assert "class FuncOutput" not in rt
-    assert "def __funcd_validate_input" in rt
-    assert "def __funcd_validate_output" in rt
+    assert "__funcd_validate" not in rt
     assert "def handle" in rt
     # the author's funcd_shim import (CloudEvent/FunctionContext) is kept; it pulls no pydantic.
     assert "from funcd_shim import" in rt
@@ -118,24 +112,14 @@ def test_runtime_artifact_strips_pydantic_and_bakes_validators() -> None:
     assert isinstance(tree.body[0], ast.ImportFrom) and tree.body[0].module == "__future__"
 
 
-def test_runtime_artifact_validates_and_handles_without_pydantic() -> None:
-    ns = _exec(build(_SRC).runtime_source)
-    vin, vout, handle = ns["__funcd_validate_input"], ns["__funcd_validate_output"], ns["handle"]
-    # input validator (fastjsonschema, renamed so input+output don't collide): [] ⇒ valid.
-    assert vin({"order_id": "x", "qty": 3}) == []
-    assert vin({"order_id": "x", "qty": "nope"}), "qty must be an integer"
-    assert vin({"order_id": "x"}), "qty is required"
-    # output validator.
-    assert vout({"accepted": True}) == []
-    assert vout({"accepted": "yes"}), "accepted must be a boolean"
+def test_runtime_artifact_handles_without_pydantic() -> None:
+    handle = _exec(build(_SRC).runtime_source)["handle"]
     # the handler runs on a plain dict (event['data']), never a pydantic instance.
     assert handle(None, {"data": {"order_id": "o", "qty": 5}}) == {"accepted": True}
 
 
 # scenario: void-output-schema-explicit (ADR-0090) — `FuncOutput = None` emits an EXPLICIT
-# {"type":"null"} output schema (was: omitted), and its validator is compiled from THAT schema (the
-# hand-baked _VOID_VALIDATOR is gone) — None is valid, a non-empty result is rejected (→ the shim's
-# 500 wire, unchanged by this ADR).
+# {"type":"null"} output schema (was: omitted).
 def test_scenario_void_output_schema_explicit() -> None:
     src = (
         "from pydantic import BaseModel\n"
@@ -145,16 +129,13 @@ def test_scenario_void_output_schema_explicit() -> None:
         "def handle(ctx, event):\n"
         "    return None\n"
     )
-    r = build(src)
-    assert r.output_schema == {"type": "null"}, "a void output is the explicit {'type':'null'} schema"
-    ns = _exec(r.runtime_source)
-    assert ns["__funcd_validate_output"](None) == []  # None is valid (the shim then replies 204)
-    assert ns["__funcd_validate_output"]({"x": 1}), "a non-empty result violates the void contract"
+    assert build(src).output_schema == {"type": "null"}, (
+        "a void output is the explicit {'type':'null'} schema"
+    )
 
 
-# scenario: void-input-schema-explicit (ADR-0090) — the NEW symmetric void-input marker
-# `FuncInput = None` emits an EXPLICIT {"type":"null"} input schema; its validator (compiled from that
-# schema) accepts None/absent data and rejects non-null (→ the shim's 422 wire).
+# scenario: void-input-schema-explicit (ADR-0090) — the symmetric void-input marker `FuncInput = None`
+# emits an EXPLICIT {"type":"null"} input schema.
 def test_scenario_void_input_schema_explicit() -> None:
     src = (
         "from pydantic import BaseModel\n"
@@ -164,11 +145,7 @@ def test_scenario_void_input_schema_explicit() -> None:
         "def handle(ctx, event):\n"
         "    return {'ok': True}\n"
     )
-    r = build(src)
-    assert r.input_schema == {"type": "null"}, "a void input is the explicit {'type':'null'} schema"
-    ns = _exec(r.runtime_source)
-    assert ns["__funcd_validate_input"](None) == []  # absent/null data is accepted
-    assert ns["__funcd_validate_input"]({"anything": 1}), "non-null data violates the void input contract"
+    assert build(src).input_schema == {"type": "null"}, "a void input is the explicit {'type':'null'} schema"
 
 
 # scenario: undeclared-io-is-error (ADR-0090) — the "unchecked" path is gone: a handler that fails to
@@ -181,8 +158,7 @@ def test_scenario_undeclared_io_is_error() -> None:
 
 
 # a top-level DISCRIMINATED UNION contract (FuncOutput = A | B) — pydantic emits anyOf + $ref; the
-# build inlines the refs and rewrites it to the profile's tagged `oneOf` + `discriminator`, with a
-# baked validator that accepts the right branch and rejects a bad tag / extra property.
+# build inlines the refs and rewrites it to the profile's tagged `oneOf` + `discriminator`.
 _UNION_SRC = (
     "from typing import TypedDict, Literal\n"
     "from funcd_shim import CloudEvent, FunctionContext\n"
@@ -202,8 +178,7 @@ _UNION_SRC = (
 
 
 def test_build_discriminated_union_output() -> None:
-    r = build(_UNION_SRC)
-    out = r.output_schema
+    out = build(_UNION_SRC).output_schema
     assert out is not None
     assert "anyOf" not in out, "a bare anyOf would be rejected by the gate"
     assert "$ref" not in repr(out), "refs must be inlined (the profile forbids $ref)"
@@ -211,13 +186,6 @@ def test_build_discriminated_union_output() -> None:
     assert out["discriminator"]["propertyName"] == "kind"
     for branch in out["oneOf"]:
         assert branch["additionalProperties"] is False  # branches are closed records
-
-    ns = _exec(r.runtime_source)
-    vout = ns["__funcd_validate_output"]
-    assert vout({"kind": "accepted", "id": "x"}) == []  # right branch
-    assert vout({"kind": "rejected", "reason": "nope"}) == []  # other branch
-    assert vout({"kind": "what"}), "an unknown tag must be rejected"
-    assert vout({"kind": "accepted", "id": "x", "extra": 1}), "an extra property must be rejected"
 
 
 # the contract module uses `from __future__ import annotations` (the project's default style) + a
@@ -242,9 +210,6 @@ def test_build_resolves_types_under_future_annotations() -> None:
     assert r.input_schema is not None, "future-annotations must not defeat schema generation"
     assert r.input_schema["properties"]["tier"]["enum"] == ["free", "pro"]
     assert r.input_schema["additionalProperties"] is False
-    ns = _exec(r.runtime_source)
-    assert ns["__funcd_validate_input"]({"name": "a", "tier": "pro"}) == []
-    assert ns["__funcd_validate_input"]({"name": "a", "tier": "enterprise"}), "tier outside the enum"
 
 
 # `FuncInput = Json` (the escape hatch) → the empty schema {} (accepts any JSON).
@@ -256,24 +221,21 @@ def test_build_json_input_is_empty_schema() -> None:
         "def handle(ctx, event):\n"
         "    return None\n"
     )
-    r = build(src)
-    assert r.input_schema == {}, "Json → the empty schema (any JSON)"
-    ns = _exec(r.runtime_source)
-    assert ns["__funcd_validate_input"]({"anything": [1, 2]}) == []  # accepts any JSON
+    assert build(src).input_schema == {}, "Json → the empty schema (any JSON)"
 
 
-# ---- issue r23: a contract using the ADR-0058 profile formats builds ----
+# ---- issue r23: a contract using the ADR-0058 profile formats builds, and its schema names them ----
 
 
 @pytest.mark.parametrize(
-    ("field", "good", "bad"),
+    ("field", "fmt"),
     [
-        ("uuid.UUID", "123e4567-E89B-12d3-a456-426614174000", "123e4567-e89b-12d3-a456"),
-        ("Annotated[int, Field(json_schema_extra={'format': 'int32'})]", 7, "7"),
-        ("Annotated[int, Field(json_schema_extra={'format': 'int64'})]", 2**40, 1.5),
+        ("uuid.UUID", "uuid"),
+        ("Annotated[int, Field(json_schema_extra={'format': 'int32'})]", "int32"),
+        ("Annotated[int, Field(json_schema_extra={'format': 'int64'})]", "int64"),
     ],
 )
-def test_issue_r23_profile_formats_build(field: str, good: Any, bad: Any) -> None:
+def test_issue_r23_profile_formats_build(field: str, fmt: str) -> None:
     src = (
         "import uuid\n"
         "from typing import Annotated\n"
@@ -284,12 +246,10 @@ def test_issue_r23_profile_formats_build(field: str, good: Any, bad: Any) -> Non
         "def handle(ctx, event):\n"
         "    return None\n"
     )
-    vin = _exec(build(src).runtime_source)["__funcd_validate_input"]
-    assert vin({"v": good}) == []
-    assert vin({"v": bad}), f"{bad!r} must not satisfy {field}"
+    assert build(src).input_schema["properties"]["v"]["format"] == fmt
 
 
-# ---- issue r44: both sides baking regexes keep their own patterns ----
+# ---- issue r44: each side keeps its own regex pattern and format ----
 
 
 def test_issue_r44_each_side_keeps_its_regex_patterns() -> None:
@@ -304,9 +264,6 @@ def test_issue_r44_each_side_keeps_its_regex_patterns() -> None:
         "def handle(ctx, event):\n"
         "    return None\n"
     )
-    ns = _exec(build(src).runtime_source)
-    vin, vout = ns["__funcd_validate_input"], ns["__funcd_validate_output"]
-    assert vin({"code": "ABC"}) == []
-    assert vin({"code": "abc"}), "abc must not match ^[A-Z]+$"
-    assert vout({"at": "2026-10-03T12:00:00Z"}) == []
-    assert vout({"at": "yesterday"}), "yesterday is not a date-time"
+    r = build(src)
+    assert r.input_schema["properties"]["code"]["pattern"] == "^[A-Z]+$"
+    assert r.output_schema["properties"]["at"]["format"] == "date-time"

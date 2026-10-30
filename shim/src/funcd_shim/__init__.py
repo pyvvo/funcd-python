@@ -8,9 +8,7 @@ Function authors import the contract types::
         ...
 
 The shim entrypoint is ``python -m funcd_shim`` (see :mod:`funcd_shim.shim`). It serves the
-runtime-shim HTTP contract and validates ``event.data`` / the result against the optional
-``FuncInput`` / ``FuncOutput`` **pydantic models** an artifact declares (ADR-0058, supersedes the
-ADR-0038 JTD ``event_schema``). Requires pydantic at runtime.
+runtime-shim HTTP contract; funcd checks each call against the Function's contract (funcd ADR-0303).
 """
 
 from __future__ import annotations

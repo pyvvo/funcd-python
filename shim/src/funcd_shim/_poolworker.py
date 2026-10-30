@@ -1,7 +1,7 @@
 """Worker-side logic for the funcd Python pool host (ADR-0050), run INSIDE each subinterpreter by
-``InterpreterPoolExecutor``. ``init`` loads the handler + the optional I/O validators once per worker
-interpreter (state persists across invocations); ``invoke`` runs the contract + handler for one
-request and returns a status-tagged envelope; ``load_error`` is a side-effect-free load probe.
+``InterpreterPoolExecutor``. ``init`` loads the handler once per worker interpreter (state persists
+across invocations); ``invoke`` runs the handler for one request and returns a status-tagged
+envelope; ``load_error`` is a side-effect-free load probe.
 
 No ``concurrent.*`` here — plain per-interpreter Python. ``init``/``invoke``/``ready`` are referenced
 by the executor across the interpreter boundary, so they live in this small importable module (the
@@ -19,14 +19,14 @@ import sys
 from collections.abc import Callable, MutableMapping
 from typing import Any, AnyStr, NoReturn
 
-from . import contract, invcontext, jsonwire, runtime
+from . import invcontext, jsonwire, runtime
 from .blob import BlobClient
 from .config import ConfigClient
 from .funclog import install_log_capture, open_channel
 from .invoke import invoke as _invoke
 from .kv import KVClient
 from .lake import LakeClient
-from .runtime import Validators, call_handler
+from .runtime import call_handler
 from .secret import SecretClient
 from .sql import SQLClient
 from .tracespan import InvocationSpan
@@ -34,7 +34,6 @@ from .types import CloudEvent, Handler
 
 # Per-interpreter state, set by init() and read by invoke() — isolated to this worker interpreter.
 _handler: Handler | None = None
-_validators: Validators = Validators()
 _channel: Any = None  # the shared telemetry channel (ADR-0101), opened once in init()
 _member: str | None = None  # this worker's pool member name, sent on the local API and telemetry
 _load_error: str | None = "not loaded"
@@ -135,21 +134,15 @@ def init(
     src: str,
     artifact: str,
     handler: str,
-    contract_path: str | None = None,
     write_lock: tuple[int, int] | None = None,
     name: str | None = None,
     env: dict[str, str] | None = None,
 ) -> None:
-    """Load the handler + I/O validators into this interpreter (the materialization shape-gate,
-    ADR-0058/0123). Runs once per worker. A load failure is kept as text for ``load_error``, not
-    raised: a raising initializer breaks the executor and loses the error. *name* is the pool member,
-    *env* its own environment, which no sibling sees.
-
-    ADR-0123: when *contract_path* is given, compile the validators from the delivered schema
-    (``fastjsonschema.compile``) **before** the untrusted handler module is imported — the bounded
-    eval-free reversal + the m3 reorder. A set-but-broken path fails the worker closed. When absent,
-    fall back to the module-baked ``__funcd_validate_*`` (transition back-compat)."""
-    global _handler, _validators, _channel, _member, _load_error
+    """Load the handler into this interpreter (the materialization shape-gate, ADR-0030). Runs once
+    per worker. A load failure is kept as text for ``load_error``, not raised: a raising initializer
+    breaks the executor and loses the error. *name* is the pool member, *env* its own environment,
+    which no sibling sees."""
+    global _handler, _channel, _member, _load_error
     _isolate_process_state()
     # After the isolation: a member's environ writes skip putenv, so they stay in this interpreter.
     os.environ.update(env or {})
@@ -168,11 +161,8 @@ def init(
     install_log_capture(_channel, member=name)
 
     try:
-        # ADR-0123: compile the delivered contract AHEAD of the handler import (m3 reorder).
-        delivered = contract.load_from_path(contract_path) if contract_path else None
         module = runtime.load_module(artifact)
         _handler = runtime.resolve_handler(module, handler)
-        _validators = delivered if delivered is not None else runtime.resolve_validators(module)
     except (Exception, SystemExit) as err:  # noqa: BLE001 - any load failure fails this member alone
         _load_error = f"{type(err).__name__}: {err}"
         return
@@ -231,10 +221,10 @@ def invoke(
     links: list[str] | None = None,
     deadline: float | None = None,
 ) -> dict[str, Any]:
-    """Run one request: parse → optional input validation → handler → optional output validation →
-    a status-tagged envelope the host maps to the HTTP response (identical to the solo shim). The body
-    is encoded here, so a result with no JSON form is this handler's 500 and never reaches the host.
-    ADR-0101: a successful-past-input-validation request emits a SERVER span on the worker's channel.
+    """Run one request: parse → handler → a status-tagged envelope the host maps to the HTTP response
+    (identical to the solo shim). The body is encoded here, so a result with no JSON form is this
+    handler's 500 and never reaches the host. ADR-0101: each request that reaches the handler emits a
+    SERVER span on the worker's channel.
     *deadline* is the host's ``time.monotonic()`` deadline of the call (funcd ADR-0226): it is watched
     from its start here, and one that starts after its stop does not run."""
     if _handler is None:  # defensive — init() always runs first
@@ -248,24 +238,12 @@ def invoke(
         # Reject it cleanly — never let `event.get("data")` raise AttributeError and crash the pooled
         # worker (that surfaced as a gateway `proxy error: EOF` / empty-body 502).
         return {"status": 400, "text": "request body must be a JSON object (CloudEvent envelope)"}
-    if _validators.input is not None:
-        errors = _validators.input(event.get("data"))
-        if errors:
-            # ADR-0101: input-mismatch short-circuits before the handler → no invocation, no span.
-            return _reply(422, {"error": "event data does not match the input contract", "details": errors})
     with InvocationSpan(_channel, fn_name, traceparent, span_id, links, _member, deadline=deadline) as span:
         try:
             result = call_handler(_handler, _Ctx(), event)
         except BaseException as err:  # noqa: BLE001 - user handler errors, SystemExit too, become 500
             span.fail(str(err))
             return _reply(500, {"error": str(err)})
-        if _validators.output is not None:
-            errors = _validators.output(result)
-            if errors:
-                span.fail("handler result does not match the output contract")
-                return _reply(
-                    500, {"error": "handler result does not match the output contract", "details": errors}
-                )
         if result is None:
             return {"status": 204}
         try:

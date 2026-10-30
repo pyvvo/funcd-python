@@ -29,8 +29,8 @@ keys = context.kv.list("py-counters", "a")         # GET  /kv/py-counters?prefix
 ## Contract (ADR-0122/0123)
 
 [`pycounter.contract.yaml`](pycounter.contract.yaml) is the function's runtime and I/O contract (funcd
-ADR-0247). `funcdctl push` reads it from the bundle's root and pushes it as OCI metadata; the shim compiles a
-validator from it when the worker starts, so a malformed call is rejected (**422**) before the handler
+ADR-0247). `funcdctl push` reads it from the bundle's root and pushes it as OCI metadata; funcd checks each
+call against it (funcd ADR-0303), so a malformed call is rejected (**422**) before the handler
 runs — KV functions are contract-validated, not just KV-enabled.
 
 The function is `pycounter`, not the folder's name, so `pyproject.toml` lists its entry in

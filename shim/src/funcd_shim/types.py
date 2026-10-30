@@ -8,7 +8,6 @@ handler signature checked by ``mypy --strict`` — the same contract the shim en
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
 
 if TYPE_CHECKING:
@@ -24,10 +23,6 @@ if TYPE_CHECKING:
 #: generated contract is the empty schema ``{}`` (accepts any JSON). Python has no ``unknown``, so
 #: this aliases ``Any`` — but the named ``Json`` documents the intent (arbitrary JSON).
 type Json = Any
-
-#: A validator (ADR-0058): validates a value against the artifact's baked JSON Schema, returning a
-#: list of errors ([] ⇒ valid). Pure-Python (subinterpreter-safe); the shim runs it.
-type Validator = Callable[[Any], list[Any]]
 
 
 class CloudEvent[T](TypedDict, total=False):

@@ -14,14 +14,12 @@ import pytest
 
 import funcd_shim._poolworker as pw
 from funcd_shim.funclog import open_channel
-from funcd_shim.runtime import Validators
 
 
 @pytest.fixture
 def loaded_worker(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Inject a trivial echo handler + no validators so ``invoke`` exercises only the decode guard."""
+    """Inject a trivial echo handler so ``invoke`` exercises only the decode guard."""
     monkeypatch.setattr(pw, "_handler", lambda ctx, event: {"echo": event.get("data")})
-    monkeypatch.setattr(pw, "_validators", Validators())  # input/output both None → no contract
     monkeypatch.setattr(pw, "_channel", open_channel())  # no-op channel (no FUNCD_LOG_FD)
 
 
@@ -37,20 +35,6 @@ def test_non_object_body_returns_400(loaded_worker: None, body: str) -> None:
     r = pw.invoke(body)
     assert r["status"] == 400
     assert r["text"] == "request body must be a JSON object (CloudEvent envelope)"
-
-
-def test_contract_mismatch_422_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
-    # A well-formed envelope whose data fails the input validator still returns 422 (no regression).
-    monkeypatch.setattr(pw, "_handler", lambda ctx, event: {"ok": True})
-    monkeypatch.setattr(pw, "_channel", open_channel())
-
-    def reject(_data: object) -> list[str]:
-        return ["data must be object"]
-
-    monkeypatch.setattr(pw, "_validators", Validators(input=reject))
-    r = pw.invoke('{"data":123}')
-    assert r["status"] == 422
-    assert json.loads(r["body"])["error"] == "event data does not match the input contract"
 
 
 def test_worker_survives_bad_input(loaded_worker: None) -> None:
