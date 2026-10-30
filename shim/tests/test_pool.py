@@ -22,9 +22,10 @@ from pathlib import Path
 import fastjsonschema
 import pytest
 from fakeapi import HOLD, DependencyAPI, UnixHTTPServer
+from loopback import warm_calls
 
 from funcd_shim import deadline
-from funcd_shim.pool import _Pooled, load_timeout_s
+from funcd_shim.pool import _Pooled, load_timeout_s, make_request_handler
 
 pytest.importorskip("concurrent.interpreters")  # Python 3.14+ only
 
@@ -317,6 +318,13 @@ def test_pool_keep_alive_no_desync(tmp_path: Path) -> None:
     finally:
         proc.terminate()
         proc.wait(timeout=5)
+
+
+def test_issue_1337_pool_warm_calls_do_not_wait_for_a_delayed_ack() -> None:
+    # The pool host answers in two writes too: see test_issue_1337_warm_calls_do_not_wait_for_a_delayed_ack.
+    median_ms, nodelay = warm_calls(make_request_handler({}), "GET", "/health/liveness")
+    assert median_ms < 20
+    assert nodelay
 
 
 def test_pool_isolates(tmp_path: Path) -> None:
