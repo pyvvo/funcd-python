@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/pyvvo/funcd-python/compare/v0.18.0...v0.18.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **shim:** warm calls no longer wait for the client's delayed ACK ([#109](https://github.com/pyvvo/funcd-python/issues/109)) ([974fad1](https://github.com/pyvvo/funcd-python/commit/974fad16ba0c1112b0b903fb13bfccad554b6e56))
+
 ## [0.18.0](https://github.com/pyvvo/funcd-python/compare/v0.17.0...v0.18.0) (2026-10-27)
 
 
