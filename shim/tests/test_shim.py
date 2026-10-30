@@ -29,8 +29,8 @@ import pytest
 from fakeapi import CLOSE, HOLD, DependencyAPI
 from loopback import warm_calls
 
-from funcd_shim import contract, runtime, shim
-from funcd_shim.types import CloudEvent, FunctionContext, Validator
+from funcd_shim import shim
+from funcd_shim.types import CloudEvent, FunctionContext
 
 ECHO = (
     "def handle(context, event):\n"
@@ -45,26 +45,9 @@ PATCHED_ENTRY = (
 )
 
 
-# fake precompiled validators (stand-ins for what pydantic models produce via resolve_validators).
-def hello_input(data: Any) -> list[Any]:
-    ok = isinstance(data, dict) and isinstance(data.get("hello"), str)
-    return [] if ok else [{"msg": "hello must be a string"}]
-
-
-def ok_output(result: Any) -> list[Any]:
-    ok = isinstance(result, dict) and isinstance(result.get("ok"), bool)
-    return [] if ok else [{"msg": "ok must be a boolean"}]
-
-
-def void_output(result: Any) -> list[Any]:
-    return [] if result is None else [{"msg": "expected no body"}]
-
-
 @contextmanager
-def serve(handler: Any, validators: runtime.Validators | None = None) -> Iterator[str]:
-    server = ThreadingHTTPServer(
-        ("127.0.0.1", 0), shim.make_request_handler(handler, validators or runtime.Validators())
-    )
+def serve(handler: Any) -> Iterator[str]:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), shim.make_request_handler(handler))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -299,51 +282,6 @@ def test_liveness_never_calls_funcd(dependency_api: DependencyAPI, monkeypatch: 
     assert dependency_api.calls == []
 
 
-def test_input_contract_valid_passes() -> None:
-    with serve(_echo, runtime.Validators(input=hello_input)) as base:
-        status, _ = post(base, json.dumps({"data": {"hello": "world"}}))
-        assert status == 200
-
-
-def test_input_contract_mismatch_422_and_handler_not_called() -> None:
-    called = {"n": 0}
-
-    def counting(ctx: FunctionContext, event: CloudEvent[Any]) -> Any:
-        called["n"] += 1
-        return {}
-
-    with serve(counting, runtime.Validators(input=hello_input)) as base:
-        status, body = post(base, json.dumps({"data": {"hello": 5}}))
-        assert status == 422
-        payload = json.loads(body)
-        assert payload["error"] == "event data does not match the input contract"
-        assert payload["details"]
-        assert called["n"] == 0
-
-
-def test_output_contract_mismatch_500() -> None:
-    with serve(lambda ctx, e: {"wrong": True}, runtime.Validators(output=ok_output)) as base:
-        status, body = post(base, json.dumps({"data": {}}))
-        assert status == 500
-        payload = json.loads(body)
-        assert payload["error"] == "handler result does not match the output contract"
-        assert payload["details"]
-
-
-def test_void_output_contract_empty_204_nonempty_500() -> None:
-    with serve(lambda ctx, e: None, runtime.Validators(output=void_output)) as base:
-        assert post(base, "{}")[0] == 204
-    with serve(lambda ctx, e: {"surprise": True}, runtime.Validators(output=void_output)) as base:
-        assert post(base, "{}")[0] == 500
-
-
-def test_json_input_accepts_anything() -> None:
-    json_input: Validator = lambda data: []  # noqa: E731 - generated from FuncInput = Json ({})
-    with serve(_echo, runtime.Validators(input=json_input)) as base:
-        status, _ = post(base, json.dumps({"data": ["literally", 1, True]}))
-        assert status == 200
-
-
 def test_no_contract_unvalidated() -> None:
     with serve(_echo) as base:
         status, _ = post(base, json.dumps({"data": "anything goes"}))
@@ -379,7 +317,7 @@ def test_issue_1337_warm_calls_do_not_wait_for_a_delayed_ack() -> None:
     # client's delayed ACK of the headers: about 40 ms on Linux. macOS acknowledges at once on loopback, so
     # there only the socket option shows it.
     median_ms, nodelay = warm_calls(
-        shim.make_request_handler(_echo, runtime.Validators()), "POST", "/", b'{"data":{"hello":"world"}}'
+        shim.make_request_handler(_echo), "POST", "/", b'{"data":{"hello":"world"}}'
     )
     assert median_ms < 20
     assert nodelay
@@ -450,12 +388,6 @@ def test_issue_r21_response_json_is_written_like_json_stringify() -> None:
 
     with serve(boom) as base:
         assert post(base, "{}") == (500, '{"error":"échec"}'.encode())
-    mismatch = (
-        b'{"error":"event data does not match the input contract",'
-        b'"details":[{"msg":"hello must be a string"}]}'
-    )
-    with serve(_echo, runtime.Validators(input=hello_input)) as base:
-        assert post(base, '{"data": {"hello": 5}}') == (422, mismatch)
 
 
 def test_issue_r43_response_floats_are_written_like_json_stringify() -> None:
@@ -469,129 +401,19 @@ def test_issue_r43_response_floats_are_written_like_json_stringify() -> None:
 
 
 @pytest.mark.parametrize(
-    "validators",
-    [runtime.Validators(), runtime.Validators(input=lambda data: [])],
-    ids=["no-contract", "json-contract"],
-)
-@pytest.mark.parametrize(
     "body", ["NaN", '{"data": NaN}', '{"data": [Infinity]}', '{"data": {"v": -Infinity}}']
 )
-def test_issue_131_non_finite_request_returns_400(validators: runtime.Validators, body: str) -> None:
-    with serve(_echo, validators) as base:
+def test_issue_131_non_finite_request_returns_400(body: str) -> None:
+    with serve(_echo) as base:
         assert post(base, body)[0] == 400
 
 
 @pytest.mark.parametrize("body", ["null", "[1, 2]", "42", '"s"', "true"])
 def test_issue_131_non_object_body_returns_400(body: str) -> None:
-    with serve(_echo, runtime.Validators(input=lambda data: [])) as base:
+    with serve(_echo) as base:
         status, payload = post(base, body)
         assert status == 400
         assert payload == b"request body must be a JSON object (CloudEvent envelope)"
-
-
-# ---- ADR-0123: runtime-compiled validators (from FUNCD_CONTRACT_PATH) enforce the same wire ----
-
-
-def test_runtime_compiled_validators_enforce_wire(tmp_path: Path) -> None:
-    # scenario: runtime-compiles-validator — validators compiled from the delivered schema (not a
-    # baked callable) enforce input→422 / output→500 / void→204, byte-identical to the baked path.
-    blob = tmp_path / "c.json"
-    blob.write_text(
-        json.dumps(
-            {
-                "input": {
-                    "type": "object",
-                    "properties": {"hello": {"type": "string"}},
-                    "required": ["hello"],
-                    "additionalProperties": False,
-                },
-                "output": {
-                    "type": "object",
-                    "properties": {"ok": {"type": "boolean"}},
-                    "required": ["ok"],
-                    "additionalProperties": False,
-                },
-            }
-        )
-    )
-    validators = contract.load_from_path(str(blob))
-
-    # bad input → 422 (handler not called)
-    with serve(lambda ctx, e: {"ok": True}, validators) as base:
-        assert post(base, json.dumps({"data": {"hello": 5}}))[0] == 422
-    # good input, bad output → 500
-    with serve(lambda ctx, e: {"wrong": True}, validators) as base:
-        assert post(base, json.dumps({"data": {"hello": "hi"}}))[0] == 500
-    # good input, good output → 200
-    with serve(lambda ctx, e: {"ok": True}, validators) as base:
-        assert post(base, json.dumps({"data": {"hello": "hi"}}))[0] == 200
-
-    # void output side → 204 on empty, 500 on non-empty
-    (blob.parent / "v.json").write_text(json.dumps({"input": {}, "output": {"type": "null"}}))
-    void = contract.load_from_path(str(blob.parent / "v.json"))
-    with serve(lambda ctx, e: None, void) as base:
-        assert post(base, "{}")[0] == 204
-    with serve(lambda ctx, e: {"surprise": True}, void) as base:
-        assert post(base, "{}")[0] == 500
-
-
-# ---- ADR-0150: int64 is the JSON safe-integer range -(2**53 - 1)..2**53 - 1 on every runtime ----
-
-_INT64_SIDE = {
-    "type": "object",
-    "properties": {"n": {"type": "integer", "format": "int64"}},
-    "required": ["n"],
-    "additionalProperties": False,
-}
-
-
-def _int64_contract(tmp_path: Path, input_side: Any, output_side: Any) -> runtime.Validators:
-    blob = tmp_path / "int64.json"
-    blob.write_text(json.dumps({"input": input_side, "output": output_side}))
-    return contract.load_from_path(str(blob))
-
-
-def _int64_event(n: int) -> str:
-    return f'{{"data": {{"n": {n}}}}}'
-
-
-def test_scenario_int64_safe_max_accepted(tmp_path: Path) -> None:
-    validators = _int64_contract(tmp_path, _INT64_SIDE, _INT64_SIDE)
-    seen: list[Any] = []
-
-    def handler(context: FunctionContext, event: CloudEvent[Any]) -> Any:
-        seen.append(event["data"]["n"])
-        return event["data"]
-
-    with serve(handler, validators) as base:
-        for n in (2**53 - 1, -(2**53 - 1)):
-            status, payload = post(base, _int64_event(n))
-            assert status == 200, n
-            assert json.loads(payload) == {"n": n}
-    assert seen == [2**53 - 1, -(2**53 - 1)]
-
-
-def test_scenario_int64_over_safe_range_rejected(tmp_path: Path) -> None:
-    validators = _int64_contract(tmp_path, _INT64_SIDE, {})
-    calls: list[Any] = []
-    with serve(lambda ctx, e: calls.append(e), validators) as base:
-        for n in (2**53, 2**53 + 1, 2**70):
-            assert post(base, _int64_event(n))[0] == 422, n
-    assert calls == []
-
-
-def test_scenario_int64_under_safe_range_rejected(tmp_path: Path) -> None:
-    validators = _int64_contract(tmp_path, _INT64_SIDE, {})
-    calls: list[Any] = []
-    with serve(lambda ctx, e: calls.append(e), validators) as base:
-        assert post(base, _int64_event(-(2**53)))[0] == 422
-    assert calls == []
-
-
-def test_scenario_int64_output_over_safe_range_is_500(tmp_path: Path) -> None:
-    validators = _int64_contract(tmp_path, {}, _INT64_SIDE)
-    with serve(lambda ctx, e: {"n": 2**60}, validators) as base:
-        assert post(base, "{}")[0] == 500
 
 
 # ---- main() shape-gate exit codes (return before serving) ----
@@ -622,7 +444,7 @@ def test_main_bad_handler_exit_3(monkeypatch: Any, tmp_path: Path, sigterm_handl
 
 
 def spawn(
-    tmp_path: Path, body: str, pid1: bool = False, **constants: float
+    tmp_path: Path, body: str, pid1: bool = False, env: dict[str, str] | None = None, **constants: float
 ) -> tuple[subprocess.Popen[bytes], int]:
     """Run the shim on the artifact *body* as funcd does, with the delays of funcd_shim.deadline set to
     *constants* and, with *pid1*, as if it were PID 1; return it with its port once it listens."""
@@ -641,6 +463,7 @@ def spawn(
             "FUNCD_PORTFILE": str(port_file),
             "PATH": "/usr/bin:/bin",
             "PYTHONPATH": SRC,
+            **(env or {}),
         },
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -664,6 +487,22 @@ def test_subprocess_portfile_handshake_and_contract(tmp_path: Path) -> None:
         status, body = post(f"http://127.0.0.1:{port}", json.dumps({"data": {"k": "v"}}))
         assert status == 200
         assert json.loads(body) == {"echoed": {"k": "v"}}
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+# funcd ADR-0303: funcd checks each call's input and result, so the shim runs the handler whatever a delivered
+# contract or a validator the module still exports would say.
+def test_the_shim_checks_no_contract(tmp_path: Path) -> None:
+    contract = tmp_path / "contract.json"
+    contract.write_text(json.dumps({"input": {"type": "null"}, "output": {"type": "null"}}))
+    baked = "def __funcd_validate_input(d):\n    return ['rejected']\n"
+    proc, port = spawn(tmp_path, baked + ECHO, env={"FUNCD_CONTRACT_PATH": str(contract)})
+    try:
+        status, body = post(f"http://127.0.0.1:{port}", json.dumps({"data": {"hello": 5}}))
+        assert status == 200
+        assert json.loads(body) == {"echoed": {"hello": 5}}
     finally:
         proc.terminate()
         proc.wait(timeout=5)

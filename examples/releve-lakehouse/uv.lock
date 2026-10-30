@@ -425,6 +425,7 @@ build = [
     { name = "reportlab" },
 ]
 dev = [
+    { name = "fastjsonschema" },
     { name = "funcd-bundle" },
     { name = "mypy" },
     { name = "pytest" },
@@ -447,6 +448,7 @@ build = [
     { name = "reportlab", specifier = ">=5.0.0" },
 ]
 dev = [
+    { name = "fastjsonschema", specifier = ">=2.21.2" },
     { name = "funcd-bundle", editable = "../../bundle" },
     { name = "mypy", specifier = ">=1.13" },
     { name = "pytest", specifier = ">=8.3" },
@@ -459,15 +461,9 @@ dev = [
 name = "funcd-shim"
 version = "0.1.0"
 source = { editable = "../../shim" }
-dependencies = [
-    { name = "fastjsonschema" },
-]
 
 [package.metadata]
-requires-dist = [
-    { name = "fastjsonschema", specifier = ">=2.21.2" },
-    { name = "pydantic", marker = "extra == 'build'", specifier = ">=2.13.4" },
-]
+requires-dist = [{ name = "pydantic", marker = "extra == 'build'", specifier = ">=2.13.4" }]
 provides-extras = ["build"]
 
 [package.metadata.requires-dev]

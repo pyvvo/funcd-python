@@ -7,9 +7,9 @@ function: ``context.kv`` → worker-node local API (UDS) → PDP-authorized Faca
 Badger driver (ADR-0066).
 
 The I/O contract is the two ``TypedDict``\\s ``FuncInput`` / ``FuncOutput``. The push build reads
-them to generate a closed JSON Schema and bakes a precompiled, eval-free ``fastjsonschema`` validator
-into the artifact (ADR-0058/0060) — so a bad-shaped event returns **422** before ``handle`` runs and
-a bad return is a **500**, exactly like the JS sibling.
+them to generate a closed JSON Schema, and funcd checks each call against it (funcd ADR-0303) — so a
+bad-shaped event returns **422** before ``handle`` runs and a bad return is a **500**, exactly like the
+JS sibling.
 """
 
 from typing import TypedDict
@@ -32,7 +32,7 @@ class FuncOutput(TypedDict):
 
 def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput:
     """Increment the per-name counter via the ``pycounters`` KV binding and return it."""
-    # The shim validated event["data"] against FuncInput (422 otherwise), so it is present here.
+    # funcd checked event["data"] against FuncInput (422 otherwise), so it is present here.
     assert "data" in event
     name = event["data"]["name"]
     count = int(context.kv.get_str("pycounters", name) or 0) + 1

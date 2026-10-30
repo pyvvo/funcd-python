@@ -19,7 +19,6 @@ from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
-import fastjsonschema
 import pytest
 from fakeapi import HOLD, DependencyAPI, UnixHTTPServer
 from loopback import warm_calls
@@ -37,27 +36,7 @@ PATCHED_ENTRY = (
     "from funcd_shim import deadline\n{patch}from funcd_shim.pool import main\nraise SystemExit(main())\n"
 )
 
-# A REAL fastjsonschema-compiled __funcd_validate_input (what the build bakes) — this proves
-# fastjsonschema's compiled validator runs end-to-end inside the subinterpreter pool (the whole
-# reason we chose it over pydantic-core, which crashes a subinterpreter).
-_SCHEMA = {
-    "type": "object",
-    "properties": {"hello": {"type": "string"}},
-    "required": ["hello"],
-    "additionalProperties": False,
-}
-_VALIDATOR = fastjsonschema.compile_to_code(_SCHEMA)
-ECHO = (
-    _VALIDATOR + "\n"
-    "def __funcd_validate_input(d):\n"
-    "    try:\n"
-    "        validate(d)\n"
-    "        return []\n"
-    "    except JsonSchemaValueException as e:\n"
-    "        return [str(e)]\n"
-    "def handle(context, event):\n"
-    "    return {'echoed': event.get('data')}\n"
-)
+ECHO = "def handle(context, event):\n    return {'echoed': event.get('data')}\n"
 COUNTER = (
     "_count = 0\n"
     "def handle(context, event):\n"
@@ -198,10 +177,6 @@ def test_pool_colocates_and_contract(tmp_path: Path) -> None:
             st, body = _post(port, name, json.dumps({"data": {"hello": "world"}}))
             assert st == 200, body
             assert json.loads(body) == {"echoed": {"hello": "world"}}
-        # input-contract mismatch → 422 (the baked fastjsonschema validator, ADR-0058/0060)
-        st, body = _post(port, "f0", json.dumps({"data": {"hello": 5}}))
-        assert st == 422
-        assert json.loads(body)["error"] == "event data does not match the input contract"
         # health + unknown route
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/health/readiness", timeout=5) as r:  # noqa: S310
             assert r.status == 200
@@ -232,11 +207,6 @@ def test_issue_r21_pool_response_json_is_written_like_json_stringify(tmp_path: P
     try:
         hello = '{"echoed":{"hello":"é"}}'.encode()
         assert _post(port, "f0", json.dumps({"data": {"hello": "é"}})) == (200, hello)
-        mismatch = (
-            b'{"error":"event data does not match the input contract",'
-            b'"details":["data.hello must be string"]}'
-        )
-        assert _post(port, "f0", json.dumps({"data": {"hello": 5}})) == (422, mismatch)
     finally:
         proc.terminate()
         proc.wait(timeout=5)
@@ -602,41 +572,22 @@ def test_issue_81_concurrent_pool_logs_keep_records_whole(tmp_path: Path) -> Non
     assert tags.count("f1") == lines
 
 
-def test_pool_delivered_contract_enforces(tmp_path: Path) -> None:
-    # scenario: runtime-compiles-validator (pool) — a member whose manifest carries a "contract"
-    # path gets its validator COMPILED from that delivered schema at init (no baked symbol), and
-    # enforces input→422 exactly like the solo shim.
-    art = tmp_path / "schema_only.py"
-    # a schema-only handler: NO __funcd_validate_* baked in — validation comes from the contract.
-    art.write_text("def handle(context, event):\n    return {'echoed': event.get('data')}\n")
+def test_pool_checks_no_contract(tmp_path: Path) -> None:
+    # funcd ADR-0303: funcd checks each call's input and result, so a member runs its handler whatever the
+    # contract its manifest names or a validator the module still exports would say.
+    art = tmp_path / "baked.py"
+    art.write_text("def __funcd_validate_input(d):\n    return ['rejected']\n" + ECHO)
     cpath = tmp_path / "contract.json"
-    cpath.write_text(
-        json.dumps(
-            {
-                "input": {
-                    "type": "object",
-                    "properties": {"hello": {"type": "string"}},
-                    "required": ["hello"],
-                    "additionalProperties": False,
-                },
-                "output": {},
-            }
-        )
-    )
+    cpath.write_text(json.dumps({"input": {"type": "null"}, "output": {"type": "null"}}))
     mpath = tmp_path / "m.json"
     mpath.write_text(
-        json.dumps(
-            [
-                {"name": "f0", "artifact": str(art), "handler": "handle", "contract": str(cpath)},
-            ]
-        )
+        json.dumps([{"name": "f0", "artifact": str(art), "handler": "handle", "contract": str(cpath)}])
     )
-
     proc, port = _start(tmp_path, mpath)
     try:
-        assert _post(port, "f0", json.dumps({"data": {"hello": "world"}}))[0] == 200
         st, body = _post(port, "f0", json.dumps({"data": {"hello": 5}}))
-        assert st == 422, body
+        assert st == 200, body
+        assert json.loads(body) == {"echoed": {"hello": 5}}
     finally:
         proc.terminate()
         proc.wait(timeout=5)
@@ -794,25 +745,6 @@ def test_scenario_pool_member_load_failure(tmp_path: Path) -> None:
         assert _post(port, "c", "{}")[0] == 200
         assert _post(port, "b", "{}") == (503, b'{"error": "function b unavailable"}')
         assert proc.poll() is None, "the host keeps running"
-    finally:
-        proc.terminate()
-        proc.wait(timeout=5)
-
-
-def test_pool_member_with_a_broken_contract_fails_closed(tmp_path: Path) -> None:
-    # scenario: no-fail-open (pool) — a member with a set-but-missing contract path never serves
-    # un-validated: it is failed and answers 503, while a sibling serves.
-    ok = "def handle(context, event):\n    return None\n"
-    mpath = _rows(
-        tmp_path,
-        [{"name": "f0", "body": ok, "contract": str(tmp_path / "absent.json")}, {"name": "f1", "body": ok}],
-    )
-    proc, port = _start(tmp_path, mpath)
-    try:
-        members = _settled(port)
-        assert [(m["name"], m["state"]) for m in members] == [("f0", "failed"), ("f1", "ready")]
-        assert _post(port, "f0", "{}")[0] == 503
-        assert _post(port, "f1", "{}")[0] == 204
     finally:
         proc.terminate()
         proc.wait(timeout=5)

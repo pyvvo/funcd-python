@@ -6,16 +6,17 @@ correlates each request↔response, so there is no hand-rolled queue/dispatch.
 
 Reads ``FUNCD_POOL_MANIFEST`` (the SAME ``[{name, artifact, handler}]`` contract as ``pool.mjs``),
 serves ``POST /function/<name>`` by submitting the request to the named handler's interpreter — with
-the byte-identical wire contract + JSON Schema I/O validation (ADR-0058, ADR-0123) as the solo shim
-(ADR-0049) — plus ``GET /health/{readiness,liveness,members}``; each ``/health/members`` entry of a ready
+the byte-identical wire contract as the solo shim (ADR-0049) — plus
+``GET /health/{readiness,liveness,members}``; each ``/health/members`` entry of a ready
 member carries funcd's dependency report when its check fails (funcd ADR-0215). Liveness answers 503
 ``stuck call`` while a member runs a call 11 s after its deadline (funcd ADR-0226). Bind: ``FUNCD_PORT`` →
 ``0.0.0.0:PORT`` (container) else ``FUNCD_PORTFILE`` → loopback + write the port (process).
 
 The host serves at once and loads every member concurrently, each bounded by
-``FUNCD_POOL_LOAD_TIMEOUT_MS``: a member whose handler/contract fails to load, or does not load in
-time, is ``failed`` (calls get 503) while its siblings serve. A manifest row's ``env`` reaches only
-that member. Runtime dependency: fastjsonschema (the validators, ADR-0071).
+``FUNCD_POOL_LOAD_TIMEOUT_MS``: a member whose handler fails to load, or does not load in time, is
+``failed`` (calls get 503) while its siblings serve. A manifest row's ``env`` reaches only that
+member. funcd checks each call's input and result against the member's contract (funcd ADR-0303), so
+the pool checks neither.
 """
 
 from __future__ import annotations
@@ -59,13 +60,10 @@ class _Pooled:
         src: str,
         artifact: str,
         handler: str,
-        contract: str | None = None,
         write_lock: tuple[int, int] | None = None,
         name: str | None = None,
         env: dict[str, str] | None = None,
     ) -> None:
-        # ADR-0123: contract is the delivered contract-blob path (from the manifest's "contract"
-        # field); the worker compiles its validator from it at init, ahead of the handler import.
         self.name = name
         self.state = "loading"
         self.error: str | None = None
@@ -74,7 +72,7 @@ class _Pooled:
         self.ex = InterpreterPoolExecutor(
             max_workers=1,
             initializer=_poolworker.init,
-            initargs=(src, artifact, handler, contract, write_lock, name, env),
+            initargs=(src, artifact, handler, write_lock, name, env),
         )
 
     def load(self, timeout_s: float) -> None:
@@ -252,7 +250,6 @@ def main() -> int:
             src,
             entry["artifact"],
             entry["handler"],
-            entry.get("contract"),
             write_lock,
             entry["name"],
             entry.get("env"),

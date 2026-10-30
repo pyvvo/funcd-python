@@ -1,19 +1,17 @@
-"""funcd_build — the BUILD-TIME contract compiler for Python artifacts (ADR-0058/0060).
+"""funcd_build — the BUILD-TIME contract build for Python artifacts (ADR-0058/0060).
 
 Runs on the push box (pydantic available), **never** in the worker. For an author source declaring
 ``FuncInput`` / ``FuncOutput`` pydantic models, it:
 
   1. loads the module, reads the models → **JSON Schema** (``pydantic.model_json_schema``);
-  2. compiles a precompiled validator from each schema (``fastjsonschema.compile_to_code``);
-  3. **AST-transforms** the source into the RUNTIME artifact: the ``pydantic`` imports + the
-     ``FuncInput``/``FuncOutput`` classes are stripped, ``from __future__ import annotations`` is
-     ensured (so any leftover annotation referencing a removed class is a string, never evaluated),
-     and the precompiled ``__funcd_validate_*`` are injected.
+  2. **AST-transforms** the source into the RUNTIME artifact: the ``pydantic`` imports + the
+     ``FuncInput``/``FuncOutput`` classes are stripped, and ``from __future__ import annotations`` is
+     ensured (so any leftover annotation referencing a removed class is a string, never evaluated).
 
 Returns the runtime source + the schemas. The schemas feed ``funcdctl push --contract`` → the Go
-profile gate (``internal/contract``); funcd compiled the validator FROM the gated schema, so the
-runtime enforcement and the advertised schema share one source (the ADR-0060 integrity invariant).
-This module is NOT embedded into the binary (see ``embed.go``) — it never reaches a worker.
+profile gate (``internal/contract``), and funcd checks each call against them (funcd ADR-0303), so
+the build bakes no validator. This module is NOT embedded into the binary (see ``embed.go``) — it
+never reaches a worker.
 """
 
 from __future__ import annotations
@@ -24,19 +22,14 @@ import types
 from dataclasses import dataclass
 from typing import Any, cast
 
-import fastjsonschema
 from pydantic import TypeAdapter
-
-from .contract import _PROFILE_FORMATS
 
 _CONTRACT = ("FuncInput", "FuncOutput")
 
 _build_seq = 0  # makes each synthetic contract module's name unique (avoids pydantic's type cache)
 
 # The canonical void side (ADR-0090): "takes/returns nothing" is the explicit JSON Schema
-# {"type":"null"}, not an omission. Its validator is compiled FROM this schema through the same
-# fastjsonschema path as every other side (a null-only check), so ADR-0060's "validator ≡ advertised
-# schema" invariant holds uniformly — there is no hand-baked void validator.
+# {"type":"null"}, not an omission.
 _VOID_SCHEMA: dict[str, Any] = {"type": "null"}
 
 
@@ -53,7 +46,7 @@ class BuildResult:
 
 
 def build(source: str) -> BuildResult:
-    """Compile an author source into its runtime artifact + I/O JSON Schemas (ADR-0058/0060)."""
+    """Build an author source into its runtime artifact + I/O JSON Schemas (ADR-0058/0060)."""
     global _build_seq
     _build_seq += 1
     # Exec into a REAL, sys.modules-registered module (not a bare dict) so the contract classes get a
@@ -71,16 +64,7 @@ def build(source: str) -> BuildResult:
     finally:
         sys.modules.pop(name, None)
 
-    # Every side — void included — is compiled to its validator FROM its emitted schema through the
-    # SAME fastjsonschema path (ADR-0090/0060 invariant): {"type": "null"} compiles to a null-only
-    # check, so there is no place where the advertised schema and the enforced validator diverge.
-    baked = [
-        _validator_source(in_schema, "__funcd_validate_input", "i"),
-        _validator_source(out_schema, "__funcd_validate_output", "o"),
-    ]
-
-    runtime = _strip_and_bake(source, "\n".join(baked))
-    return BuildResult(runtime, in_schema, out_schema)
+    return BuildResult(_strip(source), in_schema, out_schema)
 
 
 def _side_schema(ns: dict[str, Any], marker: str) -> dict[str, Any]:
@@ -236,50 +220,10 @@ def _close_records(node: dict[str, Any]) -> dict[str, Any]:
     return node
 
 
-def _validator_source(schema: dict[str, Any], export: str, prefix: str) -> str:
-    """fastjsonschema-compile *schema* and wrap it as ``export(d) -> list`` ([] ⇒ valid). The
-    generated functions and module globals are AST-renamed with a per-side prefix so baking input AND
-    output never collide on fastjsonschema's fixed names (``validate``, ``REGEX_PATTERNS``)."""
-    tree = ast.parse(fastjsonschema.compile_to_code(schema, formats=_PROFILE_FORMATS))
-    assigned = (t for n in tree.body if isinstance(n, ast.Assign) for t in n.targets)
-    names = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
-    names |= {t.id for t in assigned if isinstance(t, ast.Name)}
-    _Prefixer(names, f"_funcd_{prefix}_").visit(tree)
-    renamed = ast.unparse(ast.fix_missing_locations(tree))
-    wrapper = (
-        f"def {export}(d):\n"
-        f"    try:\n"
-        f"        _funcd_{prefix}_validate(d)\n"
-        f"        return []\n"
-        f"    except JsonSchemaValueException as e:\n"
-        f"        return [str(e)]\n"
-    )
-    return renamed + "\n" + wrapper
-
-
-class _Prefixer(ast.NodeTransformer):
-    """Renames a fixed set of top-level names (and their references) with a prefix."""
-
-    def __init__(self, names: set[str], prefix: str) -> None:
-        self._names = names
-        self._prefix = prefix
-
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
-        if node.name in self._names:
-            node.name = self._prefix + node.name
-        self.generic_visit(node)
-        return node
-
-    def visit_Name(self, node: ast.Name) -> ast.Name:
-        if node.id in self._names:
-            node.id = self._prefix + node.id
-        return node
-
-
-def _strip_and_bake(source: str, baked: str) -> str:
-    """Remove the pydantic imports + the FuncInput/FuncOutput contract decls from *source*, ensure
-    `from __future__ import annotations` at the top, and inject the baked validators ahead of the
-    handler — producing a runtime artifact a subinterpreter can load with no pydantic."""
+def _strip(source: str) -> str:
+    """Remove the pydantic imports + the FuncInput/FuncOutput contract decls from *source* and ensure
+    `from __future__ import annotations` at the top — producing a runtime artifact a subinterpreter can
+    load with no pydantic."""
     tree = ast.parse(source)
     body: list[ast.stmt] = []
     for i, node in enumerate(tree.body):
@@ -296,8 +240,7 @@ def _strip_and_bake(source: str, baked: str) -> str:
         body.append(node)
 
     future = ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0)
-    baked_nodes = ast.parse(baked).body if baked.strip() else []
-    final = ast.Module(body=[future, *baked_nodes, *body], type_ignores=[])
+    final = ast.Module(body=[future, *body], type_ignores=[])
     return ast.unparse(ast.fix_missing_locations(final))
 
 

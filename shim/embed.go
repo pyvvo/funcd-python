@@ -1,8 +1,8 @@
 // Package python embeds the funcd Python runtime shim (ADR-0049) into the binary, so the single
 // self-contained `funcd` daemon ships it with no sidecar (ADR-0036, mirroring shim/nodejs). The
 // daemon extracts the package tree to its data dir on boot and points WithRuntimeShimFor("python", …)
-// at the extracted entry script. The shim calls the artifact's precompiled fastjsonschema validator
-// (ADR-0058 — pure-Python, subinterpreter-safe); pydantic + fastjsonschema run only at build time.
+// at the extracted entry script. funcd checks each call's input and result against the Function's
+// contract (funcd ADR-0303), so the shim checks neither; pydantic runs only at build time.
 package python
 
 import (
@@ -16,12 +16,11 @@ import (
 // __main__.py that an `all:` glob would need but that would also drag in __pycache__/*.pyc. Listing
 // the sources by name embeds exactly the shim, nothing machine-generated. Every module the extracted
 // shim imports at runtime is listed — solo (shim.py) and pool (pool.py/_poolworker.py) both import
-// funclog + tracespan (+ tracespan→invcontext) at load, and contract.py (ADR-0123) is compiled at
-// worker init; kv.py backs context.kv, sql.py context.sql, and config.py, secret.py and lake.py
-// context.config, context.secret and context.lake. build.py is the push-time AST baker
-// (build-only) — not shipped.
+// funclog + tracespan (+ tracespan→invcontext) at load; kv.py backs context.kv, sql.py context.sql,
+// and config.py, secret.py and lake.py context.config, context.secret and context.lake. build.py is
+// the push-time contract build (build-only) — not shipped.
 //
-//go:embed src/funcd_shim/__init__.py src/funcd_shim/__main__.py src/funcd_shim/shim.py src/funcd_shim/invoke.py src/funcd_shim/pool.py src/funcd_shim/_poolworker.py src/funcd_shim/runtime.py src/funcd_shim/types.py src/funcd_shim/jsonwire.py src/funcd_shim/contract.py src/funcd_shim/funclog.py src/funcd_shim/tracespan.py src/funcd_shim/invcontext.py src/funcd_shim/kv.py src/funcd_shim/blob.py src/funcd_shim/sql.py src/funcd_shim/config.py src/funcd_shim/secret.py src/funcd_shim/lake.py src/funcd_shim/deadline.py src/funcd_shim/py.typed
+//go:embed src/funcd_shim/__init__.py src/funcd_shim/__main__.py src/funcd_shim/shim.py src/funcd_shim/invoke.py src/funcd_shim/pool.py src/funcd_shim/_poolworker.py src/funcd_shim/runtime.py src/funcd_shim/types.py src/funcd_shim/jsonwire.py src/funcd_shim/funclog.py src/funcd_shim/tracespan.py src/funcd_shim/invcontext.py src/funcd_shim/kv.py src/funcd_shim/blob.py src/funcd_shim/sql.py src/funcd_shim/config.py src/funcd_shim/secret.py src/funcd_shim/lake.py src/funcd_shim/deadline.py src/funcd_shim/py.typed
 var shimFS embed.FS
 
 // The entry scripts launch the package: Python prepends a script's own directory to sys.path, so

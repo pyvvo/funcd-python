@@ -15,7 +15,8 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["funcd-bundle", "mypy>=1.13", "pytest>=8.3", "pyyaml>=6.0.2", "ruff>=0.8", "types-pyyaml>=6.0.12"]
+# fastjsonschema (BSD-3) checks the README's run inputs against the contracts (tests/test_resources.py).
+dev = ["fastjsonschema>=2.21.2", "funcd-bundle", "mypy>=1.13", "pytest>=8.3", "pyyaml>=6.0.2", "ruff>=0.8", "types-pyyaml>=6.0.12"]
 # reportlab and faker (MIT) generate the synthetic statements (landing/generate_synthetic.py).
 build = [
     "reportlab>=5.0.0",
@@ -51,6 +52,10 @@ exclude = ['dist/']
 
 [[tool.mypy.overrides]]
 module = "pyarrow.*"  # ships no type stubs
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "fastjsonschema.*"  # ships no type stubs
 ignore_missing_imports = true
 
 # Each step imports the funcd_types.py generated beside its handler, the bundle root at runtime. Those generated

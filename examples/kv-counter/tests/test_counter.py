@@ -1,7 +1,7 @@
 """Tests for the Python kv-counter function — the author's own unit tests, no platform needed.
 
-The platform owns input/output *validation* (the push build bakes a fastjsonschema validator the shim
-runs), so these exercise the handler directly on already-valid input, with a fake ``context.kv`` backed
+The platform owns input/output *validation* (funcd checks each call against the contract), so these
+exercise the handler directly on already-valid input, with a fake ``context.kv`` backed
 by an in-memory dict — proving the read-increment-write logic without a running KV service.
 """
 
