@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.0](https://github.com/pyvvo/funcd-python/compare/v0.18.1...v0.19.0) (2026-10-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* **shim:** the shim checks no contract, since funcd checks every call (funcd ADR-0303) ([#111](https://github.com/pyvvo/funcd-python/issues/111))
+
+### Features
+
+* **shim:** the shim checks no contract, since funcd checks every call (funcd ADR-0303) ([#111](https://github.com/pyvvo/funcd-python/issues/111)) ([2ef3bd0](https://github.com/pyvvo/funcd-python/commit/2ef3bd0a89c2c8d856ed7940a0dd065bd02f0b69))
+
 ## [0.18.1](https://github.com/pyvvo/funcd-python/compare/v0.18.0...v0.18.1) (2026-10-30)
 
 
