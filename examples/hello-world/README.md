@@ -55,7 +55,7 @@ At call time funcd checks each call against the contract around your handler (fu
 | `event["data"]` doesn't match `FuncInput` | **422** — `handle` is never called |
 | return value doesn't match `FuncOutput` | **500** — the bug is server-side |
 | handler returns `None` | **204** |
-| no `FuncInput`/`FuncOutput` declared | unvalidated (the pre-contract V1 behavior) |
+| the artifact carries no contract | the Function fails with `ContractMissing` (funcd ADR-0090: every function has a contract, a void side as `{"type":"null"}`) |
 
 ### Other shapes in the profile
 
