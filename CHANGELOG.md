@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.2](https://github.com/pyvvo/funcd-python/compare/v0.19.1...v0.19.2) (2026-11-05)
+
+
+### Bug Fixes
+
+* **shim:** a request whose header block Node's parser would refuse answers 400 and closes ([#116](https://github.com/pyvvo/funcd-python/issues/116)) ([5167905](https://github.com/pyvvo/funcd-python/commit/51679052fcccde3c8a50c595d5b3c8b5614729db))
+
 ## [0.19.1](https://github.com/pyvvo/funcd-python/compare/v0.19.0...v0.19.1) (2026-11-05)
 
 
