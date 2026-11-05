@@ -26,6 +26,7 @@ from __future__ import annotations
 import http.client
 import io
 import os
+import re
 import signal
 import sys
 import threading
@@ -97,6 +98,17 @@ DEPENDENCY_CHECK_BUDGET = 0.05
 so a ``Timeout`` report reaches funcd's probe."""
 
 
+_TOKEN = rb"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
+_QUOTED = rb'"(?:[\t \x21\x23-\x5b\x5d-\x7e\x80-\xff]|\\[\t \x21-\x7e\x80-\xff])*"'
+_CHUNK_LINE = re.compile(rb"([0-9A-Fa-f]+)(?:;%b(?:=(?:%b|%b))?)*\r\n" % (_TOKEN, _TOKEN, _QUOTED))
+"""A chunk's size and extensions, with no whitespace, which Node's HTTP parser refuses (RFC 9112 §7.1.1)."""
+_TRAILER_LINE = re.compile(rb"(%b):[\t \x21-\x7e\x80-\xff]*\r\n" % _TOKEN)
+_TRAILER_REFUSED = (b"content-length", b"transfer-encoding")
+_MAX_CHUNK_LINE = 16384
+"""The longest chunk or trailer line, CRLF included: Node's parser refuses longer extensions and headers."""
+_CHUNK_READ = 65536
+
+
 def socket_report(reason: str, message: str) -> dict[str, str]:
     return {"kind": "socket", "binding": "", "reason": reason, "message": message}
 
@@ -161,11 +173,50 @@ def check_dependencies(
     return reports
 
 
+def _read_chunked(rfile: io.BufferedIOBase) -> bytes | None:
+    """Read a chunked body through its trailer section, discarding extensions and trailers, or return None
+    when a line is not what Node's HTTP parser takes (RFC 9112 §7.1). Read piece by piece, a body allocates
+    what has arrived, whatever size it declared."""
+    body = bytearray()
+    while True:
+        chunk = _CHUNK_LINE.fullmatch(rfile.readline(_MAX_CHUNK_LINE))
+        if chunk is None or (size := int(chunk[1], 16)) >= 1 << 64:
+            return None
+        if size == 0:
+            break
+        while size:
+            piece = rfile.read(min(size, _CHUNK_READ))
+            if not piece:
+                return None
+            body += piece
+            size -= len(piece)
+        if rfile.read(2) != b"\r\n":
+            return None
+    while (line := rfile.readline(_MAX_CHUNK_LINE)) != b"\r\n":
+        trailer = _TRAILER_LINE.fullmatch(line)
+        if trailer is None or trailer[1].lower() in _TRAILER_REFUSED:
+            return None
+    return bytes(body)
+
+
 def read_body(request: BaseHTTPRequestHandler) -> bytes | None:
-    """Read the request body its Content-Length frames (none: empty). A Content-Length that is not one
-    1*DIGIT value leaves the framing unrecoverable (RFC 9112 §6.3): answer 400 and close, as Node's HTTP
-    parser does, and return None."""
-    lengths = request.headers.get_all("content-length") or ["0"]
+    """Read the request body its Content-Length or its chunked coding frames (none: empty), so the next
+    request on the connection starts where this one ends. Other framing answers 400, closes and returns None:
+    a Content-Length that is not one 1*DIGIT value and a broken chunked body leave it unrecoverable (RFC 9112
+    §6.3), as Node's HTTP parser says too; a coding other than chunked is one the shim cannot read, and both
+    framings at once say two things."""
+    if not request.headers:  # http.server's stand-in for a request with no version: it has no body
+        return b""
+    codings = [value for value in request.headers.get_all("transfer-encoding") or [] if value.strip(" \t")]
+    lengths = request.headers.get_all("content-length")
+    if codings:
+        body = None
+        if not lengths and len(codings) == 1 and codings[0].strip(" \t").lower() == "chunked":
+            body = _read_chunked(request.rfile)
+        if body is None:
+            request.send_error(400, "invalid Transfer-Encoding")
+        return body
+    lengths = lengths or ["0"]
     length = lengths[0].strip(" \t")
     if len(lengths) > 1 or not (length.isascii() and length.isdigit()):
         request.send_error(400, "invalid Content-Length")
@@ -223,6 +274,10 @@ def make_request_handler(
             self.end_headers()
 
         def do_GET(self) -> None:  # noqa: N802 - stdlib signature
+            # funcd forwards a GET with an envelope body (funcd ADR-0134, ADR-0181): drain it first, as
+            # do_POST does.
+            if read_body(self) is None:
+                return
             if self.path == "/health/liveness":
                 if stuck():
                     self._send_text(503, "stuck call")

@@ -165,6 +165,10 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
             self.end_headers()
 
         def do_GET(self) -> None:  # noqa: N802 - stdlib signature
+            # funcd forwards a GET with an envelope body (funcd ADR-0134, ADR-0181): drain it first, as
+            # do_POST does.
+            if read_body(self) is None:
+                return
             if self.path == "/health/liveness":
                 now = time.monotonic()
                 if any(pooled.stuck(now) for pooled in handlers.values()):

@@ -27,7 +27,7 @@ from typing import Any
 
 import pytest
 from fakeapi import CLOSE, HOLD, DependencyAPI
-from loopback import warm_calls
+from loopback import exchange, statuses, warm_calls
 
 from funcd_shim import shim
 from funcd_shim.types import CloudEvent, FunctionContext
@@ -91,6 +91,11 @@ def post_framed(host: str, path: str, lengths: list[str], body: bytes = b"") -> 
         return resp.status, resp.getheader("connection")
     finally:
         conn.close()
+
+
+def address(host: str) -> tuple[str, int]:
+    name, port = host.split(":")
+    return name, int(port)
 
 
 def _echo(context: FunctionContext, event: CloudEvent[Any]) -> dict[str, Any]:
@@ -312,6 +317,277 @@ def test_keep_alive_no_desync() -> None:
             conn.close()
 
 
+@pytest.mark.parametrize(
+    "path,status", [("/", 404), ("/health/liveness", 200), ("/health/readiness", 200), ("/nope", 404)]
+)
+def test_keep_alive_post_after_a_get_with_a_body(path: str, status: int) -> None:
+    # funcd forwards a GET with an envelope body (funcd ADR-0134, ADR-0181): a GET drains it as a POST does,
+    # so the next request on the connection lines up.
+    with serve(_echo) as base:
+        conn = http.client.HTTPConnection(base.removeprefix("http://"), timeout=5)
+        try:
+            conn.request("GET", path, b'{"data":{"hello":"world"}}')
+            r = conn.getresponse()
+            assert r.status == status
+            r.read()
+
+            conn.request("POST", "/", b'{"data":42}')
+            r = conn.getresponse()
+            assert r.status == 200
+            assert json.loads(r.read())["echoed"] == 42
+        finally:
+            conn.close()
+
+
+def test_keep_alive_chunked_post_reaches_the_handler() -> None:
+    # Node's HTTP parser reads a chunked body, so the contract does too (funcd ADR-0049).
+    with serve(_echo) as base:
+        conn = http.client.HTTPConnection(base.removeprefix("http://"), timeout=5)
+        try:
+            chunked = {"Transfer-Encoding": "chunked"}
+            conn.request("POST", "/", iter([b'{"data":', b"42}"]), chunked, encode_chunked=True)
+            r = conn.getresponse()
+            assert r.status == 200
+            assert json.loads(r.read())["echoed"] == 42
+
+            conn.request("POST", "/", b'{"data":43}')
+            r = conn.getresponse()
+            assert r.status == 200
+            assert json.loads(r.read())["echoed"] == 43
+        finally:
+            conn.close()
+
+
+@pytest.mark.parametrize("path,status", [("/", 404), ("/health/liveness", 200), ("/nope", 404)])
+def test_keep_alive_post_after_a_chunked_get(path: str, status: int) -> None:
+    with serve(_echo) as base:
+        conn = http.client.HTTPConnection(base.removeprefix("http://"), timeout=5)
+        try:
+            chunked = {"Transfer-Encoding": "chunked"}
+            conn.request("GET", path, iter([b'{"data":', b"42}"]), chunked, encode_chunked=True)
+            r = conn.getresponse()
+            assert r.status == status
+            r.read()
+
+            conn.request("POST", "/", b'{"data":43}')
+            r = conn.getresponse()
+            assert r.status == 200
+            assert json.loads(r.read())["echoed"] == 43
+        finally:
+            conn.close()
+
+
+@pytest.fixture(scope="module")
+def echo_address() -> Iterator[tuple[str, int]]:
+    """One echo server for the raw framing rows: stopping one takes half a second."""
+    with serve(_echo) as base:
+        yield address(base.removeprefix("http://"))
+
+
+def chunked_post(coding: bytes, body: bytes) -> bytes:
+    return b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: %s\r\n\r\n%s" % (coding, body)
+
+
+NEXT_POST = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\n{}"
+TCHARS = b"!#$%&'*+-.^_`|~09AZaz"
+
+
+def long_chunk_line(length: int) -> bytes:
+    """An 11-byte chunk's line of *length* bytes, without its CRLF."""
+    return b"b;a=" + b"x" * (length - 4)
+
+
+def long_trailer(length: int) -> bytes:
+    """A trailer of *length* bytes, without its CRLF."""
+    return b"X: " + b"y" * (length - 3)
+
+
+@pytest.mark.parametrize(
+    "coding,body",
+    [
+        pytest.param(b"chunked", b'8\r\n{"data":\r\n3\r\n42}\r\n0\r\n\r\n', id="plain"),
+        pytest.param(b"Chunked", b'8\r\n{"data":\r\n3\r\n42}\r\n0\r\n\r\n', id="coding-case"),
+        pytest.param(b"chunked \t", b'8\r\n{"data":\r\n3\r\n42}\r\n0\r\n\r\n', id="coding-then-space"),
+        pytest.param(b"chunked", b'B\r\n{"data":42}\r\n0\r\n\r\n', id="size-upper-case"),
+        pytest.param(b"chunked", b'b\r\n{"data":42}\r\n0\r\n\r\n', id="size-lower-case"),
+        pytest.param(b"chunked", b'0000000000000000b\r\n{"data":42}\r\n0\r\n\r\n', id="size-zero-padded"),
+        pytest.param(b"chunked", b'b;a\r\n{"data":42}\r\n0\r\n\r\n', id="extension-name"),
+        pytest.param(b"chunked", b'b;a=b;c="d \\" e"\r\n{"data":42}\r\n0\r\n\r\n', id="extension-values"),
+        pytest.param(
+            b"chunked", b'b;%b=%b\r\n{"data":42}\r\n0\r\n\r\n' % (TCHARS, TCHARS), id="extension-every-tchar"
+        ),
+        pytest.param(
+            b"chunked", b'b;a="\t x\x80\xff"\r\n{"data":42}\r\n0\r\n\r\n', id="extension-quoted-text"
+        ),
+        pytest.param(
+            b"chunked", b'b;a="\\\t\\ \\x\\\x80"\r\n{"data":42}\r\n0\r\n\r\n', id="extension-quoted-pairs"
+        ),
+        pytest.param(
+            b"chunked", b'%b\r\n{"data":42}\r\n0\r\n\r\n' % long_chunk_line(16384 - 2), id="line-at-the-limit"
+        ),
+        pytest.param(
+            b"chunked",
+            b'b\r\n{"data":42}\r\n0\r\n%b\r\n\r\n' % long_trailer(16384 - 2),
+            id="trailer-at-the-limit",
+        ),
+        pytest.param(
+            b"chunked", b'b\r\n{"data":42}\r\n0\r\n%b: 1\r\n\r\n' % TCHARS, id="trailer-every-tchar"
+        ),
+        pytest.param(b"chunked", b'b\r\n{"data":42}\r\n0\r\nX: a\tb \x80\xff\r\n\r\n', id="trailer-value"),
+        pytest.param(b"chunked", b'b\r\n{"data":42}\r\n0\r\nX-Trailer: 1\r\nX-Other:\r\n\r\n', id="trailers"),
+    ],
+)
+def test_a_chunked_body_is_read_and_the_next_request_lines_up(
+    echo_address: tuple[str, int], coding: bytes, body: bytes
+) -> None:
+    answers = exchange(echo_address, chunked_post(coding, body) + NEXT_POST)
+    assert statuses(answers) == [200, 200]
+    assert b'{"echoed":42}' in answers
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(b"zz\r\n", id="size-not-hex"),
+        pytest.param(b"\r\n", id="size-empty"),
+        pytest.param(b"+2\r\n{}\r\n0\r\n\r\n", id="size-signed"),
+        pytest.param(b"0x2\r\n{}\r\n0\r\n\r\n", id="size-prefixed"),
+        pytest.param(b"0_2\r\n{}\r\n0\r\n\r\n", id="size-underscore"),
+        pytest.param(b"10000000000000000\r\n", id="size-past-64-bits"),
+        pytest.param(b"2\n{}\r\n0\r\n\r\n", id="size-line-ends-lf"),
+        pytest.param(b"10\n", id="longer-size-line-ends-lf"),
+        pytest.param(b"2 \r\n{}\r\n0\r\n\r\n", id="size-then-space"),
+        pytest.param(b"2\t\r\n{}\r\n0\r\n\r\n", id="size-then-tab"),
+        pytest.param(b"2;\r\n{}\r\n0\r\n\r\n", id="extension-empty"),
+        pytest.param(b"2 ;x=y\r\n{}\r\n0\r\n\r\n", id="extension-after-space"),
+        pytest.param(b"2; x=y\r\n{}\r\n0\r\n\r\n", id="extension-name-after-space"),
+        pytest.param(b"2;x = y\r\n{}\r\n0\r\n\r\n", id="extension-value-spaced"),
+        pytest.param(b"2;x y\r\n{}\r\n0\r\n\r\n", id="extension-with-space"),
+        pytest.param(b"2;@\r\n{}\r\n0\r\n\r\n", id="extension-not-a-token"),
+        pytest.param(b"2;\0\r\n{}\r\n0\r\n\r\n", id="extension-nul"),
+        pytest.param(b"2;\xff\r\n{}\r\n0\r\n\r\n", id="extension-high-byte"),
+        pytest.param(b"2;x\ry\r\n{}\r\n0\r\n\r\n", id="extension-bare-cr"),
+        pytest.param(b'2;x="y\r\n{}\r\n0\r\n\r\n', id="extension-quote-open"),
+        pytest.param(b"%b\r\n" % long_chunk_line(16384 - 1), id="line-past-the-limit"),
+        pytest.param(b"0\r\n%b\r\n\r\n" % long_trailer(16384 - 1), id="trailer-past-the-limit"),
+        *[
+            pytest.param(b"2;a%cb\r\n{}\r\n0\r\n\r\n" % c, id=f"extension-delimiter-{c:02x}")
+            for c in b"(),/:<>?@[\\]{}"
+        ],
+        *[
+            pytest.param(b"0\r\nX%cY: 1\r\n\r\n" % c, id=f"trailer-name-delimiter-{c:02x}")
+            for c in b"(),/<>?@[\\]{}"
+        ],
+        *[
+            pytest.param(b'2;a="%c"\r\n{}\r\n0\r\n\r\n' % c, id=f"extension-quoted-control-{c:02x}")
+            for c in b"\x00\x01\x0b\x0d\x1b"
+        ],
+        *[
+            pytest.param(b'2;a="\\%c"\r\n{}\r\n0\r\n\r\n' % c, id=f"extension-quoted-pair-control-{c:02x}")
+            for c in b"\x00\x01\x0d\x7f"
+        ],
+        *[
+            pytest.param(b"0\r\nX: a%cb\r\n\r\n" % c, id=f"trailer-value-control-{c:02x}")
+            for c in b"\x01\x0b\x0c\x1b\x7f"
+        ],
+        pytest.param(b"2\r\n{}xx0\r\n\r\n", id="data-without-crlf"),
+        pytest.param(b"0\r\nnot a field line\r\n\r\n", id="trailer-no-colon"),
+        pytest.param(b"0\r\nX Trailer: 1\r\n\r\n", id="trailer-name-with-space"),
+        pytest.param(b"0\r\nX-Trailer : 1\r\n\r\n", id="trailer-space-before-colon"),
+        pytest.param(b"0\r\n: 1\r\n\r\n", id="trailer-no-name"),
+        pytest.param(b"0\r\nX-Trailer: a\rb\r\n\r\n", id="trailer-bare-cr"),
+        pytest.param(b"0\r\nX-Trailer: \0\r\n\r\n", id="trailer-nul"),
+        pytest.param(b"0\r\nX-Trailer: 1\r\n 2\r\n\r\n", id="trailer-fold"),
+        pytest.param(b"0\r\n \r\n\r\n", id="trailer-only-a-space"),
+        pytest.param(b"0\r\nContent-Length: 5\r\n\r\n", id="trailer-content-length"),
+        pytest.param(b"0\r\nTransfer-Encoding: chunked\r\n\r\n", id="trailer-transfer-encoding"),
+        pytest.param(b"0\r\nX-Trailer: 1\n\r\n", id="trailer-line-ends-lf"),
+        pytest.param(b"0\r\n\n", id="trailers-end-lf"),
+    ],
+)
+@pytest.mark.parametrize("method,path", [("POST", "/"), ("GET", "/health/liveness")])
+def test_broken_chunked_body_returns_400(
+    echo_address: tuple[str, int], method: str, path: str, body: bytes
+) -> None:
+    # As for a Content-Length that is not 1*DIGIT, the framing is unrecoverable and Node's HTTP parser says
+    # so at once: one answer, 400, and a close, with the connection still open from the client's side.
+    head = b"%s %s HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n" % (
+        method.encode(),
+        path.encode(),
+    )
+    assert statuses(exchange(echo_address, head + body, half_close=False)) == [400]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(b"2\r\n{}\r\n", id="no-last-chunk"),
+        pytest.param(b"5\r\n{}", id="short-chunk"),
+        pytest.param(b"ffffffffffffffff\r\n{}", id="largest-size-short"),
+        pytest.param(b"0\r\nX-Trailer: 1\r\n", id="trailers-unended"),
+    ],
+)
+def test_chunked_body_cut_short_returns_400(echo_address: tuple[str, int], body: bytes) -> None:
+    head = b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"
+    assert statuses(exchange(echo_address, head + body)) == [400]
+
+
+@pytest.mark.parametrize(
+    "framing",
+    [
+        pytest.param(b"Transfer-Encoding: gzip\r\n\r\n", id="other-coding"),
+        pytest.param(b"Transfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n", id="coding-before-chunked"),
+        pytest.param(b"Transfer-Encoding: chunked, gzip\r\n\r\n0\r\n\r\n", id="coding-after-chunked"),
+        pytest.param(
+            b"Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n", id="repeated"
+        ),
+        pytest.param(
+            b"Transfer-Encoding: chunked\r\nContent-Length: 2\r\n\r\n0\r\n\r\n", id="with-content-length"
+        ),
+    ],
+)
+@pytest.mark.parametrize("method,path", [("POST", "/"), ("GET", "/health/liveness")])
+def test_a_coding_the_shim_cannot_read_returns_400(
+    echo_address: tuple[str, int], method: str, path: str, framing: bytes
+) -> None:
+    head = b"%s %s HTTP/1.1\r\nHost: x\r\n" % (method.encode(), path.encode())
+    assert statuses(exchange(echo_address, head + framing, half_close=False)) == [400]
+
+
+def test_a_chunk_longer_than_one_read_arrives_whole(echo_address: tuple[str, int]) -> None:
+    value = b"x" * 70000
+    body = b'{"data":"%b"}' % value
+    chunked = b"%x\r\n%b\r\n0\r\n\r\n" % (len(body), body)
+    answers = exchange(echo_address, chunked_post(b"chunked", chunked) + NEXT_POST)
+    assert statuses(answers) == [200, 200]
+    assert value in answers
+
+
+def test_a_get_with_no_version_has_no_body(echo_address: tuple[str, int]) -> None:
+    # http.server sets no header object for such a request; funcd's listener refuses one before it gets here.
+    assert exchange(echo_address, b"GET /health/liveness\r\n\r\n") == b"ok"
+
+
+@pytest.mark.parametrize(
+    "request_bytes,status",
+    [
+        pytest.param(b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding:\r\n\r\n", 200, id="no-body"),
+        pytest.param(
+            b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding:\r\nContent-Length: 2\r\n\r\n{}",
+            200,
+            id="length",
+        ),
+        pytest.param(
+            b"GET /health/liveness HTTP/1.1\r\nHost: x\r\nTransfer-Encoding:\r\n\r\n", 200, id="get"
+        ),
+    ],
+)
+def test_an_empty_transfer_encoding_counts_as_absent(
+    echo_address: tuple[str, int], request_bytes: bytes, status: int
+) -> None:
+    assert statuses(exchange(echo_address, request_bytes)) == [status]
+
+
 def test_issue_1337_warm_calls_do_not_wait_for_a_delayed_ack() -> None:
     # A response is two writes, the headers and the body. With Nagle on, a warm call's body waits for the
     # client's delayed ACK of the headers: about 40 ms on Linux. macOS acknowledges at once on loopback, so
@@ -335,6 +611,9 @@ def test_issue_r50_malformed_content_length_returns_400(lengths: list[str]) -> N
         host = base.removeprefix("http://")
         assert post_framed(host, "/", lengths) == (400, "close")
         assert post_framed(host, "/", ["2 "], b"{}")[0] == 200
+        framing = b"".join(b"Content-Length: %s\r\n" % value.encode() for value in lengths)
+        answers = exchange(address(host), b"GET /health/liveness HTTP/1.1\r\nHost: x\r\n" + framing + b"\r\n")
+        assert statuses(answers) == [400], "a GET gets one answer, and it closes"
 
 
 def _circular() -> dict[str, Any]:

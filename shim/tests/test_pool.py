@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 from fakeapi import HOLD, DependencyAPI, UnixHTTPServer
-from loopback import warm_calls
+from loopback import exchange, statuses, warm_calls
 
 from funcd_shim import deadline
 from funcd_shim.pool import _Pooled, load_timeout_s, make_request_handler
@@ -247,6 +247,8 @@ def test_issue_r50_pool_malformed_content_length_returns_400(tmp_path: Path) -> 
                 assert (r.status, r.getheader("connection")) == (400, "close"), value
             finally:
                 conn.close()
+            get = b"GET /health/liveness HTTP/1.1\r\nHost: x\r\nContent-Length: %s\r\n\r\n" % value.encode()
+            assert statuses(exchange(("127.0.0.1", port), get)) == [400], value
         assert _post(port, "f0", json.dumps({"data": {"hello": "x"}}))[0] == 200
     finally:
         proc.terminate()
@@ -285,6 +287,71 @@ def test_pool_keep_alive_no_desync(tmp_path: Path) -> None:
         assert r.status == 200
         assert json.loads(r.read())["echoed"] == {"hello": "b"}
         conn.close()
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_pool_keep_alive_post_after_a_get_with_a_body(tmp_path: Path) -> None:
+    # funcd forwards a GET with an envelope body (funcd ADR-0134, ADR-0181): a GET drains it as a POST does,
+    # so the next request on the connection lines up, whichever path the GET named.
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ECHO)]))
+    try:
+        for path, status in (
+            ("/health/liveness", 200),
+            ("/health/readiness", 200),
+            ("/health/members", 200),
+            ("/function/f0", 404),
+        ):
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            try:
+                conn.request("GET", path, b'{"data":{"hello":"a"}}')
+                r = conn.getresponse()
+                assert r.status == status, path
+                r.read()
+
+                conn.request("POST", "/function/f0", b'{"data":{"hello":"b"}}')
+                r = conn.getresponse()
+                assert r.status == 200, path
+                assert json.loads(r.read())["echoed"] == {"hello": "b"}
+            finally:
+                conn.close()
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_pool_keep_alive_chunked_bodies_are_read(tmp_path: Path) -> None:
+    # Node's HTTP parser reads a chunked body, so the contract does too (funcd ADR-0049).
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ECHO)]))
+    chunked = {"Transfer-Encoding": "chunked"}
+    try:
+        for method, path, status in (
+            ("POST", "/function/f0", 200),
+            ("GET", "/health/liveness", 200),
+            ("GET", "/function/f0", 404),
+        ):
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            try:
+                conn.request(
+                    method, path, iter([b'{"data":{"hello":', b'"a"}}']), chunked, encode_chunked=True
+                )
+                r = conn.getresponse()
+                assert r.status == status, path
+                body = r.read()
+                if status == 200 and method == "POST":
+                    assert json.loads(body)["echoed"] == {"hello": "a"}
+
+                conn.request("POST", "/function/f0", b'{"data":{"hello":"b"}}')
+                r = conn.getresponse()
+                assert r.status == 200, path
+                assert json.loads(r.read())["echoed"] == {"hello": "b"}
+            finally:
+                conn.close()
+        assert exchange(("127.0.0.1", port), b"GET /health/liveness\r\n\r\n") == b"ok", "no version, no body"
+        for body in (b"zz\r\n", b"0\r\nnot a field line\r\n\r\n"):
+            broken = b"POST /function/f0 HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n" + body
+            assert statuses(exchange(("127.0.0.1", port), broken, half_close=False)) == [400], body
     finally:
         proc.terminate()
         proc.wait(timeout=5)
