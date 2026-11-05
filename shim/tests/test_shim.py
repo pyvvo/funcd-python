@@ -27,19 +27,23 @@ from typing import Any
 
 import pytest
 from fakeapi import CLOSE, HOLD, DependencyAPI
-from loopback import exchange, statuses, warm_calls
+from loopback import exchange, statuses, waits_for_more, warm_calls
 from request_heads import (
     CUT_HEADS,
     HEADS_PAST_THE_LIMITS,
+    LENGTHS_PAST_ONE_READ,
     LINES_AT_THE_LIMITS,
     METHODS_OF_TOKEN_BYTES,
     REFUSED_HEADS,
+    REFUSED_LENGTHS,
     REFUSED_REQUEST_LINES,
     REFUSED_VERSIONS,
+    TAKEN_LENGTHS,
     TAKEN_LINES,
     TAKEN_REQUEST_LINES,
     TARGETS_OF_VISIBLE_BYTES,
     long_field,
+    post_with_length,
     post_with_line,
 )
 
@@ -665,6 +669,36 @@ def test_a_method_of_token_bytes_answers_501(echo_address: tuple[str, int], meth
     answers = exchange(echo_address, request, half_close=False)
     assert statuses(answers) == [501]
     assert b"Connection: close" in answers
+
+
+@pytest.mark.parametrize("length", REFUSED_LENGTHS)
+def test_a_length_node_refuses_returns_400(echo_address: tuple[str, int], length: bytes) -> None:
+    request = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: %b\r\n\r\n" % length
+    answers = exchange(echo_address, request, half_close=False)
+    assert statuses(answers) == [400]
+    assert b"Connection: close" in answers
+
+
+@pytest.mark.parametrize("length", TAKEN_LENGTHS)
+def test_a_length_node_takes_frames_the_body(echo_address: tuple[str, int], length: bytes) -> None:
+    answers = exchange(echo_address, post_with_length(b"/", length) + NEXT_POST)
+    assert statuses(answers) == [200, 200]
+    assert b'{"echoed":42}' in answers
+
+
+@pytest.mark.parametrize("length", LENGTHS_PAST_ONE_READ)
+def test_a_length_past_any_one_read_waits_for_its_body(echo_address: tuple[str, int], length: int) -> None:
+    # Node's HTTP parser takes any length within 64 bits and waits for the body.
+    assert waits_for_more(echo_address, post_with_length(b"/", b"%d" % length))
+
+
+def test_a_body_longer_than_one_read_arrives_whole(echo_address: tuple[str, int]) -> None:
+    value = b"x" * 70000
+    body = b'{"data":"%b"}' % value
+    request = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\n\r\n%b" % (len(body), body)
+    answers = exchange(echo_address, request + NEXT_POST)
+    assert statuses(answers) == [200, 200]
+    assert value in answers
 
 
 @pytest.mark.parametrize("line", TAKEN_LINES)

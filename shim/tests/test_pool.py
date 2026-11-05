@@ -21,18 +21,22 @@ from pathlib import Path
 
 import pytest
 from fakeapi import HOLD, DependencyAPI, UnixHTTPServer
-from loopback import exchange, statuses, warm_calls
+from loopback import exchange, statuses, waits_for_more, warm_calls
 from request_heads import (
     CUT_HEADS,
     HEADS_PAST_THE_LIMITS,
+    LENGTHS_PAST_ONE_READ,
     LINES_AT_THE_LIMITS,
     METHODS_OF_TOKEN_BYTES,
     REFUSED_HEADS,
+    REFUSED_LENGTHS,
     REFUSED_REQUEST_LINES,
     REFUSED_VERSIONS,
+    TAKEN_LENGTHS,
     TAKEN_LINES,
     TAKEN_REQUEST_LINES,
     TARGETS_OF_VISIBLE_BYTES,
+    post_with_length,
     post_with_line,
 )
 
@@ -449,6 +453,38 @@ def test_pool_a_method_of_token_bytes_answers_501(pool_address: tuple[str, int],
     answers = exchange(pool_address, request, half_close=False)
     assert statuses(answers) == [501]
     assert b"Connection: close" in answers
+
+
+@pytest.mark.parametrize("length", REFUSED_LENGTHS)
+def test_pool_a_length_node_refuses_returns_400(pool_address: tuple[str, int], length: bytes) -> None:
+    request = b"POST /function/f0 HTTP/1.1\r\nHost: x\r\nContent-Length: %b\r\n\r\n" % length
+    answers = exchange(pool_address, request, half_close=False)
+    assert statuses(answers) == [400]
+    assert b"Connection: close" in answers
+
+
+@pytest.mark.parametrize("length", TAKEN_LENGTHS)
+def test_pool_a_length_node_takes_frames_the_body(pool_address: tuple[str, int], length: bytes) -> None:
+    answers = exchange(pool_address, post_with_length(b"/function/f0", length) + NEXT_POST)
+    assert statuses(answers) == [200, 200]
+    assert b'{"echoed":42}' in answers
+
+
+@pytest.mark.parametrize("length", LENGTHS_PAST_ONE_READ)
+def test_pool_a_length_past_any_one_read_waits_for_its_body(
+    pool_address: tuple[str, int], length: int
+) -> None:
+    # See test_a_length_past_any_one_read_waits_for_its_body.
+    assert waits_for_more(pool_address, post_with_length(b"/function/f0", b"%d" % length))
+
+
+def test_pool_a_body_longer_than_one_read_arrives_whole(pool_address: tuple[str, int]) -> None:
+    value = b"x" * 70000
+    body = b'{"data":"%b"}' % value
+    request = b"POST /function/f0 HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\n\r\n%b" % (len(body), body)
+    answers = exchange(pool_address, request + NEXT_POST)
+    assert statuses(answers) == [200, 200]
+    assert value in answers
 
 
 @pytest.mark.parametrize("line", TAKEN_LINES)

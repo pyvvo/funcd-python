@@ -164,7 +164,37 @@ TARGETS_OF_VISIBLE_BYTES = [
     pytest.param(b"/<>", id="angle-brackets"),
 ]
 
+REFUSED_LENGTHS = [
+    # A tab after the length: the Node of funcd's runtime image refuses it (llhttp 9.3; llhttp 9.4 takes it).
+    pytest.param(b"11\t", id="then-tab"),
+    pytest.param(b"11 \t", id="then-space-tab"),
+    pytest.param(b"11\t ", id="then-tab-space"),
+    pytest.param(b"18446744073709551616", id="past-64-bits"),
+    pytest.param(b"00018446744073709551616", id="past-64-bits-after-zeros"),
+    pytest.param(b"100000000000000000000", id="21-digits"),
+    pytest.param(b"1" * 4301, id="past-what-int-reads"),
+]
+
+TAKEN_LENGTHS = [
+    pytest.param(b"11 ", id="then-space"),
+    pytest.param(b"11  ", id="then-spaces"),
+    pytest.param(b"\t11", id="after-tab"),
+    pytest.param(b"0011", id="after-zeros"),
+    pytest.param(b"0" * 5000 + b"11", id="after-many-zeros"),
+]
+
+LENGTHS_PAST_ONE_READ = [
+    pytest.param(1 << 40, id="2^40"),
+    pytest.param(1 << 63, id="2^63"),
+    pytest.param((1 << 64) - 1, id="largest"),
+]
+
 
 def post_with_line(path: bytes, line: bytes) -> bytes:
     """A POST to *path* whose head holds *line*; an echo handler answers its body with 42."""
     return b'POST %b HTTP/1.1\r\nHost: x\r\n%b\r\nContent-Length: 11\r\n\r\n{"data":42}' % (path, line)
+
+
+def post_with_length(path: bytes, length: bytes) -> bytes:
+    """An 11-byte POST to *path* under a Content-Length of *length*; an echo handler answers it with 42."""
+    return b'POST %b HTTP/1.1\r\nHost: x\r\nContent-Length: %b\r\n\r\n{"data":42}' % (path, length)
