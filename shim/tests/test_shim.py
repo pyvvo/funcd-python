@@ -389,6 +389,17 @@ def chunked_post(coding: bytes, body: bytes) -> bytes:
 
 
 NEXT_POST = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\n{}"
+TCHARS = b"!#$%&'*+-.^_`|~09AZaz"
+
+
+def long_chunk_line(length: int) -> bytes:
+    """An 11-byte chunk's line of *length* bytes, without its CRLF."""
+    return b"b;a=" + b"x" * (length - 4)
+
+
+def long_trailer(length: int) -> bytes:
+    """A trailer of *length* bytes, without its CRLF."""
+    return b"X: " + b"y" * (length - 3)
 
 
 @pytest.mark.parametrize(
@@ -402,7 +413,27 @@ NEXT_POST = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\n{}"
         pytest.param(b"chunked", b'0000000000000000b\r\n{"data":42}\r\n0\r\n\r\n', id="size-zero-padded"),
         pytest.param(b"chunked", b'b;a\r\n{"data":42}\r\n0\r\n\r\n', id="extension-name"),
         pytest.param(b"chunked", b'b;a=b;c="d \\" e"\r\n{"data":42}\r\n0\r\n\r\n', id="extension-values"),
-        pytest.param(b"chunked", b'b;a=%s\r\n{"data":42}\r\n0\r\n\r\n' % (b"x" * 200), id="line-long"),
+        pytest.param(
+            b"chunked", b'b;%b=%b\r\n{"data":42}\r\n0\r\n\r\n' % (TCHARS, TCHARS), id="extension-every-tchar"
+        ),
+        pytest.param(
+            b"chunked", b'b;a="\t x\x80\xff"\r\n{"data":42}\r\n0\r\n\r\n', id="extension-quoted-text"
+        ),
+        pytest.param(
+            b"chunked", b'b;a="\\\t\\ \\x\\\x80"\r\n{"data":42}\r\n0\r\n\r\n', id="extension-quoted-pairs"
+        ),
+        pytest.param(
+            b"chunked", b'%b\r\n{"data":42}\r\n0\r\n\r\n' % long_chunk_line(16384 - 2), id="line-at-the-limit"
+        ),
+        pytest.param(
+            b"chunked",
+            b'b\r\n{"data":42}\r\n0\r\n%b\r\n\r\n' % long_trailer(16384 - 2),
+            id="trailer-at-the-limit",
+        ),
+        pytest.param(
+            b"chunked", b'b\r\n{"data":42}\r\n0\r\n%b: 1\r\n\r\n' % TCHARS, id="trailer-every-tchar"
+        ),
+        pytest.param(b"chunked", b'b\r\n{"data":42}\r\n0\r\nX: a\tb \x80\xff\r\n\r\n', id="trailer-value"),
         pytest.param(b"chunked", b'b\r\n{"data":42}\r\n0\r\nX-Trailer: 1\r\nX-Other:\r\n\r\n', id="trailers"),
     ],
 )
@@ -437,7 +468,28 @@ def test_a_chunked_body_is_read_and_the_next_request_lines_up(
         pytest.param(b"2;\xff\r\n{}\r\n0\r\n\r\n", id="extension-high-byte"),
         pytest.param(b"2;x\ry\r\n{}\r\n0\r\n\r\n", id="extension-bare-cr"),
         pytest.param(b'2;x="y\r\n{}\r\n0\r\n\r\n', id="extension-quote-open"),
-        pytest.param(b"2;x=%s\r\n" % (b"y" * 70000), id="line-too-long"),
+        pytest.param(b"%b\r\n" % long_chunk_line(16384 - 1), id="line-past-the-limit"),
+        pytest.param(b"0\r\n%b\r\n\r\n" % long_trailer(16384 - 1), id="trailer-past-the-limit"),
+        *[
+            pytest.param(b"2;a%cb\r\n{}\r\n0\r\n\r\n" % c, id=f"extension-delimiter-{c:02x}")
+            for c in b"(),/:<>?@[\\]{}"
+        ],
+        *[
+            pytest.param(b"0\r\nX%cY: 1\r\n\r\n" % c, id=f"trailer-name-delimiter-{c:02x}")
+            for c in b"(),/<>?@[\\]{}"
+        ],
+        *[
+            pytest.param(b'2;a="%c"\r\n{}\r\n0\r\n\r\n' % c, id=f"extension-quoted-control-{c:02x}")
+            for c in b"\x00\x01\x0b\x0d\x1b"
+        ],
+        *[
+            pytest.param(b'2;a="\\%c"\r\n{}\r\n0\r\n\r\n' % c, id=f"extension-quoted-pair-control-{c:02x}")
+            for c in b"\x00\x01\x0d\x7f"
+        ],
+        *[
+            pytest.param(b"0\r\nX: a%cb\r\n\r\n" % c, id=f"trailer-value-control-{c:02x}")
+            for c in b"\x01\x0b\x0c\x1b\x7f"
+        ],
         pytest.param(b"2\r\n{}xx0\r\n\r\n", id="data-without-crlf"),
         pytest.param(b"0\r\nnot a field line\r\n\r\n", id="trailer-no-colon"),
         pytest.param(b"0\r\nX Trailer: 1\r\n\r\n", id="trailer-name-with-space"),
@@ -451,7 +503,6 @@ def test_a_chunked_body_is_read_and_the_next_request_lines_up(
         pytest.param(b"0\r\nTransfer-Encoding: chunked\r\n\r\n", id="trailer-transfer-encoding"),
         pytest.param(b"0\r\nX-Trailer: 1\n\r\n", id="trailer-line-ends-lf"),
         pytest.param(b"0\r\n\n", id="trailers-end-lf"),
-        pytest.param(b"0\r\nX-Trailer: %s\r\n\r\n" % (b"y" * 70000), id="trailer-too-long"),
     ],
 )
 @pytest.mark.parametrize("method,path", [("POST", "/"), ("GET", "/health/liveness")])
@@ -501,6 +552,20 @@ def test_a_coding_the_shim_cannot_read_returns_400(
 ) -> None:
     head = b"%s %s HTTP/1.1\r\nHost: x\r\n" % (method.encode(), path.encode())
     assert statuses(exchange(echo_address, head + framing, half_close=False)) == [400]
+
+
+def test_a_chunk_longer_than_one_read_arrives_whole(echo_address: tuple[str, int]) -> None:
+    value = b"x" * 70000
+    body = b'{"data":"%b"}' % value
+    chunked = b"%x\r\n%b\r\n0\r\n\r\n" % (len(body), body)
+    answers = exchange(echo_address, chunked_post(b"chunked", chunked) + NEXT_POST)
+    assert statuses(answers) == [200, 200]
+    assert value in answers
+
+
+def test_a_get_with_no_version_has_no_body(echo_address: tuple[str, int]) -> None:
+    # http.server sets no header object for such a request; funcd's listener refuses one before it gets here.
+    assert exchange(echo_address, b"GET /health/liveness\r\n\r\n") == b"ok"
 
 
 @pytest.mark.parametrize(

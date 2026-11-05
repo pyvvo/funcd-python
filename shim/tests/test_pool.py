@@ -348,6 +348,7 @@ def test_pool_keep_alive_chunked_bodies_are_read(tmp_path: Path) -> None:
                 assert json.loads(r.read())["echoed"] == {"hello": "b"}
             finally:
                 conn.close()
+        assert exchange(("127.0.0.1", port), b"GET /health/liveness\r\n\r\n") == b"ok", "no version, no body"
         for body in (b"zz\r\n", b"0\r\nnot a field line\r\n\r\n"):
             broken = b"POST /function/f0 HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n" + body
             assert statuses(exchange(("127.0.0.1", port), broken, half_close=False)) == [400], body

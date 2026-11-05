@@ -99,14 +99,13 @@ so a ``Timeout`` report reaches funcd's probe."""
 
 
 _TOKEN = rb"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
-_CHUNK_LINE = re.compile(
-    rb'([0-9A-Fa-f]+)(?:;%b(?:=(?:%b|"(?:[^"\\\0\r\n]|\\[^\0\r\n])*"))?)*\r\n' % (_TOKEN, _TOKEN)
-)
+_QUOTED = rb'"(?:[\t \x21\x23-\x5b\x5d-\x7e\x80-\xff]|\\[\t \x21-\x7e\x80-\xff])*"'
+_CHUNK_LINE = re.compile(rb"([0-9A-Fa-f]+)(?:;%b(?:=(?:%b|%b))?)*\r\n" % (_TOKEN, _TOKEN, _QUOTED))
 """A chunk's size and extensions, with no whitespace, which Node's HTTP parser refuses (RFC 9112 §7.1.1)."""
-_TRAILER_LINE = re.compile(rb"(%b):[^\0\r\n]*\r\n" % _TOKEN)
+_TRAILER_LINE = re.compile(rb"(%b):[\t \x21-\x7e\x80-\xff]*\r\n" % _TOKEN)
 _TRAILER_REFUSED = (b"content-length", b"transfer-encoding")
-_MAX_CHUNK_LINE = 65536
-"""The longest chunk or trailer line, CRLF included: ``http.server``'s limit on a request line."""
+_MAX_CHUNK_LINE = 16384
+"""The longest chunk or trailer line, CRLF included: Node's parser refuses longer extensions and headers."""
 _CHUNK_READ = 65536
 
 
@@ -206,6 +205,8 @@ def read_body(request: BaseHTTPRequestHandler) -> bytes | None:
     a Content-Length that is not one 1*DIGIT value and a broken chunked body leave it unrecoverable (RFC 9112
     §6.3), as Node's HTTP parser says too; a coding other than chunked is one the shim cannot read, and both
     framings at once say two things."""
+    if not request.headers:  # http.server's stand-in for a request with no version: it has no body
+        return b""
     codings = [value for value in request.headers.get_all("transfer-encoding") or [] if value.strip(" \t")]
     lengths = request.headers.get_all("content-length")
     if codings:
