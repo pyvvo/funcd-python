@@ -29,9 +29,6 @@ STUCK_DELAY_S = 10.0
 
 # setTimeout's largest delay less the TypeScript pool's margin: the header range both pools accept.
 _MAX_TIMEOUT_MS = 2_147_482_647
-# The digits of a value that int reads, leading zeros aside: so many are past that range already, and int
-# raises on a long string.
-_MAX_TIMEOUT_DIGITS = 11
 # A pool member's subinterpreter refuses daemon threads; in the main interpreter a watchdog must not
 # delay the exit.
 _DAEMON = _thread.daemon_threads_allowed()
@@ -49,7 +46,7 @@ def deadline_from(headers: Message, received: float) -> float | None:
     value = values[0].strip(" \t") if len(values) == 1 else ""
     if not (value.isascii() and value.isdigit()):
         return None
-    ms = int(value.lstrip("0")[:_MAX_TIMEOUT_DIGITS] or "0")
+    ms = int(value)
     return received + ms / 1000 if 1 <= ms <= _MAX_TIMEOUT_MS else None
 
 
