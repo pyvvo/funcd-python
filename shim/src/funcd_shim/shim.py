@@ -247,12 +247,22 @@ def _read_head(rfile: io.BufferedIOBase) -> bytes | None:
     return None
 
 
+class _RequestHeaders(http.client.HTTPMessage):
+    """A request's header lines. ``email`` reads a ``multipart`` type's parameters while it parses, to find
+    the parts, and it raises on some well-formed ones. A head has no parts, and the shim reads only raw
+    values."""
+
+    def get_content_type(self) -> str:
+        return "text/plain"
+
+
 class CheckedHeadHandler(BaseHTTPRequestHandler):
     """A request handler that reads a request's header block as Node's HTTP parser reads it (funcd
     ADR-0049) and answers 400 and closes on one it refuses, as ``read_body`` does on broken framing.
     ``http.server`` then parses only the lines checked here, and answers a method of token bytes or a
     target as it did. The solo shim's and the pool host's handlers build on it."""
 
+    MessageClass = _RequestHeaders
     raw_requestline: bytes
 
     def parse_request(self) -> bool:

@@ -133,6 +133,16 @@ TAKEN_LINES = [
     pytest.param(b"From: a@b", id="from"),
     pytest.param(b"Content-Type: message/rfc822", id="content-type-message"),
     pytest.param(b"Content-Type: multipart/mixed; boundary=x", id="content-type-multipart"),
+    pytest.param(
+        b"Content-Type: multipart/mixed; boundary*=undefined''x", id="content-type-charset-undefined"
+    ),
+    pytest.param(b"Content-Type: multipart/mixed; boundary*=idna''x", id="content-type-charset-idna"),
+    pytest.param(b"Content-Type: multipart/mixed; boundary*=a%00b''x", id="content-type-charset-nul"),
+    pytest.param(
+        b"Content-Type: multipart/mixed; boundary*%b=a" % (b"9" * 5000), id="content-type-long-section"
+    ),
+    pytest.param(b"Content-Type: MULTIPART/MIXED; BOUNDARY*=undefined''x", id="content-type-upper-case"),
+    pytest.param(b"Content-Type: multipart/mixed; boundary*=x; boundary*0=y", id="content-type-two-forms"),
     pytest.param(b"X-A: 1\r\nX-A: 2", id="name-twice"),
 ]
 
