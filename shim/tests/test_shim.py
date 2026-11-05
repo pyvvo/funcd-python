@@ -27,7 +27,25 @@ from typing import Any
 
 import pytest
 from fakeapi import CLOSE, HOLD, DependencyAPI
-from loopback import exchange, statuses, warm_calls
+from loopback import exchange, statuses, waits_for_more, warm_calls
+from request_heads import (
+    CUT_HEADS,
+    HEADS_PAST_THE_LIMITS,
+    LENGTHS_PAST_ONE_READ,
+    LINES_AT_THE_LIMITS,
+    METHODS_OF_TOKEN_BYTES,
+    REFUSED_HEADS,
+    REFUSED_LENGTHS,
+    REFUSED_REQUEST_LINES,
+    REFUSED_VERSIONS,
+    TAKEN_LENGTHS,
+    TAKEN_LINES,
+    TAKEN_REQUEST_LINES,
+    TARGETS_OF_VISIBLE_BYTES,
+    long_field,
+    post_with_length,
+    post_with_line,
+)
 
 from funcd_shim import shim
 from funcd_shim.types import CloudEvent, FunctionContext
@@ -397,17 +415,13 @@ def long_chunk_line(length: int) -> bytes:
     return b"b;a=" + b"x" * (length - 4)
 
 
-def long_trailer(length: int) -> bytes:
-    """A trailer of *length* bytes, without its CRLF."""
-    return b"X: " + b"y" * (length - 3)
-
-
 @pytest.mark.parametrize(
     "coding,body",
     [
         pytest.param(b"chunked", b'8\r\n{"data":\r\n3\r\n42}\r\n0\r\n\r\n', id="plain"),
         pytest.param(b"Chunked", b'8\r\n{"data":\r\n3\r\n42}\r\n0\r\n\r\n', id="coding-case"),
-        pytest.param(b"chunked \t", b'8\r\n{"data":\r\n3\r\n42}\r\n0\r\n\r\n', id="coding-then-space"),
+        pytest.param(b"chunked  ", b'8\r\n{"data":\r\n3\r\n42}\r\n0\r\n\r\n', id="coding-then-spaces"),
+        pytest.param(b"\tchunked", b'8\r\n{"data":\r\n3\r\n42}\r\n0\r\n\r\n', id="coding-after-tab"),
         pytest.param(b"chunked", b'B\r\n{"data":42}\r\n0\r\n\r\n', id="size-upper-case"),
         pytest.param(b"chunked", b'b\r\n{"data":42}\r\n0\r\n\r\n', id="size-lower-case"),
         pytest.param(b"chunked", b'0000000000000000b\r\n{"data":42}\r\n0\r\n\r\n', id="size-zero-padded"),
@@ -427,7 +441,7 @@ def long_trailer(length: int) -> bytes:
         ),
         pytest.param(
             b"chunked",
-            b'b\r\n{"data":42}\r\n0\r\n%b\r\n\r\n' % long_trailer(16384 - 2),
+            b'b\r\n{"data":42}\r\n0\r\n%b\r\n\r\n' % long_field(16384 - 2),
             id="trailer-at-the-limit",
         ),
         pytest.param(
@@ -469,7 +483,7 @@ def test_a_chunked_body_is_read_and_the_next_request_lines_up(
         pytest.param(b"2;x\ry\r\n{}\r\n0\r\n\r\n", id="extension-bare-cr"),
         pytest.param(b'2;x="y\r\n{}\r\n0\r\n\r\n', id="extension-quote-open"),
         pytest.param(b"%b\r\n" % long_chunk_line(16384 - 1), id="line-past-the-limit"),
-        pytest.param(b"0\r\n%b\r\n\r\n" % long_trailer(16384 - 1), id="trailer-past-the-limit"),
+        pytest.param(b"0\r\n%b\r\n\r\n" % long_field(16384 - 1), id="trailer-past-the-limit"),
         *[
             pytest.param(b"2;a%cb\r\n{}\r\n0\r\n\r\n" % c, id=f"extension-delimiter-{c:02x}")
             for c in b"(),/:<>?@[\\]{}"
@@ -544,6 +558,9 @@ def test_chunked_body_cut_short_returns_400(echo_address: tuple[str, int], body:
         pytest.param(
             b"Transfer-Encoding: chunked\r\nContent-Length: 2\r\n\r\n0\r\n\r\n", id="with-content-length"
         ),
+        pytest.param(b"Transfer-Encoding: chunked\t\r\n\r\n0\r\n\r\n", id="chunked-then-tab"),
+        pytest.param(b"Transfer-Encoding: chunked \t\r\n\r\n0\r\n\r\n", id="chunked-then-space-tab"),
+        pytest.param(b"Transfer-Encoding: chunked\t \r\n\r\n0\r\n\r\n", id="chunked-then-tab-space"),
     ],
 )
 @pytest.mark.parametrize("method,path", [("POST", "/"), ("GET", "/health/liveness")])
@@ -566,6 +583,9 @@ def test_a_chunk_longer_than_one_read_arrives_whole(echo_address: tuple[str, int
 def test_a_get_with_no_version_has_no_body(echo_address: tuple[str, int]) -> None:
     # http.server sets no header object for such a request; funcd's listener refuses one before it gets here.
     assert exchange(echo_address, b"GET /health/liveness\r\n\r\n") == b"ok"
+    assert exchange(echo_address, b"GET /health/liveness\r\n", half_close=False) == b"ok", (
+        "it has no head either"
+    )
 
 
 @pytest.mark.parametrize(
@@ -586,6 +606,147 @@ def test_an_empty_transfer_encoding_counts_as_absent(
     echo_address: tuple[str, int], request_bytes: bytes, status: int
 ) -> None:
     assert statuses(exchange(echo_address, request_bytes)) == [status]
+
+
+@pytest.mark.parametrize("head", REFUSED_HEADS)
+@pytest.mark.parametrize("method,path", [("POST", "/"), ("GET", "/health/liveness")])
+def test_a_head_node_refuses_returns_400(
+    echo_address: tuple[str, int], capsys: pytest.CaptureFixture[str], method: str, path: str, head: bytes
+) -> None:
+    # Node's HTTP parser refuses these at once (funcd ADR-0049): one answer, 400, and a close, with the
+    # connection still open from the client's side.
+    request = b"%s %s HTTP/1.1\r\n%s" % (method.encode(), path.encode(), head)
+    answers = exchange(echo_address, request, half_close=False)
+    assert statuses(answers) == [400]
+    assert b"Connection: close" in answers
+    assert "Traceback" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("request_bytes", REFUSED_REQUEST_LINES)
+def test_a_request_line_node_refuses_returns_400(echo_address: tuple[str, int], request_bytes: bytes) -> None:
+    answers = exchange(echo_address, request_bytes, half_close=False)
+    assert statuses(answers) == [400]
+    assert b"Connection: close" in answers
+
+
+@pytest.mark.parametrize("request_bytes", CUT_HEADS)
+def test_a_head_cut_short_returns_400(echo_address: tuple[str, int], request_bytes: bytes) -> None:
+    assert statuses(exchange(echo_address, request_bytes)) == [400]
+
+
+@pytest.mark.parametrize("head", HEADS_PAST_THE_LIMITS)
+@pytest.mark.parametrize("method,path", [("POST", "/"), ("GET", "/health/liveness")])
+def test_a_head_past_http_client_limits_returns_400(
+    echo_address: tuple[str, int], capsys: pytest.CaptureFixture[str], method: str, path: str, head: bytes
+) -> None:
+    # The limits are http.client's, not Node's: Node answers 431 past 16 KiB, and takes more lines.
+    request = b"%s %s HTTP/1.1\r\n%s" % (method.encode(), path.encode(), head)
+    answers = exchange(echo_address, request, half_close=False)
+    assert statuses(answers) == [400]
+    assert b"Connection: close" in answers
+    assert "Traceback" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("line", LINES_AT_THE_LIMITS)
+def test_a_head_at_http_client_limits_answers(echo_address: tuple[str, int], line: bytes) -> None:
+    answers = exchange(echo_address, post_with_line(b"/", line) + NEXT_POST)
+    assert statuses(answers) == [200, 200]
+    assert b'{"echoed":42}' in answers
+
+
+@pytest.mark.parametrize("version", REFUSED_VERSIONS)
+def test_a_version_other_than_1_0_or_1_1_returns_400(echo_address: tuple[str, int], version: bytes) -> None:
+    # Node also takes HTTP/0.9 and HTTP/2.0 here, as 200 and a close; the shim speaks only these two.
+    request = b"GET /health/liveness %b\r\nHost: x\r\n\r\n" % version
+    answers = exchange(echo_address, request, half_close=False)
+    assert statuses(answers) == [400]
+    assert b"Connection: close" in answers
+
+
+@pytest.mark.parametrize("method", METHODS_OF_TOKEN_BYTES)
+def test_a_method_of_token_bytes_answers_501(echo_address: tuple[str, int], method: bytes) -> None:
+    request = b"%b /health/liveness HTTP/1.1\r\nHost: x\r\n\r\n" % method
+    answers = exchange(echo_address, request, half_close=False)
+    assert statuses(answers) == [501]
+    assert b"Connection: close" in answers
+
+
+@pytest.mark.parametrize("length", REFUSED_LENGTHS)
+def test_a_length_node_refuses_returns_400(echo_address: tuple[str, int], length: bytes) -> None:
+    request = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: %b\r\n\r\n" % length
+    answers = exchange(echo_address, request, half_close=False)
+    assert statuses(answers) == [400]
+    assert b"Connection: close" in answers
+
+
+@pytest.mark.parametrize("length", TAKEN_LENGTHS)
+def test_a_length_node_takes_frames_the_body(echo_address: tuple[str, int], length: bytes) -> None:
+    answers = exchange(echo_address, post_with_length(b"/", length) + NEXT_POST)
+    assert statuses(answers) == [200, 200]
+    assert b'{"echoed":42}' in answers
+
+
+@pytest.mark.parametrize("length", LENGTHS_PAST_ONE_READ)
+def test_a_length_past_any_one_read_waits_for_its_body(echo_address: tuple[str, int], length: int) -> None:
+    # Node's HTTP parser takes any length within 64 bits and waits for the body.
+    assert waits_for_more(echo_address, post_with_length(b"/", b"%d" % length))
+
+
+def test_a_body_longer_than_one_read_arrives_whole(echo_address: tuple[str, int]) -> None:
+    value = b"x" * 70000
+    body = b'{"data":"%b"}' % value
+    request = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\n\r\n%b" % (len(body), body)
+    answers = exchange(echo_address, request + NEXT_POST)
+    assert statuses(answers) == [200, 200]
+    assert value in answers
+
+
+@pytest.mark.parametrize("line", TAKEN_LINES)
+def test_a_well_formed_head_answers_and_the_next_request_lines_up(
+    echo_address: tuple[str, int], line: bytes
+) -> None:
+    answers = exchange(echo_address, post_with_line(b"/", line) + NEXT_POST)
+    assert statuses(answers) == [200, 200]
+    assert b'{"echoed":42}' in answers
+
+
+@pytest.mark.parametrize("request_bytes", TAKEN_REQUEST_LINES)
+def test_a_well_formed_request_line_answers_and_the_next_request_lines_up(
+    echo_address: tuple[str, int], request_bytes: bytes
+) -> None:
+    # Node's HTTP parser skips an empty line before a request line, as RFC 9112 §2.2 says a server should.
+    assert statuses(exchange(echo_address, request_bytes + NEXT_POST)) == [200, 200]
+
+
+def test_a_head_with_expect_is_answered_100_first(echo_address: tuple[str, int]) -> None:
+    answers = exchange(echo_address, post_with_line(b"/", b"Expect: 100-continue") + NEXT_POST)
+    assert statuses(answers) == [100, 200, 200]
+    assert b'{"echoed":42}' in answers
+
+
+def test_an_http_1_0_request_answers_and_closes(echo_address: tuple[str, int]) -> None:
+    assert statuses(exchange(echo_address, b"GET /health/liveness HTTP/1.0\r\n\r\n", half_close=False)) == [
+        200
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS_OF_VISIBLE_BYTES)
+def test_a_target_of_visible_bytes_answers(echo_address: tuple[str, int], target: bytes) -> None:
+    request = b"GET %b HTTP/1.1\r\nHost: x\r\n\r\n" % target
+    assert statuses(exchange(echo_address, request + NEXT_POST)) == [404, 200]
+
+
+def test_an_empty_line_after_a_body_is_skipped(echo_address: tuple[str, int]) -> None:
+    answers = exchange(echo_address, post_with_line(b"/", b"X-A: 1") + b"\r\n" + NEXT_POST + b"\r\n")
+    assert statuses(answers) == [200, 200]
+
+
+def test_a_refused_head_after_a_well_formed_one_answers_400(echo_address: tuple[str, int]) -> None:
+    refused = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length : 2\r\n\r\n{}"
+    assert statuses(exchange(echo_address, post_with_line(b"/", b"X-A: 1") + refused, half_close=False)) == [
+        200,
+        400,
+    ]
 
 
 def test_issue_1337_warm_calls_do_not_wait_for_a_delayed_ack() -> None:

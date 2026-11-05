@@ -102,11 +102,22 @@ _TOKEN = rb"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
 _QUOTED = rb'"(?:[\t \x21\x23-\x5b\x5d-\x7e\x80-\xff]|\\[\t \x21-\x7e\x80-\xff])*"'
 _CHUNK_LINE = re.compile(rb"([0-9A-Fa-f]+)(?:;%b(?:=(?:%b|%b))?)*\r\n" % (_TOKEN, _TOKEN, _QUOTED))
 """A chunk's size and extensions, with no whitespace, which Node's HTTP parser refuses (RFC 9112 §7.1.1)."""
-_TRAILER_LINE = re.compile(rb"(%b):[\t \x21-\x7e\x80-\xff]*\r\n" % _TOKEN)
+_FIELD_LINE = re.compile(rb"(%b):[\t \x21-\x7e\x80-\xff]*\r\n" % _TOKEN)
+"""A header or trailer line. Node's HTTP parser takes no other shape (RFC 9112 §5)."""
+_REQUEST_LINE = re.compile(rb"%b +[\x21-\x7e]+( +HTTP/1\.[01])?\r\n" % _TOKEN)
+"""A request line, with a version or with none, which ``http.server`` reads as HTTP/0.9. As in Node's HTTP
+parser, several spaces may part its words, and it holds no other whitespace and no control or high byte."""
 _TRAILER_REFUSED = (b"content-length", b"transfer-encoding")
 _MAX_CHUNK_LINE = 16384
 """The longest chunk or trailer line, CRLF included: Node's parser refuses longer extensions and headers."""
 _CHUNK_READ = 65536
+_MAX_HEAD_LINE = 65536
+"""The longest line of a request's head, CRLF included: ``http.client``'s limit, a private constant there."""
+_MAX_HEAD_LINES = 100
+"""The most lines in a request's head, the blank line included: ``http.client``'s limit too."""
+_MAX_LENGTH_DIGITS = 21
+"""The digits of a Content-Length that ``int`` reads, leading zeros aside: so many are past 64 bits
+already, and ``int`` raises on a long string."""
 
 
 def socket_report(reason: str, message: str) -> dict[str, str]:
@@ -173,10 +184,19 @@ def check_dependencies(
     return reports
 
 
+def _read_pieces(rfile: io.BufferedIOBase, size: int) -> bytes:
+    """Read *size* bytes, or what arrives before the connection ends. Read piece by piece, a body allocates
+    what has arrived, whatever size it declared."""
+    body = io.BytesIO()
+    while size and (piece := rfile.read(min(size, _CHUNK_READ))):
+        body.write(piece)
+        size -= len(piece)
+    return body.getvalue()
+
+
 def _read_chunked(rfile: io.BufferedIOBase) -> bytes | None:
     """Read a chunked body through its trailer section, discarding extensions and trailers, or return None
-    when a line is not what Node's HTTP parser takes (RFC 9112 §7.1). Read piece by piece, a body allocates
-    what has arrived, whatever size it declared."""
+    when a line is not what Node's HTTP parser takes (RFC 9112 §7.1)."""
     body = bytearray()
     while True:
         chunk = _CHUNK_LINE.fullmatch(rfile.readline(_MAX_CHUNK_LINE))
@@ -184,16 +204,11 @@ def _read_chunked(rfile: io.BufferedIOBase) -> bytes | None:
             return None
         if size == 0:
             break
-        while size:
-            piece = rfile.read(min(size, _CHUNK_READ))
-            if not piece:
-                return None
-            body += piece
-            size -= len(piece)
+        body += _read_pieces(rfile, size)
         if rfile.read(2) != b"\r\n":
             return None
     while (line := rfile.readline(_MAX_CHUNK_LINE)) != b"\r\n":
-        trailer = _TRAILER_LINE.fullmatch(line)
+        trailer = _FIELD_LINE.fullmatch(line)
         if trailer is None or trailer[1].lower() in _TRAILER_REFUSED:
             return None
     return bytes(body)
@@ -202,26 +217,84 @@ def _read_chunked(rfile: io.BufferedIOBase) -> bytes | None:
 def read_body(request: BaseHTTPRequestHandler) -> bytes | None:
     """Read the request body its Content-Length or its chunked coding frames (none: empty), so the next
     request on the connection starts where this one ends. Other framing answers 400, closes and returns None:
-    a Content-Length that is not one 1*DIGIT value and a broken chunked body leave it unrecoverable (RFC 9112
-    §6.3), as Node's HTTP parser says too; a coding other than chunked is one the shim cannot read, and both
-    framings at once say two things."""
+    a Content-Length that is not one 1*DIGIT value within 64 bits and a broken chunked body leave it
+    unrecoverable (RFC 9112 §6.3), as Node's HTTP parser says too; a coding other than chunked is one the shim
+    cannot read, and both framings at once say two things."""
     if not request.headers:  # http.server's stand-in for a request with no version: it has no body
         return b""
     codings = [value for value in request.headers.get_all("transfer-encoding") or [] if value.strip(" \t")]
     lengths = request.headers.get_all("content-length")
     if codings:
         body = None
-        if not lengths and len(codings) == 1 and codings[0].strip(" \t").lower() == "chunked":
+        # Spaces may follow the coding; Node's HTTP parser reads a tab there as another coding.
+        if not lengths and len(codings) == 1 and codings[0].rstrip(" ").lower() == "chunked":
             body = _read_chunked(request.rfile)
         if body is None:
             request.send_error(400, "invalid Transfer-Encoding")
         return body
     lengths = lengths or ["0"]
-    length = lengths[0].strip(" \t")
-    if len(lengths) > 1 or not (length.isascii() and length.isdigit()):
+    # Spaces may follow the length; the Node of funcd's runtime image refuses a tab there.
+    length = lengths[0].rstrip(" ")
+    if (
+        len(lengths) > 1
+        or not (length.isascii() and length.isdigit())
+        or (size := int(length.lstrip("0")[:_MAX_LENGTH_DIGITS] or "0")) >= 1 << 64
+    ):
         request.send_error(400, "invalid Content-Length")
         return None
-    return request.rfile.read(int(length))
+    return _read_pieces(request.rfile, size)
+
+
+def _read_head(rfile: io.BufferedIOBase) -> bytes | None:
+    """Read a request's header lines through the blank line that ends them, or return None when a line is not
+    what Node's HTTP parser takes, the head ends early or it passes ``http.client``'s limits."""
+    head = bytearray()
+    for _ in range(_MAX_HEAD_LINES):
+        line = rfile.readline(_MAX_HEAD_LINE)
+        head += line
+        if line == b"\r\n":
+            return bytes(head)
+        if _FIELD_LINE.fullmatch(line) is None:
+            return None
+    return None
+
+
+class _RequestHeaders(http.client.HTTPMessage):
+    """A request's header lines. ``email`` reads a ``multipart`` type's parameters while it parses, to find
+    the parts, and it raises on some well-formed ones. A head has no parts, and the shim reads only raw
+    values."""
+
+    def get_content_type(self) -> str:
+        return "text/plain"
+
+
+class CheckedHeadHandler(BaseHTTPRequestHandler):
+    """A request handler that reads a request's header block as Node's HTTP parser reads it (funcd
+    ADR-0049) and answers 400 and closes on one it refuses, as ``read_body`` does on broken framing.
+    ``http.server`` then parses only the lines checked here, and answers a method of token bytes or a
+    target as it did. The solo shim's and the pool host's handlers build on it."""
+
+    MessageClass = _RequestHeaders
+    raw_requestline: bytes
+
+    def parse_request(self) -> bool:
+        self.raw_requestline = self.raw_requestline.lstrip(b"\r\n")
+        if not self.raw_requestline:
+            # RFC 9112 §2.2: an empty line before a request line is ignored: http.server reads the next line.
+            self.close_connection = False
+            return False
+        request_line = _REQUEST_LINE.fullmatch(self.raw_requestline)
+        head = _read_head(self.rfile) if request_line and request_line[1] else b""
+        if request_line is None or head is None:
+            # What http.server sets to answer a request line that is too long: the answer has a status line.
+            self.requestline = self.request_version = self.command = ""
+            self.send_error(400, "invalid request head")
+            return False
+        rfile, self.rfile = self.rfile, io.BytesIO(head)
+        try:
+            return super().parse_request()
+        finally:
+            self.rfile = rfile
 
 
 def make_request_handler(
@@ -236,7 +309,7 @@ def make_request_handler(
     """
     context: FunctionContext = _Context(channel)
 
-    class ShimHandler(BaseHTTPRequestHandler):
+    class ShimHandler(CheckedHeadHandler):
         # HTTP/1.1 → keep-alive: reuse the TCP connection across requests instead of closing after
         # each (the HTTP/1.0 default), which otherwise forces a handshake per request and piles up
         # TIME_WAIT under load. Safe here because every response carries Content-Length. This also

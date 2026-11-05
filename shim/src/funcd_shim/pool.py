@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Any
 from funcd_shim import _poolworker
 from funcd_shim.deadline import deadline_from, is_stuck
 from funcd_shim.funclog import new_write_lock
-from funcd_shim.shim import check_dependencies, exit_on_sigterm, read_body
+from funcd_shim.shim import CheckedHeadHandler, check_dependencies, exit_on_sigterm, read_body
 from funcd_shim.tracespan import parse_links
 
 if TYPE_CHECKING:
@@ -133,7 +133,7 @@ def _src_dir() -> str:
 
 
 def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHandler]:
-    class PoolHandler(BaseHTTPRequestHandler):
+    class PoolHandler(CheckedHeadHandler):
         # HTTP/1.1 → keep-alive (see shim.py): reuse the TCP connection instead of closing per
         # request — avoids a handshake + TIME_WAIT per call and lets the upstream pool (ADR-0041)
         # reuse connections. Safe: every response carries Content-Length.
