@@ -144,6 +144,7 @@ TAKEN_LINES = [
     pytest.param(b"Content-Type: MULTIPART/MIXED; BOUNDARY*=undefined''x", id="content-type-upper-case"),
     pytest.param(b"Content-Type: multipart/mixed; boundary*=x; boundary*0=y", id="content-type-two-forms"),
     pytest.param(b"X-A: 1\r\nX-A: 2", id="name-twice"),
+    pytest.param(b"X-Funcd-Timeout-Ms: %b" % (b"1" * 4301), id="timeout-past-what-int-reads"),
 ]
 
 LINES_AT_THE_LIMITS = [
