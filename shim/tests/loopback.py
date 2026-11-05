@@ -9,9 +9,6 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-WAIT_S = 0.2
-"""How long a server must stay quiet for ``waits_for_more``."""
-
 
 class _RecordingServer(ThreadingHTTPServer):
     """Keeps each socket it accepts, so a test can read the options its handler set on the connection."""
@@ -65,22 +62,6 @@ def exchange(address: tuple[str, int], payload: bytes, half_close: bool = True) 
         while chunk := sock.recv(65536):
             answers += chunk
     return answers
-
-
-def waits_for_more(address: tuple[str, int], payload: bytes) -> bool:
-    """Send raw *payload* and say whether the server waits for more: for a moment it writes nothing and keeps
-    the connection open. Then end the input and read out what it writes, which the caller does not look at."""
-    with socket.create_connection(address, timeout=WAIT_S) as sock:
-        sock.sendall(payload)
-        try:
-            sock.recv(1)
-        except TimeoutError:
-            sock.shutdown(socket.SHUT_WR)
-            sock.settimeout(5)
-            while sock.recv(65536):
-                pass
-            return True
-    return False
 
 
 def statuses(answers: bytes) -> list[int]:
