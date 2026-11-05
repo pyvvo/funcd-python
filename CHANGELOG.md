@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.3](https://github.com/pyvvo/funcd-python/compare/v0.19.2...v0.19.3) (2026-11-05)
+
+
+### Bug Fixes
+
+* **shim:** a head past http.client's limits answers 431 again, and funcd's listener alone checks a head's form ([#118](https://github.com/pyvvo/funcd-python/issues/118)) ([b34ae82](https://github.com/pyvvo/funcd-python/commit/b34ae82e028a6c7af13b3904e953500566444ec2))
+
 ## [0.19.2](https://github.com/pyvvo/funcd-python/compare/v0.19.1...v0.19.2) (2026-11-05)
 
 
