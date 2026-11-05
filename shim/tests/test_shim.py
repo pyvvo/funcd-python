@@ -27,7 +27,7 @@ from typing import Any
 
 import pytest
 from fakeapi import CLOSE, HOLD, DependencyAPI
-from loopback import warm_calls
+from loopback import exchange, statuses, warm_calls
 
 from funcd_shim import shim
 from funcd_shim.types import CloudEvent, FunctionContext
@@ -91,6 +91,11 @@ def post_framed(host: str, path: str, lengths: list[str], body: bytes = b"") -> 
         return resp.status, resp.getheader("connection")
     finally:
         conn.close()
+
+
+def address(host: str) -> tuple[str, int]:
+    name, port = host.split(":")
+    return name, int(port)
 
 
 def _echo(context: FunctionContext, event: CloudEvent[Any]) -> dict[str, Any]:
@@ -312,6 +317,28 @@ def test_keep_alive_no_desync() -> None:
             conn.close()
 
 
+@pytest.mark.parametrize(
+    "path,status", [("/", 404), ("/health/liveness", 200), ("/health/readiness", 200), ("/nope", 404)]
+)
+def test_keep_alive_post_after_a_get_with_a_body(path: str, status: int) -> None:
+    # funcd forwards a GET with an envelope body (funcd ADR-0134, ADR-0181): a GET drains it as a POST does,
+    # so the next request on the connection lines up.
+    with serve(_echo) as base:
+        conn = http.client.HTTPConnection(base.removeprefix("http://"), timeout=5)
+        try:
+            conn.request("GET", path, b'{"data":{"hello":"world"}}')
+            r = conn.getresponse()
+            assert r.status == status
+            r.read()
+
+            conn.request("POST", "/", b'{"data":42}')
+            r = conn.getresponse()
+            assert r.status == 200
+            assert json.loads(r.read())["echoed"] == 42
+        finally:
+            conn.close()
+
+
 def test_issue_1337_warm_calls_do_not_wait_for_a_delayed_ack() -> None:
     # A response is two writes, the headers and the body. With Nagle on, a warm call's body waits for the
     # client's delayed ACK of the headers: about 40 ms on Linux. macOS acknowledges at once on loopback, so
@@ -335,6 +362,9 @@ def test_issue_r50_malformed_content_length_returns_400(lengths: list[str]) -> N
         host = base.removeprefix("http://")
         assert post_framed(host, "/", lengths) == (400, "close")
         assert post_framed(host, "/", ["2 "], b"{}")[0] == 200
+        framing = b"".join(b"Content-Length: %s\r\n" % value.encode() for value in lengths)
+        answers = exchange(address(host), b"GET /health/liveness HTTP/1.1\r\nHost: x\r\n" + framing + b"\r\n")
+        assert statuses(answers) == [400], "a GET gets one answer, and it closes"
 
 
 def _circular() -> dict[str, Any]:

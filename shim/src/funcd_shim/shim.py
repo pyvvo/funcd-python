@@ -223,6 +223,10 @@ def make_request_handler(
             self.end_headers()
 
         def do_GET(self) -> None:  # noqa: N802 - stdlib signature
+            # funcd forwards a GET with an envelope body (funcd ADR-0134, ADR-0181): drain it first, as
+            # do_POST does.
+            if read_body(self) is None:
+                return
             if self.path == "/health/liveness":
                 if stuck():
                     self._send_text(503, "stuck call")

@@ -1,6 +1,7 @@
 """A request handler class served in-process on loopback, for the tests that look at its connections."""
 
 import http.client
+import re
 import socket
 import statistics
 import threading
@@ -48,3 +49,19 @@ def warm_calls(
         server.server_close()
         thread.join(timeout=5)
     return statistics.median(latencies[calls // 2 :]), nodelay
+
+
+def exchange(address: tuple[str, int], payload: bytes) -> bytes:
+    """Send raw *payload*, end the sending side and return all the server wrote until it closed."""
+    with socket.create_connection(address, timeout=5) as sock:
+        sock.sendall(payload)
+        sock.shutdown(socket.SHUT_WR)
+        answers = b""
+        while chunk := sock.recv(65536):
+            answers += chunk
+    return answers
+
+
+def statuses(answers: bytes) -> list[int]:
+    """The status of each answer in *answers*."""
+    return [int(status) for status in re.findall(rb"HTTP/1\.1 (\d{3}) ", answers)]
