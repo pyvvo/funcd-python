@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/pyvvo/funcd-python/compare/v0.19.0...v0.19.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* **shim:** a request's body is read before it is answered, chunked too ([#114](https://github.com/pyvvo/funcd-python/issues/114)) ([641d973](https://github.com/pyvvo/funcd-python/commit/641d973fa88196899f73c33d5542e7d00e7ca1be))
+
 ## [0.19.0](https://github.com/pyvvo/funcd-python/compare/v0.18.1...v0.19.0) (2026-10-30)
 
 
