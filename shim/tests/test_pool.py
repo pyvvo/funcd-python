@@ -321,6 +321,40 @@ def test_pool_keep_alive_post_after_a_get_with_a_body(tmp_path: Path) -> None:
         proc.wait(timeout=5)
 
 
+def test_pool_keep_alive_chunked_bodies_are_read(tmp_path: Path) -> None:
+    # Node's HTTP parser reads a chunked body, so the contract does too (funcd ADR-0049).
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("f0", ECHO)]))
+    chunked = {"Transfer-Encoding": "chunked"}
+    try:
+        for method, path, status in (
+            ("POST", "/function/f0", 200),
+            ("GET", "/health/liveness", 200),
+            ("GET", "/function/f0", 404),
+        ):
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            try:
+                conn.request(
+                    method, path, iter([b'{"data":{"hello":', b'"a"}}']), chunked, encode_chunked=True
+                )
+                r = conn.getresponse()
+                assert r.status == status, path
+                body = r.read()
+                if status == 200 and method == "POST":
+                    assert json.loads(body)["echoed"] == {"hello": "a"}
+
+                conn.request("POST", "/function/f0", b'{"data":{"hello":"b"}}')
+                r = conn.getresponse()
+                assert r.status == 200, path
+                assert json.loads(r.read())["echoed"] == {"hello": "b"}
+            finally:
+                conn.close()
+        broken = b"POST /function/f0 HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n"
+        assert statuses(exchange(("127.0.0.1", port), broken)) == [400]
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def test_issue_1337_pool_warm_calls_do_not_wait_for_a_delayed_ack() -> None:
     # The pool host answers in two writes too: see test_issue_1337_warm_calls_do_not_wait_for_a_delayed_ack.
     median_ms, nodelay = warm_calls(make_request_handler({}), "GET", "/health/liveness")

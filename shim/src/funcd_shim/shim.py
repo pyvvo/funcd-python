@@ -97,6 +97,13 @@ DEPENDENCY_CHECK_BUDGET = 0.05
 so a ``Timeout`` report reaches funcd's probe."""
 
 
+_HEX_DIGITS = b"0123456789abcdefABCDEF"
+_MAX_CHUNK_LINE = 65536
+"""The longest chunk-size or trailer line, the limit ``http.server`` sets on a request line."""
+_MAX_CHUNK_SIZE_DIGITS = 16
+_CHUNK_READ = 65536
+
+
 def socket_report(reason: str, message: str) -> dict[str, str]:
     return {"kind": "socket", "binding": "", "reason": reason, "message": message}
 
@@ -161,11 +168,52 @@ def check_dependencies(
     return reports
 
 
+def _read_chunked(rfile: io.BufferedIOBase) -> bytes | None:
+    """Read a chunked body through its trailer section (RFC 9112 §7.1), discarding extensions and trailers,
+    or return None when its framing is broken. As Node's HTTP parser, it takes only hex digits as a size, one
+    that fits 64 bits, and a line ending in CRLF; reading piece by piece, it allocates what has arrived."""
+    body = bytearray()
+    while True:
+        line = rfile.readline(_MAX_CHUNK_LINE + 1)
+        size = line[:-2].split(b";", 1)[0].rstrip(b" \t")
+        if (
+            not line.endswith(b"\r\n")
+            or not 0 < len(size) <= _MAX_CHUNK_SIZE_DIGITS
+            or size.strip(_HEX_DIGITS)
+        ):
+            return None
+        remaining = int(size, 16)
+        if remaining == 0:
+            break
+        while remaining:
+            piece = rfile.read(min(remaining, _CHUNK_READ))
+            if not piece:
+                return None
+            body += piece
+            remaining -= len(piece)
+        if rfile.read(2) != b"\r\n":
+            return None
+    while (line := rfile.readline(_MAX_CHUNK_LINE + 1)) != b"\r\n":
+        if not line.endswith(b"\r\n"):
+            return None
+    return bytes(body)
+
+
 def read_body(request: BaseHTTPRequestHandler) -> bytes | None:
-    """Read the request body its Content-Length frames (none: empty). A Content-Length that is not one
-    1*DIGIT value leaves the framing unrecoverable (RFC 9112 §6.3): answer 400 and close, as Node's HTTP
-    parser does, and return None."""
-    lengths = request.headers.get_all("content-length") or ["0"]
+    """Read the request body its Content-Length or its chunked coding frames (none: empty), so the next
+    request on the connection starts where this one ends. A Content-Length that is not one 1*DIGIT value, a
+    chunked body that is broken, another coding or both framings at once leave the framing unrecoverable
+    (RFC 9112 §6.3): answer 400 and close, as Node's HTTP parser does, and return None."""
+    codings = request.headers.get_all("transfer-encoding")
+    lengths = request.headers.get_all("content-length")
+    if codings:
+        body = None
+        if not lengths and len(codings) == 1 and codings[0].strip(" \t").lower() == "chunked":
+            body = _read_chunked(request.rfile)
+        if body is None:
+            request.send_error(400, "invalid Transfer-Encoding")
+        return body
+    lengths = lengths or ["0"]
     length = lengths[0].strip(" \t")
     if len(lengths) > 1 or not (length.isascii() and length.isdigit()):
         request.send_error(400, "invalid Content-Length")

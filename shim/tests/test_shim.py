@@ -339,6 +339,99 @@ def test_keep_alive_post_after_a_get_with_a_body(path: str, status: int) -> None
             conn.close()
 
 
+def test_keep_alive_chunked_post_reaches_the_handler() -> None:
+    # Node's HTTP parser reads a chunked body, so the contract does too (funcd ADR-0049).
+    with serve(_echo) as base:
+        conn = http.client.HTTPConnection(base.removeprefix("http://"), timeout=5)
+        try:
+            chunked = {"Transfer-Encoding": "chunked"}
+            conn.request("POST", "/", iter([b'{"data":', b"42}"]), chunked, encode_chunked=True)
+            r = conn.getresponse()
+            assert r.status == 200
+            assert json.loads(r.read())["echoed"] == 42
+
+            conn.request("POST", "/", b'{"data":43}')
+            r = conn.getresponse()
+            assert r.status == 200
+            assert json.loads(r.read())["echoed"] == 43
+        finally:
+            conn.close()
+
+
+@pytest.mark.parametrize("path,status", [("/", 404), ("/health/liveness", 200), ("/nope", 404)])
+def test_keep_alive_post_after_a_chunked_get(path: str, status: int) -> None:
+    with serve(_echo) as base:
+        conn = http.client.HTTPConnection(base.removeprefix("http://"), timeout=5)
+        try:
+            chunked = {"Transfer-Encoding": "chunked"}
+            conn.request("GET", path, iter([b'{"data":', b"42}"]), chunked, encode_chunked=True)
+            r = conn.getresponse()
+            assert r.status == status
+            r.read()
+
+            conn.request("POST", "/", b'{"data":43}')
+            r = conn.getresponse()
+            assert r.status == 200
+            assert json.loads(r.read())["echoed"] == 43
+        finally:
+            conn.close()
+
+
+def test_chunk_extensions_and_trailers_are_read() -> None:
+    body = b'8;a=b\r\n{"data":\r\n3 ; c\r\n42}\r\n0\r\nX-Trailer: 1\r\n\r\n'
+    chunked = b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: Chunked\r\n\r\n" + body
+    plain = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\n{}"
+    with serve(_echo) as base:
+        answers = exchange(address(base.removeprefix("http://")), chunked + plain)
+    assert statuses(answers) == [200, 200]
+    assert b'{"echoed":42}' in answers
+
+
+@pytest.mark.parametrize(
+    "framing",
+    [
+        b"Transfer-Encoding: chunked\r\n\r\nzz\r\n",
+        b"Transfer-Encoding: chunked\r\n\r\n\r\n",
+        b"Transfer-Encoding: chunked\r\n\r\n+2\r\n{}\r\n0\r\n\r\n",
+        b"Transfer-Encoding: chunked\r\n\r\n0x2\r\n{}\r\n0\r\n\r\n",
+        b"Transfer-Encoding: chunked\r\n\r\n0_2\r\n{}\r\n0\r\n\r\n",
+        b"Transfer-Encoding: chunked\r\n\r\n2\n{}\r\n0\r\n\r\n",
+        b"Transfer-Encoding: chunked\r\n\r\n2\r\n{}xx0\r\n\r\n",
+        b"Transfer-Encoding: chunked\r\n\r\n10000000000000002\r\n{}\r\n0\r\n\r\n",
+        b"Transfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n",
+        b"Transfer-Encoding: chunked\r\n\r\n5\r\n{}",
+        b"Transfer-Encoding: chunked\r\n\r\n0\r\nX-Trailer: 1\r\n",
+        b"Transfer-Encoding: gzip\r\n\r\n",
+        b"Transfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n",
+        b"Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+        b"Transfer-Encoding: chunked\r\nContent-Length: 2\r\n\r\n0\r\n\r\n",
+    ],
+    ids=[
+        "size-not-hex",
+        "size-empty",
+        "size-signed",
+        "size-prefixed",
+        "size-underscore",
+        "size-line-ends-lf",
+        "data-without-crlf",
+        "size-past-64-bits",
+        "no-last-chunk",
+        "short-chunk",
+        "trailers-unended",
+        "other-coding",
+        "coding-before-chunked",
+        "repeated",
+        "with-content-length",
+    ],
+)
+@pytest.mark.parametrize("method,path", [("POST", "/"), ("GET", "/health/liveness")])
+def test_broken_chunked_framing_returns_400(method: str, path: str, framing: bytes) -> None:
+    # As for a Content-Length that is not 1*DIGIT, the framing is unrecoverable: one answer, 400, and a close.
+    head = b"%s %s HTTP/1.1\r\nHost: x\r\n" % (method.encode(), path.encode())
+    with serve(_echo) as base:
+        assert statuses(exchange(address(base.removeprefix("http://")), head + framing)) == [400]
+
+
 def test_issue_1337_warm_calls_do_not_wait_for_a_delayed_ack() -> None:
     # A response is two writes, the headers and the body. With Nagle on, a warm call's body waits for the
     # client's delayed ACK of the headers: about 40 ms on Linux. macOS acknowledges at once on loopback, so
