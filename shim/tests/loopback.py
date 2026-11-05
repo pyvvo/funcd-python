@@ -51,11 +51,13 @@ def warm_calls(
     return statistics.median(latencies[calls // 2 :]), nodelay
 
 
-def exchange(address: tuple[str, int], payload: bytes) -> bytes:
-    """Send raw *payload*, end the sending side and return all the server wrote until it closed."""
+def exchange(address: tuple[str, int], payload: bytes, half_close: bool = True) -> bytes:
+    """Send raw *payload* and return all the server wrote until it closed; with *half_close*, end the sending
+    side first, so a server still waiting for bytes sees the end of the input."""
     with socket.create_connection(address, timeout=5) as sock:
         sock.sendall(payload)
-        sock.shutdown(socket.SHUT_WR)
+        if half_close:
+            sock.shutdown(socket.SHUT_WR)
         answers = b""
         while chunk := sock.recv(65536):
             answers += chunk

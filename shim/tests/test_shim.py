@@ -377,59 +377,150 @@ def test_keep_alive_post_after_a_chunked_get(path: str, status: int) -> None:
             conn.close()
 
 
-def test_chunk_extensions_and_trailers_are_read() -> None:
-    body = b'8;a=b\r\n{"data":\r\n3 ; c\r\n42}\r\n0\r\nX-Trailer: 1\r\n\r\n'
-    chunked = b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: Chunked\r\n\r\n" + body
-    plain = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\n{}"
+@pytest.fixture(scope="module")
+def echo_address() -> Iterator[tuple[str, int]]:
+    """One echo server for the raw framing rows: stopping one takes half a second."""
     with serve(_echo) as base:
-        answers = exchange(address(base.removeprefix("http://")), chunked + plain)
+        yield address(base.removeprefix("http://"))
+
+
+def chunked_post(coding: bytes, body: bytes) -> bytes:
+    return b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: %s\r\n\r\n%s" % (coding, body)
+
+
+NEXT_POST = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\n{}"
+
+
+@pytest.mark.parametrize(
+    "coding,body",
+    [
+        pytest.param(b"chunked", b'8\r\n{"data":\r\n3\r\n42}\r\n0\r\n\r\n', id="plain"),
+        pytest.param(b"Chunked", b'8\r\n{"data":\r\n3\r\n42}\r\n0\r\n\r\n', id="coding-case"),
+        pytest.param(b"chunked \t", b'8\r\n{"data":\r\n3\r\n42}\r\n0\r\n\r\n', id="coding-then-space"),
+        pytest.param(b"chunked", b'B\r\n{"data":42}\r\n0\r\n\r\n', id="size-upper-case"),
+        pytest.param(b"chunked", b'b\r\n{"data":42}\r\n0\r\n\r\n', id="size-lower-case"),
+        pytest.param(b"chunked", b'0000000000000000b\r\n{"data":42}\r\n0\r\n\r\n', id="size-zero-padded"),
+        pytest.param(b"chunked", b'b;a\r\n{"data":42}\r\n0\r\n\r\n', id="extension-name"),
+        pytest.param(b"chunked", b'b;a=b;c="d \\" e"\r\n{"data":42}\r\n0\r\n\r\n', id="extension-values"),
+        pytest.param(b"chunked", b'b;a=%s\r\n{"data":42}\r\n0\r\n\r\n' % (b"x" * 200), id="line-long"),
+        pytest.param(b"chunked", b'b\r\n{"data":42}\r\n0\r\nX-Trailer: 1\r\nX-Other:\r\n\r\n', id="trailers"),
+    ],
+)
+def test_a_chunked_body_is_read_and_the_next_request_lines_up(
+    echo_address: tuple[str, int], coding: bytes, body: bytes
+) -> None:
+    answers = exchange(echo_address, chunked_post(coding, body) + NEXT_POST)
     assert statuses(answers) == [200, 200]
     assert b'{"echoed":42}' in answers
 
 
 @pytest.mark.parametrize(
-    "framing",
+    "body",
     [
-        b"Transfer-Encoding: chunked\r\n\r\nzz\r\n",
-        b"Transfer-Encoding: chunked\r\n\r\n\r\n",
-        b"Transfer-Encoding: chunked\r\n\r\n+2\r\n{}\r\n0\r\n\r\n",
-        b"Transfer-Encoding: chunked\r\n\r\n0x2\r\n{}\r\n0\r\n\r\n",
-        b"Transfer-Encoding: chunked\r\n\r\n0_2\r\n{}\r\n0\r\n\r\n",
-        b"Transfer-Encoding: chunked\r\n\r\n2\n{}\r\n0\r\n\r\n",
-        b"Transfer-Encoding: chunked\r\n\r\n2\r\n{}xx0\r\n\r\n",
-        b"Transfer-Encoding: chunked\r\n\r\n10000000000000002\r\n{}\r\n0\r\n\r\n",
-        b"Transfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n",
-        b"Transfer-Encoding: chunked\r\n\r\n5\r\n{}",
-        b"Transfer-Encoding: chunked\r\n\r\n0\r\nX-Trailer: 1\r\n",
-        b"Transfer-Encoding: gzip\r\n\r\n",
-        b"Transfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n",
-        b"Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
-        b"Transfer-Encoding: chunked\r\nContent-Length: 2\r\n\r\n0\r\n\r\n",
-    ],
-    ids=[
-        "size-not-hex",
-        "size-empty",
-        "size-signed",
-        "size-prefixed",
-        "size-underscore",
-        "size-line-ends-lf",
-        "data-without-crlf",
-        "size-past-64-bits",
-        "no-last-chunk",
-        "short-chunk",
-        "trailers-unended",
-        "other-coding",
-        "coding-before-chunked",
-        "repeated",
-        "with-content-length",
+        pytest.param(b"zz\r\n", id="size-not-hex"),
+        pytest.param(b"\r\n", id="size-empty"),
+        pytest.param(b"+2\r\n{}\r\n0\r\n\r\n", id="size-signed"),
+        pytest.param(b"0x2\r\n{}\r\n0\r\n\r\n", id="size-prefixed"),
+        pytest.param(b"0_2\r\n{}\r\n0\r\n\r\n", id="size-underscore"),
+        pytest.param(b"10000000000000000\r\n", id="size-past-64-bits"),
+        pytest.param(b"2\n{}\r\n0\r\n\r\n", id="size-line-ends-lf"),
+        pytest.param(b"10\n", id="longer-size-line-ends-lf"),
+        pytest.param(b"2 \r\n{}\r\n0\r\n\r\n", id="size-then-space"),
+        pytest.param(b"2\t\r\n{}\r\n0\r\n\r\n", id="size-then-tab"),
+        pytest.param(b"2;\r\n{}\r\n0\r\n\r\n", id="extension-empty"),
+        pytest.param(b"2 ;x=y\r\n{}\r\n0\r\n\r\n", id="extension-after-space"),
+        pytest.param(b"2; x=y\r\n{}\r\n0\r\n\r\n", id="extension-name-after-space"),
+        pytest.param(b"2;x = y\r\n{}\r\n0\r\n\r\n", id="extension-value-spaced"),
+        pytest.param(b"2;x y\r\n{}\r\n0\r\n\r\n", id="extension-with-space"),
+        pytest.param(b"2;@\r\n{}\r\n0\r\n\r\n", id="extension-not-a-token"),
+        pytest.param(b"2;\0\r\n{}\r\n0\r\n\r\n", id="extension-nul"),
+        pytest.param(b"2;\xff\r\n{}\r\n0\r\n\r\n", id="extension-high-byte"),
+        pytest.param(b"2;x\ry\r\n{}\r\n0\r\n\r\n", id="extension-bare-cr"),
+        pytest.param(b'2;x="y\r\n{}\r\n0\r\n\r\n', id="extension-quote-open"),
+        pytest.param(b"2;x=%s\r\n" % (b"y" * 70000), id="line-too-long"),
+        pytest.param(b"2\r\n{}xx0\r\n\r\n", id="data-without-crlf"),
+        pytest.param(b"0\r\nnot a field line\r\n\r\n", id="trailer-no-colon"),
+        pytest.param(b"0\r\nX Trailer: 1\r\n\r\n", id="trailer-name-with-space"),
+        pytest.param(b"0\r\nX-Trailer : 1\r\n\r\n", id="trailer-space-before-colon"),
+        pytest.param(b"0\r\n: 1\r\n\r\n", id="trailer-no-name"),
+        pytest.param(b"0\r\nX-Trailer: a\rb\r\n\r\n", id="trailer-bare-cr"),
+        pytest.param(b"0\r\nX-Trailer: \0\r\n\r\n", id="trailer-nul"),
+        pytest.param(b"0\r\nX-Trailer: 1\r\n 2\r\n\r\n", id="trailer-fold"),
+        pytest.param(b"0\r\n \r\n\r\n", id="trailer-only-a-space"),
+        pytest.param(b"0\r\nContent-Length: 5\r\n\r\n", id="trailer-content-length"),
+        pytest.param(b"0\r\nTransfer-Encoding: chunked\r\n\r\n", id="trailer-transfer-encoding"),
+        pytest.param(b"0\r\nX-Trailer: 1\n\r\n", id="trailer-line-ends-lf"),
+        pytest.param(b"0\r\n\n", id="trailers-end-lf"),
+        pytest.param(b"0\r\nX-Trailer: %s\r\n\r\n" % (b"y" * 70000), id="trailer-too-long"),
     ],
 )
 @pytest.mark.parametrize("method,path", [("POST", "/"), ("GET", "/health/liveness")])
-def test_broken_chunked_framing_returns_400(method: str, path: str, framing: bytes) -> None:
-    # As for a Content-Length that is not 1*DIGIT, the framing is unrecoverable: one answer, 400, and a close.
+def test_broken_chunked_body_returns_400(
+    echo_address: tuple[str, int], method: str, path: str, body: bytes
+) -> None:
+    # As for a Content-Length that is not 1*DIGIT, the framing is unrecoverable and Node's HTTP parser says
+    # so at once: one answer, 400, and a close, with the connection still open from the client's side.
+    head = b"%s %s HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n" % (
+        method.encode(),
+        path.encode(),
+    )
+    assert statuses(exchange(echo_address, head + body, half_close=False)) == [400]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(b"2\r\n{}\r\n", id="no-last-chunk"),
+        pytest.param(b"5\r\n{}", id="short-chunk"),
+        pytest.param(b"ffffffffffffffff\r\n{}", id="largest-size-short"),
+        pytest.param(b"0\r\nX-Trailer: 1\r\n", id="trailers-unended"),
+    ],
+)
+def test_chunked_body_cut_short_returns_400(echo_address: tuple[str, int], body: bytes) -> None:
+    head = b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"
+    assert statuses(exchange(echo_address, head + body)) == [400]
+
+
+@pytest.mark.parametrize(
+    "framing",
+    [
+        pytest.param(b"Transfer-Encoding: gzip\r\n\r\n", id="other-coding"),
+        pytest.param(b"Transfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n", id="coding-before-chunked"),
+        pytest.param(b"Transfer-Encoding: chunked, gzip\r\n\r\n0\r\n\r\n", id="coding-after-chunked"),
+        pytest.param(
+            b"Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n", id="repeated"
+        ),
+        pytest.param(
+            b"Transfer-Encoding: chunked\r\nContent-Length: 2\r\n\r\n0\r\n\r\n", id="with-content-length"
+        ),
+    ],
+)
+@pytest.mark.parametrize("method,path", [("POST", "/"), ("GET", "/health/liveness")])
+def test_a_coding_the_shim_cannot_read_returns_400(
+    echo_address: tuple[str, int], method: str, path: str, framing: bytes
+) -> None:
     head = b"%s %s HTTP/1.1\r\nHost: x\r\n" % (method.encode(), path.encode())
-    with serve(_echo) as base:
-        assert statuses(exchange(address(base.removeprefix("http://")), head + framing)) == [400]
+    assert statuses(exchange(echo_address, head + framing, half_close=False)) == [400]
+
+
+@pytest.mark.parametrize(
+    "request_bytes,status",
+    [
+        pytest.param(b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding:\r\n\r\n", 200, id="no-body"),
+        pytest.param(
+            b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding:\r\nContent-Length: 2\r\n\r\n{}",
+            200,
+            id="length",
+        ),
+        pytest.param(
+            b"GET /health/liveness HTTP/1.1\r\nHost: x\r\nTransfer-Encoding:\r\n\r\n", 200, id="get"
+        ),
+    ],
+)
+def test_an_empty_transfer_encoding_counts_as_absent(
+    echo_address: tuple[str, int], request_bytes: bytes, status: int
+) -> None:
+    assert statuses(exchange(echo_address, request_bytes)) == [status]
 
 
 def test_issue_1337_warm_calls_do_not_wait_for_a_delayed_ack() -> None:

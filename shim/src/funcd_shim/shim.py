@@ -26,6 +26,7 @@ from __future__ import annotations
 import http.client
 import io
 import os
+import re
 import signal
 import sys
 import threading
@@ -97,10 +98,15 @@ DEPENDENCY_CHECK_BUDGET = 0.05
 so a ``Timeout`` report reaches funcd's probe."""
 
 
-_HEX_DIGITS = b"0123456789abcdefABCDEF"
+_TOKEN = rb"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
+_CHUNK_LINE = re.compile(
+    rb'([0-9A-Fa-f]+)(?:;%b(?:=(?:%b|"(?:[^"\\\0\r\n]|\\[^\0\r\n])*"))?)*\r\n' % (_TOKEN, _TOKEN)
+)
+"""A chunk's size and extensions, with no whitespace, which Node's HTTP parser refuses (RFC 9112 §7.1.1)."""
+_TRAILER_LINE = re.compile(rb"(%b):[^\0\r\n]*\r\n" % _TOKEN)
+_TRAILER_REFUSED = (b"content-length", b"transfer-encoding")
 _MAX_CHUNK_LINE = 65536
-"""The longest chunk-size or trailer line, the limit ``http.server`` sets on a request line."""
-_MAX_CHUNK_SIZE_DIGITS = 16
+"""The longest chunk or trailer line, CRLF included: ``http.server``'s limit on a request line."""
 _CHUNK_READ = 65536
 
 
@@ -169,42 +175,38 @@ def check_dependencies(
 
 
 def _read_chunked(rfile: io.BufferedIOBase) -> bytes | None:
-    """Read a chunked body through its trailer section (RFC 9112 §7.1), discarding extensions and trailers,
-    or return None when its framing is broken. As Node's HTTP parser, it takes only hex digits as a size, one
-    that fits 64 bits, and a line ending in CRLF; reading piece by piece, it allocates what has arrived."""
+    """Read a chunked body through its trailer section, discarding extensions and trailers, or return None
+    when a line is not what Node's HTTP parser takes (RFC 9112 §7.1). Read piece by piece, a body allocates
+    what has arrived, whatever size it declared."""
     body = bytearray()
     while True:
-        line = rfile.readline(_MAX_CHUNK_LINE + 1)
-        size = line[:-2].split(b";", 1)[0].rstrip(b" \t")
-        if (
-            not line.endswith(b"\r\n")
-            or not 0 < len(size) <= _MAX_CHUNK_SIZE_DIGITS
-            or size.strip(_HEX_DIGITS)
-        ):
+        chunk = _CHUNK_LINE.fullmatch(rfile.readline(_MAX_CHUNK_LINE))
+        if chunk is None or (size := int(chunk[1], 16)) >= 1 << 64:
             return None
-        remaining = int(size, 16)
-        if remaining == 0:
+        if size == 0:
             break
-        while remaining:
-            piece = rfile.read(min(remaining, _CHUNK_READ))
+        while size:
+            piece = rfile.read(min(size, _CHUNK_READ))
             if not piece:
                 return None
             body += piece
-            remaining -= len(piece)
+            size -= len(piece)
         if rfile.read(2) != b"\r\n":
             return None
-    while (line := rfile.readline(_MAX_CHUNK_LINE + 1)) != b"\r\n":
-        if not line.endswith(b"\r\n"):
+    while (line := rfile.readline(_MAX_CHUNK_LINE)) != b"\r\n":
+        trailer = _TRAILER_LINE.fullmatch(line)
+        if trailer is None or trailer[1].lower() in _TRAILER_REFUSED:
             return None
     return bytes(body)
 
 
 def read_body(request: BaseHTTPRequestHandler) -> bytes | None:
     """Read the request body its Content-Length or its chunked coding frames (none: empty), so the next
-    request on the connection starts where this one ends. A Content-Length that is not one 1*DIGIT value, a
-    chunked body that is broken, another coding or both framings at once leave the framing unrecoverable
-    (RFC 9112 §6.3): answer 400 and close, as Node's HTTP parser does, and return None."""
-    codings = request.headers.get_all("transfer-encoding")
+    request on the connection starts where this one ends. Other framing answers 400, closes and returns None:
+    a Content-Length that is not one 1*DIGIT value and a broken chunked body leave it unrecoverable (RFC 9112
+    §6.3), as Node's HTTP parser says too; a coding other than chunked is one the shim cannot read, and both
+    framings at once say two things."""
+    codings = [value for value in request.headers.get_all("transfer-encoding") or [] if value.strip(" \t")]
     lengths = request.headers.get_all("content-length")
     if codings:
         body = None
