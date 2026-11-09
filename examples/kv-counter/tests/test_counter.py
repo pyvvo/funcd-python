@@ -22,7 +22,7 @@ class _KV(KVClient):
     def get(self, binding: str, key: str) -> bytes | None:
         return self.store.get((binding, key))
 
-    def put(self, binding: str, key: str, value: bytes | str) -> None:
+    def put(self, binding: str, key: str, value: bytes | str, *, ttl: int | None = None) -> None:
         self.store[(binding, key)] = value.encode() if isinstance(value, str) else value
 
 

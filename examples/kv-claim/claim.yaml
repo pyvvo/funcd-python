@@ -1,0 +1,23 @@
+# kv-claim (Python) — races for a claim on a key in the KV binding "claims" (context.kv conditional writes). The
+# sibling of funcd-typescript's examples/kv-claim, whose function `claim` owns the claims-kv store; pyclaim refers to
+# that store (ADR-0248), binds the same table and writes it through a KV Data Writer role assignment (funcd ADR-0136).
+apiVersion: funcd.io/v1alpha1
+kind: Function
+metadata:
+  name: pyclaim
+  namespace: default
+  resourceGroup: rg1
+spec:
+  runtime: python314
+  handler: handle
+  image: oci-layout:///mnt/funcd-deps/registry:pyclaim   # funcdctl push src/main.py
+  replicas: 1
+  scaling:
+    minReplicas: 1
+  kv:
+    - ref: claims-kv
+  bindings:
+    kv:
+      - alias: claims
+        store: claims-kv
+        table: claims
