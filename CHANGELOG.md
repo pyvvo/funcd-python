@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/pyvvo/funcd-python/compare/v0.19.3...v0.20.0) (2026-11-09)
+
+
+### Features
+
+* **shim:** context.kv writes that hold only while a condition holds, and keys that expire ([#120](https://github.com/pyvvo/funcd-python/issues/120)) ([6ad9541](https://github.com/pyvvo/funcd-python/commit/6ad9541b2be9ac53ac6337d42a718f33a465a1dc))
+
 ## [0.19.3](https://github.com/pyvvo/funcd-python/compare/v0.19.2...v0.19.3) (2026-11-05)
 
 
