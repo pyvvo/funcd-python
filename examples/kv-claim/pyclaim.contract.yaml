@@ -1,0 +1,35 @@
+runtime: python314
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    key:
+      type: string
+    holder:
+      type: string
+    op:
+      type: string
+    version:
+      type: string
+    ttl:
+      type: integer
+  required:
+    - key
+    - holder
+output:
+  type: object
+  additionalProperties: false
+  properties:
+    key:
+      type: string
+    won:
+      type: boolean
+    version:
+      type: string
+    holder:
+      type: string
+  required:
+    - key
+    - won
+    - version
+    - holder
