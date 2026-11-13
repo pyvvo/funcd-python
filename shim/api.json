@@ -1,0 +1,183 @@
+{
+  "clients": [
+    {
+      "name": "",
+      "type": "FunctionContext",
+      "doc": "The per-invocation context the shim passes to the handler.",
+      "methods": [
+        {
+          "name": "log",
+          "signature": "log(*args: object) -> None",
+          "doc": "Structured log line \u2192 stdout (collected by the platform, ADR-0010)."
+        },
+        {
+          "name": "invoke",
+          "signature": "invoke(alias: str, payload: Any) -> Any",
+          "doc": "Synchronously invoke a linked function by its spec.bindings.links alias (ADR-0064). An object *payload* with a top-level ``\"data\"`` or ``\"specversion\"`` key is taken as a full CloudEvent envelope (ADR-0134): the target's ``event[\"data\"]`` is only its ``data`` value, without the other keys. Send an object that has its own ``data`` key as ``{\"specversion\": \"1.0\", \"data\": payload}``."
+        },
+        {
+          "name": "remaining_ms",
+          "signature": "remaining_ms() -> int | None",
+          "doc": "Milliseconds left before the call's deadline (X-Funcd-Timeout-Ms), floored at 0; None without one."
+        }
+      ]
+    },
+    {
+      "name": "kv",
+      "type": "KVClient",
+      "doc": "The key-value tables that the function binds, by alias: read, write and list their keys.",
+      "methods": [
+        {
+          "name": "get",
+          "signature": "get(binding: str, key: str) -> bytes | None",
+          "doc": "The key's value as bytes, or ``None`` when the key does not exist."
+        },
+        {
+          "name": "get_entry",
+          "signature": "get_entry(binding: str, key: str) -> KVEntry | None",
+          "doc": "The key's value with its version, or ``None`` when the key does not exist."
+        },
+        {
+          "name": "get_str",
+          "signature": "get_str(binding: str, key: str) -> str | None",
+          "doc": "The key's value decoded as UTF-8 text, or ``None`` when the key does not exist."
+        },
+        {
+          "name": "get_json",
+          "signature": "get_json(binding: str, key: str) -> object | None",
+          "doc": "The key's value parsed as JSON, or ``None`` when the key does not exist. Write it with ``put(binding, key, json.dumps(value))``."
+        },
+        {
+          "name": "put",
+          "signature": "put(binding: str, key: str, value: bytes | str, *, ttl: int | None = None) -> None",
+          "doc": "Writes the value. ``ttl``, in whole seconds, sets the key's expiry; a put without it leaves the key with none. Only the table's owner can write."
+        },
+        {
+          "name": "put_if_absent",
+          "signature": "put_if_absent(binding: str, key: str, value: bytes | str, *, ttl: int | None = None) -> str | None",
+          "doc": "Creates the key: its new version, or ``None`` when it exists (an expired key does not)."
+        },
+        {
+          "name": "compare_and_set",
+          "signature": "compare_and_set(binding: str, key: str, value: bytes | str, version: str, *, ttl: int | None = None) -> str | None",
+          "doc": "Replaces the key while it is at ``version``: its new version, or ``None`` when it is not."
+        },
+        {
+          "name": "delete",
+          "signature": "delete(binding: str, key: str) -> None",
+          "doc": "Deletes the key."
+        },
+        {
+          "name": "delete_if",
+          "signature": "delete_if(binding: str, key: str, version: str) -> bool",
+          "doc": "Deletes the key while it is at ``version``, as a lease holder releases what it holds: ``True`` when it did."
+        },
+        {
+          "name": "list",
+          "signature": "list(binding: str, prefix: str = '') -> list[str]",
+          "doc": "The keys that start with ``prefix``; without a prefix, every key of the table."
+        }
+      ]
+    },
+    {
+      "name": "blob",
+      "type": "BlobClient",
+      "doc": "Binding-scoped blob storage (ADR-0127): get/put/delete/list a bound prefix's objects, or mint a presigned URL \u2014 the blob twin of ``kv``.",
+      "methods": [
+        {
+          "name": "get",
+          "signature": "get(binding: str, key: str) -> bytes | None",
+          "doc": ""
+        },
+        {
+          "name": "put",
+          "signature": "put(binding: str, key: str, data: bytes) -> None",
+          "doc": ""
+        },
+        {
+          "name": "delete",
+          "signature": "delete(binding: str, key: str) -> None",
+          "doc": ""
+        },
+        {
+          "name": "list",
+          "signature": "list(binding: str, prefix: str = '') -> list[str]",
+          "doc": ""
+        },
+        {
+          "name": "signed_url",
+          "signature": "signed_url(binding: str, key: str, method: str = 'GET', expiry: str | None = None) -> str",
+          "doc": "Return a presigned external URL for the object. ``method`` is GET (read) / PUT / DELETE (write); a PUT/DELETE URL requires s3::write. ``expiry`` is a duration string such as ``\"10m\"`` or ``\"1h30m\"`` (funcd ADR-0198: units h, m, s, ms in that order, whole seconds from 1s to 168h); ``None`` takes the driver's default. The shim sends the string as given and funcd refuses a bad one with 400, raised here as ``RuntimeError``; a non-string ``expiry`` raises ``TypeError`` before any request."
+        }
+      ]
+    },
+    {
+      "name": "sql",
+      "type": "SQLClient",
+      "doc": "The SQL databases a function binds (funcd ADR-0233): ``query`` reads, ``query_values`` keeps every column of a join, ``execute`` writes in one transaction. A write needs the database's owner or a writer role.",
+      "methods": [
+        {
+          "name": "query",
+          "signature": "query(alias: str, sql: str, params: SQLParams | None = None) -> list[dict[str, Any]]",
+          "doc": "Rows as dicts; with a duplicate column name the last one wins (``query_values`` keeps every column)."
+        },
+        {
+          "name": "query_values",
+          "signature": "query_values(alias: str, sql: str, params: SQLParams | None = None) -> dict[str, Any]",
+          "doc": "Rows as ``{\"columns\": [...], \"values\": [[...]]}``, as rqlite returns them: every column of a join is kept."
+        },
+        {
+          "name": "execute",
+          "signature": "execute(alias: str, sql_or_statements: str | Sequence[SQLStatement], params: SQLParams | None = None) -> Any",
+          "doc": "One statement's ``{\"rowsAffected\", \"lastInsertId\"}`` (with ``columns`` and ``values`` for RETURNING), or the list of them for a batch of statements, which runs all or nothing."
+        }
+      ]
+    },
+    {
+      "name": "config",
+      "type": "ConfigClient",
+      "doc": "The keys of the ConfigMaps a function binds (funcd ADR-0245); a key a bound Secret overrides is a secret.",
+      "methods": [
+        {
+          "name": "get",
+          "signature": "get(key: str) -> str | None",
+          "doc": ""
+        },
+        {
+          "name": "list",
+          "signature": "list() -> list[str]",
+          "doc": ""
+        }
+      ]
+    },
+    {
+      "name": "secret",
+      "type": "SecretClient",
+      "doc": "The keys and values of the Secrets a function binds, read from funcd on every call (funcd ADR-0249).",
+      "methods": [
+        {
+          "name": "get",
+          "signature": "get(key: str) -> str | None",
+          "doc": ""
+        },
+        {
+          "name": "list",
+          "signature": "list() -> list[str]",
+          "doc": ""
+        }
+      ]
+    },
+    {
+      "name": "lake",
+      "type": "LakeClient",
+      "doc": "A bound lake's proxy URL and token, by spec.bindings.lake alias (funcd ADR-0245).",
+      "methods": [
+        {
+          "name": "get",
+          "signature": "get(alias: str) -> LakeEndpoint",
+          "doc": "Raises KeyError naming the alias when it is not bound."
+        }
+      ]
+    }
+  ]
+}

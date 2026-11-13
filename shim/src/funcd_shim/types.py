@@ -61,7 +61,7 @@ class FunctionContext(Protocol):
 
     @property
     def kv(self) -> KVClient:
-        """Namespace-scoped key-value storage (ADR-0069): get/put/delete a binding's key, or list keys."""
+        """The key-value tables that the function binds, by alias: read, write and list their keys."""
         ...
 
     @property
