@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/pyvvo/funcd-python/compare/v0.20.0...v0.21.0) (2026-11-13)
+
+
+### Features
+
+* **shim:** api.json describes each ctx client's methods for funcd's guide ([#122](https://github.com/pyvvo/funcd-python/issues/122)) ([e17144d](https://github.com/pyvvo/funcd-python/commit/e17144d26b73efcc90420a63b0cf43b079e7beb5))
+
 ## [0.20.0](https://github.com/pyvvo/funcd-python/compare/v0.19.3...v0.20.0) (2026-11-09)
 
 
