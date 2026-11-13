@@ -12,6 +12,7 @@ bad-shaped event returns **422** before ``handle`` runs and a bad return is a **
 JS sibling.
 """
 
+# region handler
 from typing import TypedDict
 
 from funcd_shim import CloudEvent, FunctionContext
@@ -39,3 +40,6 @@ def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput
     context.kv.put("pycounters", name, str(count))
     context.log("kv-counter", name, count)
     return {"name": name, "count": count}
+
+
+# endregion handler

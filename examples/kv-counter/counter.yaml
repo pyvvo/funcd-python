@@ -3,6 +3,7 @@
 # pycounter owns its KVStore: the root `kv` entry creates py-counters, whose table-counters owner defaults to
 # pycounter (funcd ADR-0248), so it may write it. The spec.bindings.kv entry (ADR-0073) maps the alias "pycounters"
 # to that table; the binding IS the read capability (default-deny).
+# region manifest
 apiVersion: funcd.io/v1alpha1
 kind: Function
 metadata:
@@ -12,16 +13,17 @@ metadata:
 spec:
   runtime: python314
   handler: handle
-  image: oci-layout:///mnt/funcd-deps/registry:pycounter   # funcdctl push dist/pycounter.py (README)
+  image: oci-layout:///mnt/funcd-deps/registry:pycounter   # what funcdctl push wrote from the handler
   replicas: 1
   scaling:
     minReplicas: 1
   kv:
-    - name: py-counters         # the KVStore (domain) this function owns
+    - name: py-counters         # the KVStore that this Function owns
       tables:
-        - name: table-counters  # the sub-domain pycounter owns (single writer)
+        - name: table-counters  # its table, which this Function alone writes
   bindings:
     kv:
-      - alias: pycounters       # the in-code handle: context.kv.*('pycounters', …)
-        store: py-counters      # the KVStore (domain)
-        table: table-counters   # the sub-domain pycounter owns (single writer)
+      - alias: pycounters       # the name that the handler passes to context.kv
+        store: py-counters
+        table: table-counters
+# endregion manifest
