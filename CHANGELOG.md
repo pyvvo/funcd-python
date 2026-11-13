@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/pyvvo/funcd-python/compare/v0.21.0...v0.22.0) (2026-11-13)
+
+
+### Features
+
+* **examples:** the KV examples mark the regions that funcd's guide includes ([#124](https://github.com/pyvvo/funcd-python/issues/124)) ([8b23da9](https://github.com/pyvvo/funcd-python/commit/8b23da994cd2e42e79481a6c96716b644cb85b63))
+
 ## [0.21.0](https://github.com/pyvvo/funcd-python/compare/v0.20.0...v0.21.0) (2026-11-13)
 
 
