@@ -82,7 +82,7 @@ class SecretClient:
 
     def delete(self, binding: str, key: str) -> None:
         """Removes key from Secret ``binding``, which the function binds and may write, as for ``put``; a key
-        that the Secret lacks is no error, whatever its name. Fails with the HTTP status 403 when the function
+        that the Secret lacks is no error. Fails with the HTTP status 403 when the function
         does not bind the Secret or may not write it, 404 when the Secret does not exist, and 409 when the
         Secret changed under each of 5 attempts to write it."""
         self._write("delete", "DELETE", binding, key)
