@@ -35,6 +35,8 @@ def dependency_api(sock_dir: Path) -> Iterator[DependencyAPI]:
         def do_GET(self) -> None:  # noqa: N802 - stdlib signature
             member = self.headers.get("X-Funcd-Member") or "-"
             api.calls.append(f"{self.command} {self.path} {member}")
+            length = int(self.headers.get("Content-Length") or 0)
+            api.bodies.append(self.rfile.read(length) if length else b"")
             reply = api.routes.get(self.path) or api.replies.get(member, (200, b""))
             if reply == HOLD:
                 api.release.wait(10)
@@ -47,6 +49,9 @@ def dependency_api(sock_dir: Path) -> Iterator[DependencyAPI]:
             self.send_header("content-length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        do_PUT = do_GET  # noqa: N815 - stdlib signature
+        do_DELETE = do_GET  # noqa: N815 - stdlib signature
 
     server = UnixHTTPServer(api.path, Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
