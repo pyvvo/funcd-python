@@ -70,7 +70,7 @@ class _Reply:
 
 
 class KVClient:
-    """A function's namespace-scoped key-value storage (ADR-0069).
+    """The key-value tables that a function binds, each by its alias in spec.bindings.kv.
 
     ``put_if_absent``, ``compare_and_set`` and ``delete_if`` write only while their condition holds, and say
     who won: of racing writers exactly one gets the new version, the others ``None`` (``False`` for a delete).
@@ -109,40 +109,42 @@ class KVClient:
         return reply
 
     def get(self, binding: str, key: str) -> bytes | None:
+        """The key's value as bytes, or ``None`` when the key does not exist."""
         entry = self.get_entry(binding, key)
         return None if entry is None else entry.value
 
     def get_entry(self, binding: str, key: str) -> KVEntry | None:
-        """``get`` with the key's version (a missing key is ``None``)."""
+        """The key's value with its version, or ``None`` when the key does not exist."""
         reply = self._send("get", "GET", _key_path(binding, key), expect=404)
         return None if reply.status == 404 else KVEntry(reply.data, _version(reply.etag))
 
     def get_str(self, binding: str, key: str) -> str | None:
-        """``get`` decoded as UTF-8 text — the common case (a missing key is ``None``). Saves the
-        caller a ``.decode()`` + ``None`` dance; ``put`` already accepts ``str``."""
+        """The key's value decoded as UTF-8 text, or ``None`` when the key does not exist."""
         value = self.get(binding, key)
         return None if value is None else value.decode("utf-8")
 
     def get_json(self, binding: str, key: str) -> object | None:
-        """``get`` decoded as UTF-8 text then JSON-parsed (a missing key is ``None``). The structured
-        counterpart of ``get_str``; write with ``put(binding, key, json.dumps(value))``."""
+        """The key's value parsed as JSON, or ``None`` when the key does not exist. Write it with
+        ``put(binding, key, json.dumps(value))``."""
         text = self.get_str(binding, key)
         return None if text is None else json.loads(text)
 
     def put(self, binding: str, key: str, value: bytes | str, *, ttl: int | None = None) -> None:
+        """Writes the value. ``ttl``, in whole seconds, sets the key's expiry; a put without it leaves
+        the key with none. Only the table's owner can write."""
         body = value.encode("utf-8") if isinstance(value, str) else value
         self._send("put", "PUT", _with_ttl(_key_path(binding, key), ttl), body=body)
 
     def put_if_absent(
         self, binding: str, key: str, value: bytes | str, *, ttl: int | None = None
     ) -> str | None:
-        """Create the key; its new version, or ``None`` when it exists (an expired key does not)."""
+        """Creates the key: its new version, or ``None`` when it exists (an expired key does not)."""
         return self._put("put_if_absent", binding, key, value, ttl, {"If-None-Match": "*"})
 
     def compare_and_set(
         self, binding: str, key: str, value: bytes | str, version: str, *, ttl: int | None = None
     ) -> str | None:
-        """Replace the key while it is at ``version``; its new version, or ``None`` when it is not."""
+        """Replaces the key while it is at ``version``: its new version, or ``None`` when it is not."""
         return self._put("compare_and_set", binding, key, value, ttl, {"If-Match": f'"{version}"'})
 
     def _put(
@@ -155,16 +157,19 @@ class KVClient:
         return None if reply.status == 412 else _version(reply.etag)
 
     def delete(self, binding: str, key: str) -> None:
+        """Deletes the key."""
         self._send("delete", "DELETE", _key_path(binding, key))
 
     def delete_if(self, binding: str, key: str, version: str) -> bool:
-        """Delete the key while it is at ``version``, as a lease holder releases what it holds."""
+        """Deletes the key while it is at ``version``, as a lease holder releases what it holds: ``True``
+        when it did."""
         reply = self._send(
             "delete_if", "DELETE", _key_path(binding, key), expect=412, headers={"If-Match": f'"{version}"'}
         )
         return reply.status != 412
 
     def list(self, binding: str, prefix: str = "") -> list[str]:
+        """The keys that start with ``prefix``; without a prefix, every key of the table."""
         path = f"/kv/{quote(binding, safe='')}"
         if prefix:
             path += f"?prefix={quote(prefix, safe='')}"

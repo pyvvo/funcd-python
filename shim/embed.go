@@ -23,6 +23,12 @@ import (
 //go:embed src/funcd_shim/__init__.py src/funcd_shim/__main__.py src/funcd_shim/shim.py src/funcd_shim/invoke.py src/funcd_shim/pool.py src/funcd_shim/_poolworker.py src/funcd_shim/runtime.py src/funcd_shim/types.py src/funcd_shim/jsonwire.py src/funcd_shim/funclog.py src/funcd_shim/tracespan.py src/funcd_shim/invcontext.py src/funcd_shim/kv.py src/funcd_shim/blob.py src/funcd_shim/sql.py src/funcd_shim/config.py src/funcd_shim/secret.py src/funcd_shim/lake.py src/funcd_shim/deadline.py src/funcd_shim/py.typed
 var shimFS embed.FS
 
+// API is api.json, the handler API that funcd's guide shows: each client of FunctionContext with its methods'
+// signatures and docstrings, which scripts/api.py writes from funcd_shim.types.
+//
+//go:embed api.json
+var API []byte
+
 // The entry scripts launch the package: Python prepends a script's own directory to sys.path, so
 // placing them beside the extracted `funcd_shim/` package makes `from funcd_shim...` resolve with
 // no PYTHONPATH. Each runs a main() that reads its config (FUNCD_ARTIFACT / FUNCD_POOL_MANIFEST /
