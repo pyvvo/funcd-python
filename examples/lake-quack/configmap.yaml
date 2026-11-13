@@ -1,7 +1,6 @@
-# Non-secret engine tuning consumed by the Lake via spec.bindings.config (ADR-0087). The duckdb shim applies three keys
-# as DuckDB settings before any other: DUCKDB_MEMORY_LIMIT, DUCKDB_THREADS and DUCKDB_MAX_TEMP_DIRECTORY_SIZE (funcd
-# ADR-0265); any other DUCKDB_* key stops the engine at start. (A reserved FUNCD_* key here would be dropped — it can't
-# shadow the runtime contract.)
+# lake-engine-config: the engine settings that the Lake binds. The engine applies DUCKDB_MEMORY_LIMIT, DUCKDB_THREADS
+# and DUCKDB_MAX_TEMP_DIRECTORY_SIZE as DuckDB settings before any other; any other DUCKDB_ key stops the engine at
+# start, and a key that starts with FUNCD_ never reaches it.
 apiVersion: funcd.io/v1alpha1
 kind: ConfigMap
 metadata:

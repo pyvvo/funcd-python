@@ -1,6 +1,6 @@
 # Workflow readings: ingest stores a batch of a sensor's values in readings-db, then summarize reads them back with a
-# CTE and window functions. The Workflow owns the database (funcd ADR-0250): its owner, step ingest, is materialized
-# as Function readings-ingest, its writer; each step binds it (funcd ADR-0233).
+# CTE and window functions. The Workflow declares the database; its owner, the step ingest, runs as the Function
+# readings-ingest, which writes it, and each step binds it.
 apiVersion: funcd.io/v1alpha1
 kind: Workflow
 metadata:

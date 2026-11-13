@@ -9,12 +9,12 @@ Three Python functions over one SQL database, `orders-db`, served by its own rql
 | `audit` | records each change of table `orders` that the change feed delivers, in table `order_events` |
 
 The functions hold no credential and never reach the engine: `context.sql` calls funcd over the sandbox's socket,
-and funcd checks the binding and the roles before it forwards the statements (funcd ADR-0233).
+and funcd checks the binding and the roles before it forwards the statements.
 
 ## Layout
 
 Each function is `src/<name>/main.py`, its entry in `pyproject.toml`'s `[tool.funcd-bundle.functions]`, with
-`<name>.contract.yaml` at the root (funcd ADR-0247). The code the three share is the `orders-core` workspace package
+`<name>.contract.yaml` at the root. The code the three share is the `orders-core` workspace package
 in [`packages/orders-core`](packages/orders-core), which `funcd-bundle` vendors into each bundle as a wheel.
 
 ## Models and migrations
@@ -34,7 +34,7 @@ uv run python scripts/render_migrations.py        # regenerate orders_core/migra
 
 `orders-migrate` applies the revisions that table `_migrations` lacks, with their `_migrations` rows, in one `context.sql`
 call. rqlite runs the call as one transaction, so a failed migration records nothing. Call it after each deploy, or
-make it an App's `preApply` hook (funcd ADR-0236).
+make it an App's `preApply` hook.
 
 ## Queries
 
@@ -51,7 +51,7 @@ rows(context, stmt)
 
 [`changes.yaml`](changes.yaml) declares EventSource `orders-changes` on table `orders` and a Sensor that calls
 `audit` with each insert, update and delete. The engine posts each committed change to funcd, which publishes it as
-event `order-changed` with the row before and after (funcd ADR-0235). A change delivered twice starts `audit` once.
+event `order-changed` with the row before and after. A change delivered twice starts `audit` once.
 
 The Sensor calls `audit` once per change, and the calls run independently: the first one may wake the function
 from zero and finish after the next. So `audit` stores each change's commit `index`, and `history` sorts by it, not
@@ -59,9 +59,9 @@ by arrival. The changes of one commit share an index.
 
 ## Run it locally
 
-`funcdctl dev` runs the three functions from source with `orders-db` on a local rqlite engine (funcd ADR-0237); a
-funcdctl built with the engine (`just build-sql-engine` in funcd) is needed. It runs functions only, so call `audit`
-by hand there:
+`funcdctl dev` runs the three functions from source with `orders-db` on a local rqlite engine, and the Sensor of
+`changes.yaml` calls `audit` with each change of the table. The dev build of funcdctl, which funcd's install script
+installs, includes that engine:
 
 ```bash
 uv sync
@@ -92,10 +92,10 @@ funcdctl apply -f changes.yaml
 | `orders.yaml`, `orders-migrate.yaml`, `audit.yaml` | the Functions, each binding `orders-db` as alias `app` |
 | `grant.yaml` | `SQL Data Writer` on `orders-db` for `orders-migrate` and `audit` |
 | `changes.yaml` | the EventSource on table `orders` and the Sensor that calls `audit` |
-| `funcdconfig.yaml` | a daemon config with file storage; the engine posts its changes to the bridge address funcd derives (funcd ADR-0238) |
+| `funcdconfig.yaml` | a daemon config with file storage; the engine posts its changes to the bridge address funcd derives |
 
 A workload BackupSchedule that lists `orders-db` in `scope.databases` copies the database, sealed to its recipients, and a
-Restore loads a copy into an empty database (funcd ADR-0234).
+Restore loads a copy into an empty database.
 
 ## Tests
 

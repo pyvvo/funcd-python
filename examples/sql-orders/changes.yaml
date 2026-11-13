@@ -1,4 +1,4 @@
-# The change feed of orders-db (funcd ADR-0235): every insert, update and delete of table orders fires order-changed,
+# The change feed of orders-db: every insert, update and delete of table orders fires order-changed,
 # and the Sensor hands the change to the audit function.
 apiVersion: funcd.io/v1alpha1
 kind: EventSource

@@ -37,6 +37,7 @@ class FuncOutput(TypedDict, total=False):
     changed: int
 
 
+# region place
 def _place(context: FunctionContext, data: FuncInput) -> FuncOutput:
     """Adds the customer on its first order and the order itself in one call: both or neither."""
     email = data.get("email", "")
@@ -49,6 +50,9 @@ def _place(context: FunctionContext, data: FuncInput) -> FuncOutput:
         ),
     )
     return {"changed": 1}
+
+
+# endregion place
 
 
 def _set(context: FunctionContext, order_id: int, **values: Any) -> FuncOutput:
@@ -75,6 +79,7 @@ def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput
                 .order_by(col(OrderEvent.change_index), col(OrderEvent.id)),
             )
             return {"history": [EventOut(change=e["change"], status=e["status"]) for e in events]}
+    # region list
     stmt = (
         select(Order, Customer.email)
         .join(Customer, col(Customer.id) == col(Order.customer_id))
@@ -85,3 +90,4 @@ def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput
     found = rows(context, stmt)
     keys = ("id", "email", "item", "quantity", "status", "note")
     return {"orders": [OrderOut(**{k: r[k] for k in keys}) for r in found]}  # type: ignore[typeddict-item]
+    # endregion list

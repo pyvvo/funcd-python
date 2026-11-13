@@ -1,5 +1,6 @@
-"""Step ingest of Workflow readings: it stores a batch of one sensor's values after the ones it already holds,
-the table created on first use, all in one call."""
+"""Step ingest of Workflow readings: it stores a batch of one sensor's values after the ones it already holds.
+It creates the table on first use, reads the sensor's last sequence number, then inserts the batch in one
+call."""
 
 from typing import TypedDict
 

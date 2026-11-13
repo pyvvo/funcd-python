@@ -1,5 +1,5 @@
-# SQLDatabase orders-db (funcd ADR-0232): one rqlite engine with a durable directory, written by its owner, the
-# orders function, and by the RolesAssignments of grant.yaml.
+# SQLDatabase orders-db: the orders database, written by its owner, orders, and by orders-migrate and audit
+# through the RolesAssignment of grant.yaml.
 apiVersion: funcd.io/v1alpha1
 kind: SQLDatabase
 metadata:

@@ -1,14 +1,10 @@
-# The F48 lake/query service (ADR-0086), deployed as an add-on provider by the provider-runtime
-# (ADR-0087) — NOT a Function. The reconciler derives the per-fn S3 keypair over the provider identity
-# (default/lake), resolves spec.bindings.config (the DUCKDB_* ConfigMap) into the engine env, and the
-# provider-runtime Create/Start's the curated `duckdb` engine (image entrypoint = the Python shim),
-# probes GET /=200 readiness, and publishes status.
+# The Lake `lake`: a DuckDB engine that keeps its tables as Parquet files under the prefix gold of the Bucket
+# lakehouse, which the Lake declares and owns, and its catalog in funcd's catalog store, outside the Bucket.
 #
-# spec.bindings.blob MUST include the lake's (bucket, prefix) — it is the bound, owned binding the engine
-# writes its lake + Parquet through (the Validate rule). spec.bindings.secret carries the Quack token the
-# engine serves with (every consumer presents the same — a Quack client always needs a token). Every binding
-# names an entry of the root (funcd ADR-0251): the lake owns its lakehouse Bucket, and declares the
-# ConfigMap and the Secret it reads.
+# spec.location must be one of spec.bindings.blob, a prefix that the Lake owns. The bound Secret holds
+# QUACK_TOKEN, the token that the engine accepts: the Lake gateway passes it on in place of the token of each
+# caller that it allows. The bound ConfigMap sets the engine's DuckDB settings.
+# region lake
 apiVersion: funcd.io/v1alpha1
 kind: Lake
 metadata:
@@ -34,16 +30,16 @@ spec:
         bucket: lakehouse
         prefix: gold
     secret:
-      - lake-quack-token         # Secret Data key QUACK_TOKEN → engine env (the Quack auth token)
+      - lake-quack-token         # its key QUACK_TOKEN is the token that the engine accepts
     config:
-      - lake-engine-config       # DUCKDB_MEMORY_LIMIT and DUCKDB_THREADS → the engine's settings (funcd ADR-0265)
+      - lake-engine-config       # DUCKDB_MEMORY_LIMIT and DUCKDB_THREADS set the engine's memory limit and threads
   location:
     bucket: lakehouse
-    prefix: gold               # Parquet under gold/; the catalog in funcd's catalog store (funcd ADR-0293)
+    prefix: gold               # the Parquet files under gold/; the catalog in funcd's catalog store, outside the Bucket
   resources:
     cpu: "2"
     memory: "4Gi"
-  ingress:                     # ADR-0138/0241: OPT-IN external edge exposure of the lake::query PEP proxy
-    enabled: true              # a lake ingress is off unless enabled
-    path: /lake/lake        # the gateway routes this edge path to the PROXY (never the engine); the
-                               # proxy PEPs lake::query, so an external caller is authorized like internal
+  ingress:                     # exposes the Lake gateway at the edge, for callers outside funcd
+    enabled: true              # off unless true
+    path: /lake/lake           # the gateway checks each caller for lake::query, as it checks a Function
+# endregion lake
