@@ -73,9 +73,13 @@ class SecretClient:
 
     def put(self, binding: str, key: str, value: str) -> None:
         """Writes key in Secret ``binding``, which the function binds and may write: its owner, or a principal
-        a writer role names. Every function that binds it reads the value at its next read."""
+        a writer role names. Every function that binds it reads the value at its next read. Fails with the
+        HTTP status 403 when the function does not bind the Secret or may not write it, 404 when the Secret
+        does not exist, 400 when the key or the value breaks a Secret's rules, 413 when the request passes
+        1 MiB, and 409 when the Secret changed under each of 5 attempts to write it."""
         self._write("put", "PUT", binding, key, json.dumps({"value": value}).encode())
 
     def delete(self, binding: str, key: str) -> None:
-        """Removes key from Secret ``binding``, as put may write it; a key the Secret lacks is no error."""
+        """Removes key from Secret ``binding``, as ``put`` may write it; a key the Secret lacks is no error.
+        Fails as ``put`` does."""
         self._write("delete", "DELETE", binding, key)

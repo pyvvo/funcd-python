@@ -153,7 +153,7 @@
     {
       "name": "secret",
       "type": "SecretClient",
-      "doc": "The keys and values of the Secrets that the function binds, which funcd reads at each ``get`` or ``list``, with no cache, so a changed Secret shows at the next read. A key that starts with ``FUNCD_`` is never read: ``get`` returns ``None`` for it, and ``list`` leaves it out.",
+      "doc": "The Secrets that the function binds. ``get`` and ``list`` read their keys and values at each call, with no cache, so a changed Secret shows at the next read; a key that starts with ``FUNCD_`` is never read: ``get`` returns ``None`` for it, and ``list`` leaves it out. ``put`` and ``delete`` change one key of a bound Secret that the function may write, as the Secret's owner or through a writer role such as Secret Data Writer.",
       "methods": [
         {
           "name": "get",
@@ -168,12 +168,12 @@
         {
           "name": "put",
           "signature": "put(binding: str, key: str, value: str) -> None",
-          "doc": "Writes key in Secret ``binding``, which the function binds and may write: its owner, or a principal a writer role names. Every function that binds it reads the value at its next read."
+          "doc": "Writes key in Secret ``binding``, which the function binds and may write: its owner, or a principal a writer role names. Every function that binds it reads the value at its next read. Fails with the HTTP status 403 when the function does not bind the Secret or may not write it, 404 when the Secret does not exist, 400 when the key or the value breaks a Secret's rules, 413 when the request passes 1 MiB, and 409 when the Secret changed under each of 5 attempts to write it."
         },
         {
           "name": "delete",
           "signature": "delete(binding: str, key: str) -> None",
-          "doc": "Removes key from Secret ``binding``, as put may write it; a key the Secret lacks is no error."
+          "doc": "Removes key from Secret ``binding``, as ``put`` may write it; a key the Secret lacks is no error. Fails as ``put`` does."
         }
       ]
     },

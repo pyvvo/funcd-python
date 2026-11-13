@@ -91,9 +91,11 @@ class FunctionContext(Protocol):
 
     @property
     def secret(self) -> SecretClient:
-        """The keys and values of the Secrets that the function binds, which funcd reads at each ``get`` or
-        ``list``, with no cache, so a changed Secret shows at the next read. A key that starts with ``FUNCD_``
-        is never read: ``get`` returns ``None`` for it, and ``list`` leaves it out."""
+        """The Secrets that the function binds. ``get`` and ``list`` read their keys and values at each call,
+        with no cache, so a changed Secret shows at the next read; a key that starts with ``FUNCD_`` is never
+        read: ``get`` returns ``None`` for it, and ``list`` leaves it out. ``put`` and ``delete`` change one
+        key of a bound Secret that the function may write, as the Secret's owner or through a writer role such
+        as Secret Data Writer."""
         ...
 
     @property
