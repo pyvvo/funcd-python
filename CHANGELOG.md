@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.0](https://github.com/pyvvo/funcd-python/compare/v0.22.0...v0.23.0) (2026-11-13)
+
+
+### Features
+
+* **shim:** ctx.secret.put and delete write one key of a bound Secret ([#127](https://github.com/pyvvo/funcd-python/issues/127)) ([9ce6a55](https://github.com/pyvvo/funcd-python/commit/9ce6a55335b5a443544cddf4c6dca26c65ee19b5))
+
 ## [0.22.0](https://github.com/pyvvo/funcd-python/compare/v0.21.0...v0.22.0) (2026-11-13)
 
 
