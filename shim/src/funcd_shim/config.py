@@ -23,8 +23,9 @@ def listed_value(env: Mapping[str, str] | None, var: str, key: str) -> str | Non
 
 class ConfigClient:
     """A function's bound config: the keys of the ConfigMaps in ``spec.bindings.config``, with the values that
-    the worker got when it started. A key that a bound Secret also holds, or any other variable, reads as
-    ``None``."""
+    the worker got when it started. A key that starts with ``FUNCD_``, a key that a bound Secret also holds,
+    and any other variable read as ``None``. While funcd's S3 gateway runs, the AWS key pair that funcd issues
+    replaces a ConfigMap's values for ``AWS_ACCESS_KEY_ID`` and ``AWS_SECRET_ACCESS_KEY``."""
 
     def __init__(self, env: Mapping[str, str] | None = None) -> None:
         self._env = env

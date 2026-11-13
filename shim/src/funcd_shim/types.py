@@ -83,14 +83,17 @@ class FunctionContext(Protocol):
     @property
     def config(self) -> ConfigClient:
         """The keys of the ConfigMaps that the function binds, with the values that the worker got when it
-        started. A key that starts with ``FUNCD_``, or that a bound Secret also holds, is left out:
-        ``ctx.secret`` reads the Secret's value."""
+        started. A key that starts with ``FUNCD_`` is left out, since funcd reserves that prefix. A key that a
+        bound Secret also holds is left out too, and ``ctx.secret`` reads the Secret's value. While funcd's S3
+        gateway runs, a function that binds a Bucket reads the ``AWS_ACCESS_KEY_ID`` and
+        ``AWS_SECRET_ACCESS_KEY`` that funcd issues it, in place of a ConfigMap's."""
         ...
 
     @property
     def secret(self) -> SecretClient:
         """The keys and values of the Secrets that the function binds, which funcd reads at each ``get`` or
-        ``list``, with no cache, so a changed Secret shows at the next read."""
+        ``list``, with no cache, so a changed Secret shows at the next read. A key that starts with ``FUNCD_``
+        is never read: ``get`` returns ``None`` for it, and ``list`` leaves it out."""
         ...
 
     @property
