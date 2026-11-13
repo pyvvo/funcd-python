@@ -1,0 +1,23 @@
+# py-token-owner: the owner of the Secret py-demo-token, which it declares and binds. Each call writes or deletes the
+# key TOKEN.
+# region function
+apiVersion: funcd.io/v1alpha1
+kind: Function
+metadata:
+  name: py-token-owner
+  namespace: default
+  resourceGroup: rg1
+spec:
+  runtime: python314
+  handler: handle
+  image: oci-layout:///mnt/funcd-deps/registry:py-token-owner   # funcdctl push of src/py-token-owner/main.py
+  scaling:
+    minReplicas: 1
+  secrets:
+    - name: py-demo-token
+      keys:
+        - TOKEN
+  bindings:
+    secret:
+      - py-demo-token
+# endregion function
