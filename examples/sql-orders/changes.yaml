@@ -20,11 +20,11 @@ metadata:
   namespace: default
   resourceGroup: rg1
 spec:
-  "on":
+  on:
     - name: changed
       source: orders-changes
       event: order-changed
   do:
     - name: record
-      "on": changed
+      on: changed
       function: audit
