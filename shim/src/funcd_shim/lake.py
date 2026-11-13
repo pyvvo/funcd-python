@@ -14,13 +14,15 @@ class LakeEndpoint(TypedDict):
 
 
 class LakeClient:
-    """A function's lake bindings by alias."""
+    """A function's Lake bindings, each by its alias in ``spec.bindings.lake``."""
 
     def __init__(self, env: Mapping[str, str] | None = None) -> None:
         self._env = env
 
     def get(self, alias: str) -> LakeEndpoint:
-        """Raises KeyError naming the alias when it is not bound."""
+        """The gateway of the Lake bound as ``alias``: ``url``, its address as ``host:port``, and ``token``,
+        the token that it accepts from the function. Raises ``KeyError`` naming the alias when the function
+        binds no Lake with that alias."""
         env = os.environ if self._env is None else self._env
         prefix = f"FUNCD_LAKE_{alias.upper()}_"
         url, token = env.get(prefix + "URL"), env.get(prefix + "TOKEN")

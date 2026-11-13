@@ -22,13 +22,17 @@ def listed_value(env: Mapping[str, str] | None, var: str, key: str) -> str | Non
 
 
 class ConfigClient:
-    """A function's bound config: a key a secret overrides, or any unbound variable, reads as None."""
+    """A function's bound config: the keys of the ConfigMaps in ``spec.bindings.config``, with the values that
+    the worker got when it started. A key that a bound Secret also holds, or any other variable, reads as
+    ``None``."""
 
     def __init__(self, env: Mapping[str, str] | None = None) -> None:
         self._env = env
 
     def get(self, key: str) -> str | None:
+        """The key's value, or ``None`` when ``list()`` does not include the key."""
         return listed_value(self._env, "FUNCD_CONFIG_KEYS", key)
 
     def list(self) -> list[str]:
+        """The keys of the bound ConfigMaps, sorted, without the keys left out."""
         return listed_keys(self._env, "FUNCD_CONFIG_KEYS")
