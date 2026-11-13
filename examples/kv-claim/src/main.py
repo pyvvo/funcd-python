@@ -43,6 +43,7 @@ def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput
         if kv.delete_if("claims", key, version):
             return {"key": key, "won": True, "version": "", "holder": ""}
     else:
+        # region claim
         new = (
             kv.compare_and_set("claims", key, holder, version, ttl=ttl)
             if op == "renew"
@@ -50,6 +51,7 @@ def handle(context: FunctionContext, event: CloudEvent[FuncInput]) -> FuncOutput
         )
         if new is not None:
             return {"key": key, "won": True, "version": new, "holder": holder}
+        # endregion claim
     now = kv.get_entry("claims", key)
     if now is None:
         return {"key": key, "won": False, "version": "", "holder": ""}
