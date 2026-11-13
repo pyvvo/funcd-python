@@ -15,8 +15,9 @@ from .invoke import MEMBER_HEADER, _UnixHTTPConnection
 
 
 class SecretClient:
-    """A function's bound Secrets, which funcd reads at each ``get`` or ``list``: a key that no bound Secret
-    holds, or that starts with ``FUNCD_``, reads as ``None``."""
+    """A function's bound Secrets: ``get`` and ``list`` read them at each call, and ``put`` and ``delete``
+    change one key of a bound Secret that the function may write. A key that no bound Secret holds, or that
+    starts with ``FUNCD_``, reads as ``None``."""
 
     def __init__(self, member: str | None = None) -> None:
         # In a pool, every request names the calling member; funcd checks it against the pool.
@@ -80,6 +81,8 @@ class SecretClient:
         self._write("put", "PUT", binding, key, json.dumps({"value": value}).encode())
 
     def delete(self, binding: str, key: str) -> None:
-        """Removes key from Secret ``binding``, as ``put`` may write it; a key the Secret lacks is no error.
-        Fails as ``put`` does."""
+        """Removes key from Secret ``binding``, which the function binds and may write, as for ``put``; a key
+        that the Secret lacks is no error, whatever its name. Fails with the HTTP status 403 when the function
+        does not bind the Secret or may not write it, 404 when the Secret does not exist, and 409 when the
+        Secret changed under each of 5 attempts to write it."""
         self._write("delete", "DELETE", binding, key)
