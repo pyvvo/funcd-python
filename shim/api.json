@@ -164,6 +164,16 @@
           "name": "list",
           "signature": "list() -> list[str]",
           "doc": "The keys that the bound Secrets hold, sorted, except a key that starts with ``FUNCD_``. Fails with the HTTP status 403 when a Policy forbids the function to read a bound Secret, and 404 when a bound Secret does not exist."
+        },
+        {
+          "name": "put",
+          "signature": "put(binding: str, key: str, value: str) -> None",
+          "doc": "Writes key in Secret ``binding``, which the function binds and may write: its owner, or a principal a writer role names. Every function that binds it reads the value at its next read."
+        },
+        {
+          "name": "delete",
+          "signature": "delete(binding: str, key: str) -> None",
+          "doc": "Removes key from Secret ``binding``, as put may write it; a key the Secret lacks is no error."
         }
       ]
     },

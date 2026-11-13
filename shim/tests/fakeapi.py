@@ -18,11 +18,13 @@ class DependencyAPI:
     ``routes`` maps a request path to a ``(status, body)``, answered first. ``replies`` maps the
     ``X-Funcd-Member`` value (``"-"`` for none) to a ``(status, body)``, to ``HOLD`` (no answer until the test
     ends) or to ``CLOSE`` (the connection closes without an answer); a caller with no entry gets 200.
-    ``calls`` records ``"<method> <path> <member>"`` per request."""
+    ``calls`` records ``"<method> <path> <member>"`` per request, and ``bodies`` its body, in the same
+    order."""
 
     def __init__(self, path: str) -> None:
         self.path = path
         self.routes: dict[str, tuple[int, bytes]] = {}
         self.replies: dict[str, tuple[int, bytes] | str] = {}
         self.calls: list[str] = []
+        self.bodies: list[bytes] = []
         self.release = threading.Event()

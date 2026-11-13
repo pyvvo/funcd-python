@@ -1,4 +1,4 @@
-"""Scenario tests for context.secret on funcd's local API (funcd ADR-0249): ``GET /secret`` and
+"""Scenario tests for context.secret on funcd's local API (funcd ADR-0249, ADR-0327): its reads and writes,
 ``GET /secret/{key}`` over a fake funcd that binds Secret api-keys (STRIPE_KEY sk, MODE prod) and ConfigMap
 app-settings (MODE dev, so funcd lists no MODE in FUNCD_CONFIG_KEYS)."""
 
@@ -63,3 +63,27 @@ def test_a_pool_member_names_itself_and_a_key_is_path_encoded(api: DependencyAPI
     api.routes["/secret/a%2Fb"] = _value("v")
     assert SecretClient("member-a").get("a/b") == "v"
     assert api.calls == ["GET /secret/a%2Fb member-a"]
+
+
+def test_secret_owner_writes(api: DependencyAPI) -> None:
+    # scenario: secret-owner-writes — put sends the value of one key of a named Secret, and delete removes it.
+    api.routes["/secret/oauth/TOKEN"] = (204, b"")
+    api.routes["/secret/o%2Fauth/A%2FB"] = (204, b"")
+    secret = SecretClient("member-a")
+    secret.put("oauth", "TOKEN", "t2")
+    secret.delete("oauth", "TOKEN")
+    secret.put("o/auth", "A/B", "v")
+    assert api.calls == [
+        "PUT /secret/oauth/TOKEN member-a",
+        "DELETE /secret/oauth/TOKEN member-a",
+        "PUT /secret/o%2Fauth/A%2FB member-a",
+    ]
+    assert api.bodies == [b'{"value": "t2"}', b"", b'{"value": "v"}']
+
+
+def test_a_refused_write_raises(api: DependencyAPI) -> None:
+    api.routes["/secret/oauth/TOKEN"] = (403, b'{"title":"Forbidden"}')
+    with pytest.raises(RuntimeError, match=r"context\.secret\.put failed: 403"):
+        SecretClient().put("oauth", "TOKEN", "t2")
+    with pytest.raises(RuntimeError, match=r"context\.secret\.delete failed: 403"):
+        SecretClient().delete("oauth", "TOKEN")
