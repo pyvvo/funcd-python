@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.24.0](https://github.com/pyvvo/funcd-python/compare/v0.23.0...v0.24.0) (2026-11-14)
+
+
+### Features
+
+* **examples:** secret-writer, a Secret's owner and a writer role write its key through context.secret ([15d2674](https://github.com/pyvvo/funcd-python/commit/15d267490699995c4bc2231cc76de128cba78c59))
+* **shim:** api.json describes every ctx client and its methods for funcd's guide, with no ADR numbers ([15d2674](https://github.com/pyvvo/funcd-python/commit/15d267490699995c4bc2231cc76de128cba78c59))
+
 ## [0.23.0](https://github.com/pyvvo/funcd-python/compare/v0.22.0...v0.23.0) (2026-11-13)
 
 
