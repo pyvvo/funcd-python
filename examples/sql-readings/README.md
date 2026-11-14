@@ -7,7 +7,7 @@ Workflow `readings` has two Python steps over SQLDatabase `readings-db`, written
 | `ingest` | stores a batch of one sensor's values after the ones it holds, creating the table and its index on first use, in one call |
 | `summarize` | reads them back: count, mean, low and high through a CTE, and the latest values with a moving average and a rank through window functions |
 
-A step binds a database like a Function does (`function.sql`, funcd ADR-0233). The engine materializes each image
+A step binds a database like a Function does (`function.sql`). The engine materializes each image
 step as Function `readings-<step>`, so the database's owner is `readings-ingest`, and `summarize` reads without a
 grant. The statements run in the database's rqlite engine; only the results return to the step.
 
@@ -17,13 +17,13 @@ func.avg(mine.c.value).over(order_by=mine.c.seq, rows=(-2, 0))   # the average o
 ```
 
 [`readings_core/tables.py`](packages/readings-core/src/readings_core/tables.py), in the `readings-core` workspace package both steps share (each step is
-`src/<name>/main.py` with `<name>.contract.yaml`, funcd ADR-0247), compiles each statement with the SQLite dialect into SQL text and parameters for
+`src/<name>/main.py` with `<name>.contract.yaml`), compiles each statement with the SQLite dialect into SQL text and parameters for
 `context.sql`; several statements in one call apply all or none.
 
 ## Run it locally
 
-`funcdctl dev .` runs both steps from source with `readings-db` on a local rqlite engine (funcd
-ADR-0237); a funcdctl built with the engine (`just build-sql-engine` in funcd) is needed. Start a run through its
+`funcdctl dev .` runs both steps from source with `readings-db` on a local rqlite engine, which the dev build of
+funcdctl, installed by funcd's install script, includes. Start a run through its
 control plane; dev puts its objects in resource group `dev`:
 
 ```bash

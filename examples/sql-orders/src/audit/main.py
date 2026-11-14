@@ -1,5 +1,5 @@
 """The audit function: a Sensor calls it with each change of table orders that the change feed of orders-db
-delivers (funcd ADR-0235), and it records the change in table order_events."""
+delivers, and it records the change in table order_events."""
 
 from typing import Any, TypedDict
 

@@ -46,14 +46,15 @@ def _key_path(binding: str, key: str) -> str:
 
 
 class BlobClient:
-    """A function's binding-scoped blob storage (ADR-0127): get/put/delete/list a bound prefix's objects,
-    or mint a presigned URL — the blob twin of :class:`KVClient`."""
+    """The Bucket prefixes that a function binds, each by its alias in ``spec.bindings.blob``: read, write,
+    delete and list their objects, whose keys are relative to the binding's prefix."""
 
     def __init__(self, member: str | None = None) -> None:
         # In a pool, every request names the calling member; funcd checks it against the pool.
         self._headers = {MEMBER_HEADER: member} if member else {}
 
     def get(self, binding: str, key: str) -> bytes | None:
+        """The object's content as bytes, or ``None`` when the object does not exist."""
         conn = _conn()
         try:
             conn.request("GET", _key_path(binding, key), headers=self._headers)
@@ -69,6 +70,9 @@ class BlobClient:
             conn.close()
 
     def put(self, binding: str, key: str, data: bytes) -> None:
+        """Writes the object, replacing any object with that key. ``data`` is at most 64 MiB, and at most
+        the Bucket's ``spec.quota.maxObjectBytes`` when that is set: a larger one fails with the HTTP status
+        413. Only the prefix's owner and the writers that a RolesAssignment names can write."""
         conn = _conn()
         try:
             conn.request("PUT", _key_path(binding, key), body=data, headers=self._headers)
@@ -80,6 +84,8 @@ class BlobClient:
             conn.close()
 
     def delete(self, binding: str, key: str) -> None:
+        """Deletes the object, and fails with the HTTP status 404 when it does not exist. Only the prefix's
+        owner and the writers that a RolesAssignment names can delete."""
         conn = _conn()
         try:
             conn.request("DELETE", _key_path(binding, key), headers=self._headers)
@@ -91,6 +97,7 @@ class BlobClient:
             conn.close()
 
     def list(self, binding: str, prefix: str = "") -> list[str]:
+        """The keys that start with ``prefix``; without a prefix, every key under the binding's prefix."""
         path = f"/blob/{quote(binding, safe='')}"
         if prefix:
             path += f"?prefix={quote(prefix, safe='')}"
@@ -106,11 +113,14 @@ class BlobClient:
             conn.close()
 
     def signed_url(self, binding: str, key: str, method: str = "GET", expiry: str | None = None) -> str:
-        """Return a presigned external URL for the object. ``method`` is GET (read) / PUT / DELETE (write);
-        a PUT/DELETE URL requires s3::write. ``expiry`` is a duration string such as ``"10m"`` or ``"1h30m"``
-        (funcd ADR-0198: units h, m, s, ms in that order, whole seconds from 1s to 168h); ``None`` takes the
-        driver's default. The shim sends the string as given and funcd refuses a bad one with 400, raised
-        here as ``RuntimeError``; a non-string ``expiry`` raises ``TypeError`` before any request."""
+        """A presigned URL that lets its holder send a ``method`` request for the object until ``expiry``
+        passes: a duration string such as ``"10m"`` or ``"1h30m"``, in whole seconds from 1s to 168h, or 15
+        minutes when ``None``. A method other than ``GET``, ``PUT`` or ``DELETE``, or any other expiry, ``""``
+        included, fails with the HTTP status 400; an ``expiry`` that is not a string raises ``TypeError``
+        before any request. A ``PUT`` or ``DELETE`` URL needs permission to write the prefix, and a ``PUT``
+        URL fails with the HTTP status 403 when the Bucket sets ``maxObjectBytes`` or a size quota applies to
+        the Bucket or the prefix, since funcd could not enforce it on the upload. No blob store that funcd
+        opens signs URLs, so a call that passes these checks fails with the HTTP status 503."""
         if expiry is not None and not isinstance(expiry, str):
             raise TypeError(
                 "context.blob.signed_url: expiry must be a duration string such as 10m or 1h30m, "

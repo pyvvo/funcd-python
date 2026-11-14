@@ -1,0 +1,21 @@
+# py-token-user-writes: the role Secret Data Writer on the Secret py-demo-token, for the Function py-token-user. Once
+# it is applied, py-token-user writes the keys of py-demo-token as the owner does.
+# region grant
+apiVersion: funcd.io/v1alpha1
+kind: RolesAssignment
+metadata:
+  name: py-token-user-writes
+  namespace: default
+  resourceGroup: rg1
+spec:
+  principal:
+    kind: Function
+    name: py-token-user
+  assignments:
+    - roleRef:
+        kind: BuiltinRole
+        name: Secret Data Writer
+      scope:
+        kind: Secret
+        name: py-demo-token
+# endregion grant

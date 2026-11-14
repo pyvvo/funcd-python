@@ -1,0 +1,21 @@
+runtime: python314
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    value:
+      type: string
+  required:
+    - value
+output:
+  type: object
+  additionalProperties: false
+  properties:
+    token:
+      type:
+        - string
+        - "null"
+    error:
+      type: string
+  required:
+    - token

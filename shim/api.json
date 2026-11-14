@@ -8,17 +8,17 @@
         {
           "name": "log",
           "signature": "log(*args: object) -> None",
-          "doc": "Structured log line \u2192 stdout (collected by the platform, ADR-0010)."
+          "doc": "Prints the arguments, separated by spaces, as one line on standard output, which funcd keeps as a log line at level INFO."
         },
         {
           "name": "invoke",
           "signature": "invoke(alias: str, payload: Any) -> Any",
-          "doc": "Synchronously invoke a linked function by its spec.bindings.links alias (ADR-0064). An object *payload* with a top-level ``\"data\"`` or ``\"specversion\"`` key is taken as a full CloudEvent envelope (ADR-0134): the target's ``event[\"data\"]`` is only its ``data`` value, without the other keys. Send an object that has its own ``data`` key as ``{\"specversion\": \"1.0\", \"data\": payload}``."
+          "doc": "Calls the function that the link named ``alias`` targets, and returns its result parsed from JSON, or ``None`` when it returns nothing. The target's ``event[\"data\"]`` is ``payload``, except that a dict with a top-level ``\"data\"`` or ``\"specversion\"`` key is taken as the whole CloudEvent, so ``event[\"data\"]`` is only its ``\"data\"`` value: send such a dict inside an envelope, as ``{\"specversion\": \"1.0\", \"data\": payload}``. The link's timeout, 30 seconds by default, bounds the call. Fails with the HTTP status 403 when the function declares no link named ``alias``, 409 when the target serves HTTP, 422 when ``payload`` does not match the target's contract, and the target's status when its handler fails, such as 500."
         },
         {
           "name": "remaining_ms",
           "signature": "remaining_ms() -> int | None",
-          "doc": "Milliseconds left before the call's deadline (X-Funcd-Timeout-Ms), floored at 0; None without one."
+          "doc": "The whole milliseconds left before the call's deadline, 0 once it has passed, or ``None`` when the call has none."
         }
       ]
     },
@@ -50,7 +50,7 @@
         {
           "name": "put",
           "signature": "put(binding: str, key: str, value: bytes | str, *, ttl: int | None = None) -> None",
-          "doc": "Writes the value. ``ttl``, in whole seconds, sets the key's expiry; a put without it leaves the key with none. Only the table's owner can write."
+          "doc": "Writes the value. ``ttl``, in whole seconds, sets the key's expiry; a put without it leaves the key with none. Only the table's owner and the writers that a RolesAssignment names can write."
         },
         {
           "name": "put_if_absent",
@@ -82,110 +82,110 @@
     {
       "name": "blob",
       "type": "BlobClient",
-      "doc": "Binding-scoped blob storage (ADR-0127): get/put/delete/list a bound prefix's objects, or mint a presigned URL \u2014 the blob twin of ``kv``.",
+      "doc": "The Bucket prefixes that the function binds, by alias: read, write, delete and list their objects, whose keys are relative to the binding's prefix.",
       "methods": [
         {
           "name": "get",
           "signature": "get(binding: str, key: str) -> bytes | None",
-          "doc": ""
+          "doc": "The object's content as bytes, or ``None`` when the object does not exist."
         },
         {
           "name": "put",
           "signature": "put(binding: str, key: str, data: bytes) -> None",
-          "doc": ""
+          "doc": "Writes the object, replacing any object with that key. ``data`` is at most 64 MiB, and at most the Bucket's ``spec.quota.maxObjectBytes`` when that is set: a larger one fails with the HTTP status 413. Only the prefix's owner and the writers that a RolesAssignment names can write."
         },
         {
           "name": "delete",
           "signature": "delete(binding: str, key: str) -> None",
-          "doc": ""
+          "doc": "Deletes the object, and fails with the HTTP status 404 when it does not exist. Only the prefix's owner and the writers that a RolesAssignment names can delete."
         },
         {
           "name": "list",
           "signature": "list(binding: str, prefix: str = '') -> list[str]",
-          "doc": ""
+          "doc": "The keys that start with ``prefix``; without a prefix, every key under the binding's prefix."
         },
         {
           "name": "signed_url",
           "signature": "signed_url(binding: str, key: str, method: str = 'GET', expiry: str | None = None) -> str",
-          "doc": "Return a presigned external URL for the object. ``method`` is GET (read) / PUT / DELETE (write); a PUT/DELETE URL requires s3::write. ``expiry`` is a duration string such as ``\"10m\"`` or ``\"1h30m\"`` (funcd ADR-0198: units h, m, s, ms in that order, whole seconds from 1s to 168h); ``None`` takes the driver's default. The shim sends the string as given and funcd refuses a bad one with 400, raised here as ``RuntimeError``; a non-string ``expiry`` raises ``TypeError`` before any request."
+          "doc": "A presigned URL that lets its holder send a ``method`` request for the object until ``expiry`` passes: a duration string such as ``\"10m\"`` or ``\"1h30m\"``, in whole seconds from 1s to 168h, or 15 minutes when ``None``. A method other than ``GET``, ``PUT`` or ``DELETE``, or any other expiry, ``\"\"`` included, fails with the HTTP status 400; an ``expiry`` that is not a string raises ``TypeError`` before any request. A ``PUT`` or ``DELETE`` URL needs permission to write the prefix, and a ``PUT`` URL fails with the HTTP status 403 when the Bucket sets ``maxObjectBytes`` or a size quota applies to the Bucket or the prefix, since funcd could not enforce it on the upload. No blob store that funcd opens signs URLs, so a call that passes these checks fails with the HTTP status 503."
         }
       ]
     },
     {
       "name": "sql",
       "type": "SQLClient",
-      "doc": "The SQL databases a function binds (funcd ADR-0233): ``query`` reads, ``query_values`` keeps every column of a join, ``execute`` writes in one transaction. A write needs the database's owner or a writer role.",
+      "doc": "The SQL databases that the function binds, by alias: ``query`` reads rows, ``query_values`` keeps every column of a join, and ``execute`` writes in one transaction. A call fails with the HTTP status 503 while the database's engine is not Ready, or when a statement runs past funcd's SQL call timeout, 30 seconds by default.",
       "methods": [
         {
           "name": "query",
           "signature": "query(alias: str, sql: str, params: SQLParams | None = None) -> list[dict[str, Any]]",
-          "doc": "Rows as dicts; with a duplicate column name the last one wins (``query_values`` keeps every column)."
+          "doc": "Runs one statement that reads, and returns its rows as dicts keyed by column name; with a duplicate column name, the last one wins. ``params`` fill the statement's ``?`` placeholders in order, or its ``:name`` placeholders from one mapping. A statement that writes, or that the database refuses, fails with the HTTP status 400."
         },
         {
           "name": "query_values",
           "signature": "query_values(alias: str, sql: str, params: SQLParams | None = None) -> dict[str, Any]",
-          "doc": "Rows as ``{\"columns\": [...], \"values\": [[...]]}``, as rqlite returns them: every column of a join is kept."
+          "doc": "Runs one statement that reads, and returns ``{\"columns\": [...], \"values\": [[...]]}``: its column names and its rows as lists of values in column order, so every column of a join is kept. ``params`` and failures are as for ``query``."
         },
         {
           "name": "execute",
           "signature": "execute(alias: str, sql_or_statements: str | Sequence[SQLStatement], params: SQLParams | None = None) -> Any",
-          "doc": "One statement's ``{\"rowsAffected\", \"lastInsertId\"}`` (with ``columns`` and ``values`` for RETURNING), or the list of them for a batch of statements, which runs all or nothing."
+          "doc": "Runs one statement, or a list of up to 500 statements, in one transaction that applies all or none of them. Returns the statement's result, or one result for each statement of a list: a dict with ``rowsAffected`` and ``lastInsertId``, and ``columns`` and ``values`` for a RETURNING statement. A statement that the database refuses fails the call with the HTTP status 400. Only the database's owner and the writers that a RolesAssignment names can execute."
         }
       ]
     },
     {
       "name": "config",
       "type": "ConfigClient",
-      "doc": "The keys of the ConfigMaps a function binds (funcd ADR-0245); a key a bound Secret overrides is a secret.",
+      "doc": "The keys of the ConfigMaps that the function binds, with the values that the worker got when it started. A key that starts with ``FUNCD_`` is left out, since funcd reserves that prefix. A key that a bound Secret also holds is left out too, and ``ctx.secret`` reads the Secret's value. While funcd's S3 gateway runs, a function that binds a Bucket reads the ``AWS_ACCESS_KEY_ID`` and ``AWS_SECRET_ACCESS_KEY`` that funcd issues it, in place of a ConfigMap's.",
       "methods": [
         {
           "name": "get",
           "signature": "get(key: str) -> str | None",
-          "doc": ""
+          "doc": "The key's value, or ``None`` when ``list()`` does not include the key."
         },
         {
           "name": "list",
           "signature": "list() -> list[str]",
-          "doc": ""
+          "doc": "The keys of the bound ConfigMaps, sorted, without the keys left out."
         }
       ]
     },
     {
       "name": "secret",
       "type": "SecretClient",
-      "doc": "The keys and values of the Secrets a function binds, read from funcd on every call (funcd ADR-0249).",
+      "doc": "The Secrets that the function binds. ``get`` and ``list`` read their keys and values at each call, with no cache, so a changed Secret shows at the next read; a key that starts with ``FUNCD_`` is never read: ``get`` returns ``None`` for it, and ``list`` leaves it out. ``put`` and ``delete`` change one key of a bound Secret that the function may write, as the Secret's owner or through a writer role such as Secret Data Writer.",
       "methods": [
         {
           "name": "get",
           "signature": "get(key: str) -> str | None",
-          "doc": ""
+          "doc": "The key's value, or ``None`` when no bound Secret holds the key, the key starts with ``FUNCD_``, or a bound Secret does not exist. When two Secrets hold the key, the later one in ``spec.bindings.secret`` wins. Fails with the HTTP status 403 when a Policy forbids the function to read a bound Secret."
         },
         {
           "name": "list",
           "signature": "list() -> list[str]",
-          "doc": ""
+          "doc": "The keys that the bound Secrets hold, sorted, except a key that starts with ``FUNCD_``. Fails with the HTTP status 403 when a Policy forbids the function to read a bound Secret, and 404 when a bound Secret does not exist."
         },
         {
           "name": "put",
           "signature": "put(binding: str, key: str, value: str) -> None",
-          "doc": "Writes key in Secret ``binding``, which the function binds and may write: its owner, or a principal a writer role names. Every function that binds it reads the value at its next read."
+          "doc": "Writes key in Secret ``binding``, which the function binds and may write: its owner, or a principal a writer role names. Every function that binds it reads the value at its next read. Fails with the HTTP status 403 when the function does not bind the Secret or may not write it, 404 when the Secret does not exist, 400 when the key or the value breaks a Secret's rules, 413 when the request passes 1 MiB, and 409 when the Secret changed under each of 5 attempts to write it."
         },
         {
           "name": "delete",
           "signature": "delete(binding: str, key: str) -> None",
-          "doc": "Removes key from Secret ``binding``, as put may write it; a key the Secret lacks is no error."
+          "doc": "Removes key from Secret ``binding``, which the function binds and may write, as for ``put``; a key that the Secret lacks is no error. Fails with the HTTP status 403 when the function does not bind the Secret or may not write it, 404 when the Secret does not exist, and 409 when the Secret changed under each of 5 attempts to write it."
         }
       ]
     },
     {
       "name": "lake",
       "type": "LakeClient",
-      "doc": "A bound lake's proxy URL and token, by spec.bindings.lake alias (funcd ADR-0245).",
+      "doc": "The Lakes that the function binds, by alias: the address of each Lake's gateway, and the token that the gateway accepts from the function.",
       "methods": [
         {
           "name": "get",
           "signature": "get(alias: str) -> LakeEndpoint",
-          "doc": "Raises KeyError naming the alias when it is not bound."
+          "doc": "The gateway of the Lake bound as ``alias``: ``url``, its address as ``host:port``, and ``token``, the token that it accepts from the function. Raises ``KeyError`` naming the alias when the function binds no Lake with that alias."
         }
       ]
     }

@@ -15,7 +15,9 @@ from .invoke import MEMBER_HEADER, _UnixHTTPConnection
 
 
 class SecretClient:
-    """A function's bound secrets: an unbound key reads as None."""
+    """A function's bound Secrets: ``get`` and ``list`` read them at each call, and ``put`` and ``delete``
+    change one key of a bound Secret that the function may write. A key that no bound Secret holds, or that
+    starts with ``FUNCD_``, reads as ``None``."""
 
     def __init__(self, member: str | None = None) -> None:
         # In a pool, every request names the calling member; funcd checks it against the pool.
@@ -56,18 +58,31 @@ class SecretClient:
             raise RuntimeError(f"context.secret.{verb} failed: {status} {data.decode('utf-8', 'replace')}")
 
     def get(self, key: str) -> str | None:
+        """The key's value, or ``None`` when no bound Secret holds the key, the key starts with ``FUNCD_``, or
+        a bound Secret does not exist. When two Secrets hold the key, the later one in
+        ``spec.bindings.secret`` wins. Fails with the HTTP status 403 when a Policy forbids the function to
+        read a bound Secret."""
         data = self._get("get", f"/secret/{quote(key, safe='')}", missing_ok=True)
         return None if data is None else cast("str", json.loads(data)["value"])
 
     def list(self) -> list[str]:
+        """The keys that the bound Secrets hold, sorted, except a key that starts with ``FUNCD_``. Fails with
+        the HTTP status 403 when a Policy forbids the function to read a bound Secret, and 404 when a bound
+        Secret does not exist."""
         data = cast("bytes", self._get("list", "/secret", missing_ok=False))
         return cast("list[str]", json.loads(data)["keys"])
 
     def put(self, binding: str, key: str, value: str) -> None:
         """Writes key in Secret ``binding``, which the function binds and may write: its owner, or a principal
-        a writer role names. Every function that binds it reads the value at its next read."""
+        a writer role names. Every function that binds it reads the value at its next read. Fails with the
+        HTTP status 403 when the function does not bind the Secret or may not write it, 404 when the Secret
+        does not exist, 400 when the key or the value breaks a Secret's rules, 413 when the request passes
+        1 MiB, and 409 when the Secret changed under each of 5 attempts to write it."""
         self._write("put", "PUT", binding, key, json.dumps({"value": value}).encode())
 
     def delete(self, binding: str, key: str) -> None:
-        """Removes key from Secret ``binding``, as put may write it; a key the Secret lacks is no error."""
+        """Removes key from Secret ``binding``, which the function binds and may write, as for ``put``; a key
+        that the Secret lacks is no error. Fails with the HTTP status 403 when the function
+        does not bind the Secret or may not write it, 404 when the Secret does not exist, and 409 when the
+        Secret changed under each of 5 attempts to write it."""
         self._write("delete", "DELETE", binding, key)

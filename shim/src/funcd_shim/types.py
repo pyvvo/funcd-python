@@ -46,17 +46,19 @@ class FunctionContext(Protocol):
     """The per-invocation context the shim passes to the handler."""
 
     def log(self, *args: object) -> None:
-        """Structured log line → stdout (collected by the platform, ADR-0010)."""
+        """Prints the arguments, separated by spaces, as one line on standard output, which funcd keeps as a
+        log line at level INFO."""
         ...
 
     def invoke(self, alias: str, payload: Any) -> Any:
-        """Synchronously invoke a linked function by its spec.bindings.links alias (ADR-0064).
-
-        An object *payload* with a top-level ``"data"`` or ``"specversion"`` key is taken as a full
-        CloudEvent envelope (ADR-0134): the target's ``event["data"]`` is only its ``data`` value,
-        without the other keys. Send an object that has its own ``data`` key as
-        ``{"specversion": "1.0", "data": payload}``.
-        """
+        """Calls the function that the link named ``alias`` targets, and returns its result parsed from
+        JSON, or ``None`` when it returns nothing. The target's ``event["data"]`` is ``payload``, except that
+        a dict with a top-level ``"data"`` or ``"specversion"`` key is taken as the whole CloudEvent, so
+        ``event["data"]`` is only its ``"data"`` value: send such a dict inside an envelope, as
+        ``{"specversion": "1.0", "data": payload}``. The link's timeout, 30 seconds by default, bounds the
+        call. Fails with the HTTP status 403 when the function declares no link named ``alias``, 409 when the
+        target serves HTTP, 422 when ``payload`` does not match the target's contract, and the target's
+        status when its handler fails, such as 500."""
         ...
 
     @property
@@ -66,37 +68,45 @@ class FunctionContext(Protocol):
 
     @property
     def blob(self) -> BlobClient:
-        """Binding-scoped blob storage (ADR-0127): get/put/delete/list a bound prefix's objects, or
-        mint a presigned URL — the blob twin of ``kv``."""
+        """The Bucket prefixes that the function binds, by alias: read, write, delete and list their
+        objects, whose keys are relative to the binding's prefix."""
         ...
 
     @property
     def sql(self) -> SQLClient:
-        """The SQL databases a function binds (funcd ADR-0233): ``query`` reads, ``query_values`` keeps
-        every column of a join, ``execute`` writes in one transaction. A write needs the database's owner or
-        a writer role."""
+        """The SQL databases that the function binds, by alias: ``query`` reads rows, ``query_values`` keeps
+        every column of a join, and ``execute`` writes in one transaction. A call fails with the HTTP status
+        503 while the database's engine is not Ready, or when a statement runs past funcd's SQL call timeout,
+        30 seconds by default."""
         ...
 
     @property
     def config(self) -> ConfigClient:
-        """The keys of the ConfigMaps a function binds (funcd ADR-0245); a key a bound Secret overrides is
-        a secret."""
+        """The keys of the ConfigMaps that the function binds, with the values that the worker got when it
+        started. A key that starts with ``FUNCD_`` is left out, since funcd reserves that prefix. A key that a
+        bound Secret also holds is left out too, and ``ctx.secret`` reads the Secret's value. While funcd's S3
+        gateway runs, a function that binds a Bucket reads the ``AWS_ACCESS_KEY_ID`` and
+        ``AWS_SECRET_ACCESS_KEY`` that funcd issues it, in place of a ConfigMap's."""
         ...
 
     @property
     def secret(self) -> SecretClient:
-        """The keys and values of the Secrets a function binds, read from funcd on every call (funcd
-        ADR-0249)."""
+        """The Secrets that the function binds. ``get`` and ``list`` read their keys and values at each call,
+        with no cache, so a changed Secret shows at the next read; a key that starts with ``FUNCD_`` is never
+        read: ``get`` returns ``None`` for it, and ``list`` leaves it out. ``put`` and ``delete`` change one
+        key of a bound Secret that the function may write, as the Secret's owner or through a writer role such
+        as Secret Data Writer."""
         ...
 
     @property
     def lake(self) -> LakeClient:
-        """A bound lake's proxy URL and token, by spec.bindings.lake alias (funcd ADR-0245)."""
+        """The Lakes that the function binds, by alias: the address of each Lake's gateway, and the token
+        that the gateway accepts from the function."""
         ...
 
     def remaining_ms(self) -> int | None:
-        """Milliseconds left before the call's deadline (X-Funcd-Timeout-Ms), floored at 0; None
-        without one."""
+        """The whole milliseconds left before the call's deadline, 0 once it has passed, or ``None`` when
+        the call has none."""
         ...
 
 

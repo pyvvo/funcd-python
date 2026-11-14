@@ -131,7 +131,7 @@ class KVClient:
 
     def put(self, binding: str, key: str, value: bytes | str, *, ttl: int | None = None) -> None:
         """Writes the value. ``ttl``, in whole seconds, sets the key's expiry; a put without it leaves
-        the key with none. Only the table's owner can write."""
+        the key with none. Only the table's owner and the writers that a RolesAssignment names can write."""
         body = value.encode("utf-8") if isinstance(value, str) else value
         self._send("put", "PUT", _with_ttl(_key_path(binding, key), ttl), body=body)
 

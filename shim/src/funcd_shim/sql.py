@@ -69,21 +69,27 @@ class SQLClient:
         return cast("list[dict[str, Any]]", json.loads(data)["results"])
 
     def query(self, alias: str, sql: str, params: SQLParams | None = None) -> list[dict[str, Any]]:
-        """Rows as dicts; with a duplicate column name the last one wins (``query_values`` keeps every
-        column)."""
+        """Runs one statement that reads, and returns its rows as dicts keyed by column name; with a duplicate
+        column name, the last one wins. ``params`` fill the statement's ``?`` placeholders in order, or its
+        ``:name`` placeholders from one mapping. A statement that writes, or that the database refuses, fails
+        with the HTTP status 400."""
         res = self.query_values(alias, sql, params)
         return [dict(zip(res["columns"], row, strict=True)) for row in res["values"]]
 
     def query_values(self, alias: str, sql: str, params: SQLParams | None = None) -> dict[str, Any]:
-        """Rows as ``{"columns": [...], "values": [[...]]}``, as rqlite returns them: every column of a join
-        is kept."""
+        """Runs one statement that reads, and returns ``{"columns": [...], "values": [[...]]}``: its column
+        names and its rows as lists of values in column order, so every column of a join is kept. ``params``
+        and failures are as for ``query``."""
         return self._call("query", alias, [_wire(sql, params)])[0]
 
     def execute(
         self, alias: str, sql_or_statements: str | Sequence[SQLStatement], params: SQLParams | None = None
     ) -> Any:
-        """One statement's ``{"rowsAffected", "lastInsertId"}`` (with ``columns`` and ``values`` for
-        RETURNING), or the list of them for a batch of statements, which runs all or nothing."""
+        """Runs one statement, or a list of up to 500 statements, in one transaction that applies all or none
+        of them. Returns the statement's result, or one result for each statement of a list: a dict with
+        ``rowsAffected`` and ``lastInsertId``, and ``columns`` and ``values`` for a RETURNING statement. A
+        statement that the database refuses fails the call with the HTTP status 400. Only the database's owner
+        and the writers that a RolesAssignment names can execute."""
         if isinstance(sql_or_statements, str):
             return self._call("execute", alias, [_wire(sql_or_statements, params)])[0]
         return self._call("execute", alias, [_statement(s) for s in sql_or_statements])

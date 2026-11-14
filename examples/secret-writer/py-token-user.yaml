@@ -1,0 +1,23 @@
+# py-token-user: a Function that declares and binds the Secret py-demo-token but does not own it. Each call reads the
+# key TOKEN and tries to write it, which funcd refuses until a role allows it.
+# region function
+apiVersion: funcd.io/v1alpha1
+kind: Function
+metadata:
+  name: py-token-user
+  namespace: default
+  resourceGroup: rg1
+spec:
+  runtime: python314
+  handler: handle
+  image: oci-layout:///mnt/funcd-deps/registry:py-token-user   # funcdctl push of src/py-token-user/main.py
+  scaling:
+    minReplicas: 1
+  secrets:
+    - name: py-demo-token
+      keys:
+        - TOKEN
+  bindings:
+    secret:
+      - py-demo-token
+# endregion function
