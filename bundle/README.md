@@ -11,6 +11,10 @@ uv run funcd-bundle --platform linux/amd64   # from any host
 funcdctl push dist/<name> <ref>                # entry main.py, contract dist/<name>/<name>.contract.yaml
 ```
 
+It needs `uv`, and a running Docker daemon for two steps: the import check, whenever the handler imports a bundled
+dependency (`--no-check` skips it), and a `--hermetic` build. Without a daemon, the build stops with `docker not found`
+or a failed `docker create`.
+
 - **Functions**: each entry of `[tool.funcd-bundle.functions]` is a function, its name mapped to its entry,
   relative to the project root; without the table, the project is one function named after its directory,
   from `src/main.py`. `funcdctl dev` reads the same entries. An entry in a subdirectory is copied with its
