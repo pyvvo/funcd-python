@@ -21,6 +21,7 @@ from .invcontext import InvContext, current_inv, reset_inv, set_inv
 
 if TYPE_CHECKING:
     from .funclog import Channel
+    from .types import Principal
 
 _ZERO_TRACE = "0" * 32
 _ZERO_SPAN = "0" * 16
@@ -48,12 +49,15 @@ def parse_traceparent(tp: str | None) -> tuple[str, str] | None:
 
 
 def new_inv_context(
-    tp: str | None, provided_span_id: str | None = None, deadline: float | None = None
+    tp: str | None,
+    provided_span_id: str | None = None,
+    deadline: float | None = None,
+    principal: Principal | None = None,
 ) -> InvContext:
     """Establish the invocation identity: adopt the traceparent's trace-id + parent span-id when
     present, else mint a root (fresh 16-byte trace). The span-id is the engine-provided one (ADR-0105,
     X-Funcd-Span-Id) when a valid hex16 is given, else freshly minted (a direct invoke). *deadline* is
-    the call's (funcd ADR-0226)."""
+    the call's (funcd ADR-0226), and *principal* who signed in to it (funcd ADR-0335)."""
     adopted = parse_traceparent(tp)
     if provided_span_id and _SPAN_RE.match(provided_span_id):
         span_id = provided_span_id  # ADR-0105: use the engine-provided id
@@ -65,6 +69,7 @@ def new_inv_context(
         span_id=span_id,
         parent_id=adopted[1] if adopted else "",
         deadline=deadline,
+        principal=principal,
     )
 
 
@@ -136,12 +141,13 @@ class InvocationSpan:
         member: str | None = None,
         max_record_bytes: int | None = None,
         deadline: float | None = None,
+        principal: Principal | None = None,
     ) -> None:
         self._channel = channel
         self._bound = _record_bound() if max_record_bytes is None else max_record_bytes
         self._member = member
         self._name = name
-        self._ctx = new_inv_context(tp, span_id, deadline)
+        self._ctx = new_inv_context(tp, span_id, deadline, principal)
         self._links = links or []
         self._status = "OK"
         self._status_msg = ""

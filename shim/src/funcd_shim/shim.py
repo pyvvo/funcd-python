@@ -44,6 +44,7 @@ from .invoke import MEMBER_HEADER, _UnixHTTPConnection
 from .invoke import invoke as _invoke
 from .kv import KVClient
 from .lake import LakeClient
+from .principal import principal_from
 from .secret import SecretClient
 from .sql import SQLClient
 from .tracespan import InvocationSpan, parse_links
@@ -51,6 +52,7 @@ from .types import CloudEvent, FunctionContext, Handler
 
 if TYPE_CHECKING:
     from .funclog import _Channel
+    from .types import Principal
 
 
 class _Context:
@@ -91,6 +93,10 @@ class _Context:
 
     def remaining_ms(self) -> int | None:
         return invcontext.remaining_ms()
+
+    @property
+    def principal(self) -> Principal | None:
+        return invcontext.principal()
 
 
 DEPENDENCY_CHECK_BUDGET = 0.05
@@ -332,6 +338,7 @@ def make_request_handler(
                 self.headers.get("X-Funcd-Span-Id"),
                 parse_links(self.headers.get("X-Funcd-Span-Links")),
                 deadline=deadline_from(self.headers, received),
+                principal=principal_from(self.headers),
             ) as span:
                 try:
                     result = runtime.call_handler(handler, context, event)

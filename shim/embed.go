@@ -17,10 +17,10 @@ import (
 // the sources by name embeds exactly the shim, nothing machine-generated. Every module the extracted
 // shim imports at runtime is listed — solo (shim.py) and pool (pool.py/_poolworker.py) both import
 // funclog + tracespan (+ tracespan→invcontext) at load; kv.py backs context.kv, sql.py context.sql,
-// and config.py, secret.py and lake.py context.config, context.secret and context.lake. build.py is
-// the push-time contract build (build-only) — not shipped.
+// config.py, secret.py and lake.py context.config, context.secret and context.lake, and principal.py
+// context.principal. build.py is the push-time contract build (build-only) — not shipped.
 //
-//go:embed src/funcd_shim/__init__.py src/funcd_shim/__main__.py src/funcd_shim/shim.py src/funcd_shim/invoke.py src/funcd_shim/pool.py src/funcd_shim/_poolworker.py src/funcd_shim/runtime.py src/funcd_shim/types.py src/funcd_shim/jsonwire.py src/funcd_shim/funclog.py src/funcd_shim/tracespan.py src/funcd_shim/invcontext.py src/funcd_shim/kv.py src/funcd_shim/blob.py src/funcd_shim/sql.py src/funcd_shim/config.py src/funcd_shim/secret.py src/funcd_shim/lake.py src/funcd_shim/deadline.py src/funcd_shim/py.typed
+//go:embed src/funcd_shim/__init__.py src/funcd_shim/__main__.py src/funcd_shim/shim.py src/funcd_shim/invoke.py src/funcd_shim/pool.py src/funcd_shim/_poolworker.py src/funcd_shim/runtime.py src/funcd_shim/types.py src/funcd_shim/jsonwire.py src/funcd_shim/funclog.py src/funcd_shim/tracespan.py src/funcd_shim/invcontext.py src/funcd_shim/kv.py src/funcd_shim/blob.py src/funcd_shim/sql.py src/funcd_shim/config.py src/funcd_shim/secret.py src/funcd_shim/lake.py src/funcd_shim/principal.py src/funcd_shim/deadline.py src/funcd_shim/py.typed
 var shimFS embed.FS
 
 // API is api.json, the handler API that funcd's guide shows: each client of FunctionContext with its methods'

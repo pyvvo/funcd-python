@@ -13,6 +13,6 @@ runtime-shim HTTP contract; funcd checks each call against the Function's contra
 
 from __future__ import annotations
 
-from .types import CloudEvent, DeadlineExceeded, FunctionContext, Handler, Json
+from .types import CloudEvent, DeadlineExceeded, FunctionContext, Handler, Json, Principal
 
-__all__ = ["CloudEvent", "DeadlineExceeded", "FunctionContext", "Handler", "Json"]
+__all__ = ["CloudEvent", "DeadlineExceeded", "FunctionContext", "Handler", "Json", "Principal"]

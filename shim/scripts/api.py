@@ -1,8 +1,9 @@
 """api.py writes api.json: the handler API that funcd's guide shows on each feature's Spec tab.
 
 It reads FunctionContext in funcd_shim.types: each client is one of its properties (ctx.kv), and the
-context's own methods are the client named "". Run it with ``uv run python scripts/api.py``;
-tests/test_api.py fails when api.json is stale.
+context's own methods are the client named "". A property that holds a value, not a client
+(ctx.principal), is not listed. Run it with ``uv run python scripts/api.py``; tests/test_api.py fails
+when api.json is stale.
 """
 
 from __future__ import annotations
@@ -73,7 +74,10 @@ def api() -> dict[str, list[dict[str, object]]]:
     ]
     for name, member in vars(context).items():
         if isinstance(member, property) and member.fget is not None:
-            client = CLIENTS[member.fget.__annotations__["return"]]
+            returns = member.fget.__annotations__["return"]
+            if not returns.endswith("Client"):
+                continue
+            client = CLIENTS[returns]
             clients.append(
                 {
                     "name": name,
