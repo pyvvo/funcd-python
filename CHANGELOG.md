@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.0](https://github.com/pyvvo/funcd-python/compare/v0.24.0...v0.25.0) (2026-11-19)
+
+
+### Features
+
+* **shim:** context.principal says who signed in (funcd ADR-0335) ([#131](https://github.com/pyvvo/funcd-python/issues/131)) ([42f1578](https://github.com/pyvvo/funcd-python/commit/42f157827f30b5946e09db1fb5eafba6a757f00e))
+
 ## [0.24.0](https://github.com/pyvvo/funcd-python/compare/v0.23.0...v0.24.0) (2026-11-14)
 
 
