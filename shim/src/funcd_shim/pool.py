@@ -33,11 +33,14 @@ from typing import TYPE_CHECKING, Any
 from funcd_shim import _poolworker
 from funcd_shim.deadline import deadline_from, is_stuck
 from funcd_shim.funclog import new_write_lock
+from funcd_shim.principal import principal_from
 from funcd_shim.shim import _RequestHeaders, check_dependencies, exit_on_sigterm, read_body
 from funcd_shim.tracespan import parse_links
 
 if TYPE_CHECKING:
     from concurrent.futures import Future
+
+    from funcd_shim.types import Principal
 
 # funcd's runtime.bootTimeout default (1 m), used when FUNCD_POOL_LOAD_TIMEOUT_MS is unset or invalid.
 _DEFAULT_LOAD_TIMEOUT_MS = 60_000
@@ -107,9 +110,10 @@ class _Pooled:
         span_id: str | None = None,
         links: list[str] | None = None,
         deadline: float | None = None,
+        principal: Principal | None = None,
     ) -> dict[str, Any]:
         future: Future[dict[str, Any]] = self.ex.submit(
-            _poolworker.invoke, body, traceparent, fn_name, span_id, links, deadline
+            _poolworker.invoke, body, traceparent, fn_name, span_id, links, deadline, principal
         )
         if deadline is None:
             return future.result()
@@ -212,7 +216,8 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
                 self._json(503, json.dumps({"error": f"function {name} unavailable"}).encode())
                 return
             # ADR-0101: forward the trace header + function name so the worker's span adopts/names.
-            # ADR-0101/0105: forward the trace + span-id + fan-in links headers to the worker.
+            # ADR-0101/0105: forward the trace + span-id + fan-in links headers to the worker, and funcd
+            # ADR-0335 the call's principal.
             res = pooled.invoke(
                 raw,
                 self.headers.get("traceparent"),
@@ -220,6 +225,7 @@ def make_request_handler(handlers: dict[str, _Pooled]) -> type[BaseHTTPRequestHa
                 self.headers.get("X-Funcd-Span-Id"),
                 parse_links(self.headers.get("X-Funcd-Span-Links")),
                 deadline_from(self.headers, received),
+                principal_from(self.headers),
             )
             status = int(res["status"])
             if status == 204:

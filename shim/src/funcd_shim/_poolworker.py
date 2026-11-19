@@ -30,7 +30,7 @@ from .runtime import call_handler
 from .secret import SecretClient
 from .sql import SQLClient
 from .tracespan import InvocationSpan
-from .types import CloudEvent, Handler
+from .types import CloudEvent, Handler, Principal
 
 # Per-interpreter state, set by init() and read by invoke() — isolated to this worker interpreter.
 _handler: Handler | None = None
@@ -208,6 +208,10 @@ class _Ctx:
     def remaining_ms(self) -> int | None:
         return invcontext.remaining_ms()
 
+    @property
+    def principal(self) -> Principal | None:
+        return invcontext.principal()
+
 
 def _reply(status: int, body: dict[str, Any]) -> dict[str, Any]:
     return {"status": status, "body": jsonwire.encode(body)}
@@ -220,13 +224,15 @@ def invoke(
     span_id: str | None = None,
     links: list[str] | None = None,
     deadline: float | None = None,
+    principal: Principal | None = None,
 ) -> dict[str, Any]:
     """Run one request: parse → handler → a status-tagged envelope the host maps to the HTTP response
     (identical to the solo shim). The body is encoded here, so a result with no JSON form is this
     handler's 500 and never reaches the host. ADR-0101: each request that reaches the handler emits a
     SERVER span on the worker's channel.
     *deadline* is the host's ``time.monotonic()`` deadline of the call (funcd ADR-0226): it is watched
-    from its start here, and one that starts after its stop does not run."""
+    from its start here, and one that starts after its stop does not run. *principal* is who signed in
+    to the call, which the host read from its headers (funcd ADR-0335)."""
     if _handler is None:  # defensive — init() always runs first
         return _reply(500, {"error": "handler not loaded"})
     try:
@@ -238,7 +244,9 @@ def invoke(
         # Reject it cleanly — never let `event.get("data")` raise AttributeError and crash the pooled
         # worker (that surfaced as a gateway `proxy error: EOF` / empty-body 502).
         return {"status": 400, "text": "request body must be a JSON object (CloudEvent envelope)"}
-    with InvocationSpan(_channel, fn_name, traceparent, span_id, links, _member, deadline=deadline) as span:
+    with InvocationSpan(
+        _channel, fn_name, traceparent, span_id, links, _member, deadline=deadline, principal=principal
+    ) as span:
         try:
             result = call_handler(_handler, _Ctx(), event)
         except BaseException as err:  # noqa: BLE001 - user handler errors, SystemExit too, become 500

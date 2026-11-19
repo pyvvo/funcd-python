@@ -7,7 +7,9 @@ SAME inv/trace/span ids — the logs↔trace correlation that closes ADR-0081's 
 
 Per-thread: ``ThreadingHTTPServer`` runs each request on its own thread, and a ``ContextVar`` set in
 that thread is read back by the logging handler on the same thread — so the correlation is exact.
-It also carries the call's deadline, which ``context.remaining_ms()`` reads (funcd ADR-0226).
+It also carries the call's deadline, which ``context.remaining_ms()`` reads (funcd ADR-0226), and its
+principal, which ``context.principal`` reads (funcd ADR-0335): the handler's context is one object for
+every call.
 """
 
 from __future__ import annotations
@@ -16,6 +18,10 @@ import contextvars
 import math
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .types import Principal
 
 
 @dataclass(frozen=True)
@@ -27,6 +33,7 @@ class InvContext:
     span_id: str  # hex16 — this invocation's span
     parent_id: str  # hex16 — the traceparent span-id, "" for a root
     deadline: float | None = None  # time.monotonic() from X-Funcd-Timeout-Ms, None without the header
+    principal: Principal | None = None  # who signed in to the call, None when nobody did
 
 
 _current: contextvars.ContextVar[InvContext | None] = contextvars.ContextVar("funcd_inv", default=None)
@@ -45,6 +52,12 @@ def remaining_ms() -> int | None:
     if inv is None or inv.deadline is None:
         return None
     return max(0, math.floor((inv.deadline - time.monotonic()) * 1000))
+
+
+def principal() -> Principal | None:
+    """Who signed in to the current call; None outside a call or when nobody did."""
+    inv = _current.get()
+    return None if inv is None else inv.principal
 
 
 def set_inv(ctx: InvContext) -> contextvars.Token[InvContext | None]:

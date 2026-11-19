@@ -8,7 +8,7 @@ handler signature checked by ``mypy --strict`` — the same contract the shim en
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
+from typing import TYPE_CHECKING, Any, NotRequired, Protocol, TypedDict, runtime_checkable
 
 if TYPE_CHECKING:
     from .blob import BlobClient
@@ -39,6 +39,15 @@ class CloudEvent[T](TypedDict, total=False):
     datacontenttype: str
     subject: str
     data: T
+
+
+class Principal(TypedDict):
+    """Who signed in to a call, as ``FunctionContext.principal`` holds it."""
+
+    provider: str
+    id: str
+    name: NotRequired[str]
+    claims: dict[str, Any]
 
 
 @runtime_checkable
@@ -107,6 +116,15 @@ class FunctionContext(Protocol):
     def remaining_ms(self) -> int | None:
         """The whole milliseconds left before the call's deadline, 0 once it has passed, or ``None`` when
         the call has none."""
+        ...
+
+    @property
+    def principal(self) -> Principal | None:
+        """Who signed in to the call, when funcd's edge signed a user in with an OpenID Connect provider:
+        ``"provider"`` is the name of the OIDCProvider, ``"id"`` the user's subject (the ``sub`` claim),
+        ``"name"`` the first of the claims ``name``, ``preferred_username`` and ``email`` that is not empty,
+        and ``"claims"`` the payload of the token that signed the user in, the ID token of a browser session
+        or the Bearer token of an API call. ``None`` when nobody signed in."""
         ...
 
 

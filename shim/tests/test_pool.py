@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 from fakeapi import HOLD, DependencyAPI, UnixHTTPServer
 from loopback import exchange, statuses, warm_calls
+from principals import PRINCIPAL, signed_in
 from request_heads import CONTENT_TYPE_LINES, post_with_line
 
 from funcd_shim import deadline
@@ -1183,3 +1184,21 @@ def test_ctx_pooled_member(tmp_path: Path, dependency_api: DependencyAPI) -> Non
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+
+
+WHO = "def handle(context, event):\n    return {'principal': context.principal}\n"
+
+
+def test_scenario_oidc_shim_principal_pooled(tmp_path: Path) -> None:
+    # scenario: oidc-shim-principal — the host reads the principal from the headers funcd's edge set, and
+    # the member's context.principal holds it (funcd ADR-0335).
+    proc, port = _start(tmp_path, _manifest(tmp_path, [("who", WHO)]))
+    try:
+        st, body = _post(port, "who", "{}", signed_in())
+        assert (st, json.loads(body)) == (200, {"principal": PRINCIPAL})
+        assert _post(port, "who", "{}") == (200, b'{"principal":null}')
+        malformed = {**signed_in(), "X-Funcd-Principal": "not base64!"}
+        assert _post(port, "who", "{}", malformed) == (200, b'{"principal":null}')
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)

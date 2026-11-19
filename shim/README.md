@@ -12,5 +12,7 @@ pip install "funcd-shim[build]"
 - `context.remaining_ms()` is the time left before the call's deadline. A second after it the call
   is stopped: a synchronous handler gets `funcd_shim.DeadlineExceeded`, and an async handler's task
   is cancelled (funcd ADR-0226).
+- `context.principal` is who signed in to the call, when funcd's edge signed a user in with an
+  OpenID Connect provider, or `None` (funcd ADR-0335).
 - `from funcd_shim.build import build` builds its input and output contract. It needs the `build`
   extra.

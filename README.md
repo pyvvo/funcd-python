@@ -26,6 +26,21 @@ reads only through `secret`, and an unbound key reads as `None`. `list()` return
 `secret` asks funcd on every call (funcd ADR-0249), so no secret sits in the worker's environment.
 `lake.get(alias)` raises `KeyError` naming the alias when it is not bound.
 
+## Know who signed in
+
+When funcd's edge signs the caller in with an OpenID Connect provider (funcd ADR-0335), `context.principal` says who
+it is. It is `None` for a call that nobody signed in to:
+
+```python
+def handle(context: FunctionContext, event: CloudEvent[Any]) -> dict[str, str]:
+    principal = context.principal
+    return {"hello": principal.get("name", "stranger") if principal else "stranger"}
+```
+
+`"provider"` is the OIDCProvider's name, `"id"` the user's `sub` claim, `"name"` the first of the claims `name`,
+`preferred_username` and `email` that is not empty, and `"claims"` the payload of the token that signed the user in.
+`funcd_shim.Principal` types the dict.
+
 ## Develop
 
 ```bash
