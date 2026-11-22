@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/pyvvo/funcd-python/compare/v0.25.0...v0.26.0) (2026-11-22)
+
+
+### Features
+
+* **shim:** context.addon.fetch calls a bound add-on object's engine through funcd (funcd ADR-0338) ([#133](https://github.com/pyvvo/funcd-python/issues/133)) ([64c88ed](https://github.com/pyvvo/funcd-python/commit/64c88ed4c274309991aad7fa8cef8260a33023df))
+
 ## [0.25.0](https://github.com/pyvvo/funcd-python/compare/v0.24.0...v0.25.0) (2026-11-19)
 
 
