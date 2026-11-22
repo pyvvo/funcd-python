@@ -20,6 +20,7 @@ from collections.abc import Callable, MutableMapping
 from typing import Any, AnyStr, NoReturn
 
 from . import invcontext, jsonwire, runtime
+from .addon import AddonClient
 from .blob import BlobClient
 from .config import ConfigClient
 from .funclog import install_log_capture, open_channel
@@ -204,6 +205,10 @@ class _Ctx:
     @property
     def lake(self) -> LakeClient:
         return LakeClient()
+
+    @property
+    def addon(self) -> AddonClient:
+        return AddonClient(_member, _channel)
 
     def remaining_ms(self) -> int | None:
         return invcontext.remaining_ms()

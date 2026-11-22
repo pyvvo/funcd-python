@@ -188,6 +188,18 @@
           "doc": "The gateway of the Lake bound as ``alias``: ``url``, its address as ``host:port``, and ``token``, the token that it accepts from the function. Raises ``KeyError`` naming the alias when the function binds no Lake with that alias."
         }
       ]
+    },
+    {
+      "name": "addon",
+      "type": "AddonClient",
+      "doc": "The add-on objects that the function binds, by alias: ``fetch`` sends an HTTP request to an object's engine through funcd, which checks the binding and the path as the object's edge entry does, and returns the engine's answer whatever its status.",
+      "methods": [
+        {
+          "name": "fetch",
+          "signature": "fetch(alias: str, path: str, method: str = 'GET', headers: dict[str, str] | None = None, body: bytes | None = None) -> AddonResponse",
+          "doc": "Sends an HTTP request to the engine of the add-on object that the function binds under ``alias``, through funcd, and returns the engine's answer whatever its status; funcd follows no redirect. ``path`` starts with ``/`` and may carry a query, and ``method``, ``headers`` and ``body`` make the rest of the request. Raises ``RuntimeError`` with funcd's problem when funcd refuses the call: 403 for an alias the function does not bind or a call a Policy forbids, 404 for a path the object's edge entry does not serve, 413 for a request or an answer body over ``addons.callPayloadLimit``, 1 MiB by default, and 503 while the object is not Ready, while its namespace is held (with its ``Retry-After``), or when the engine does not answer within ``addons.callTimeout``, 10 seconds by default."
+        }
+      ]
     }
   ]
 }
