@@ -194,10 +194,10 @@ class InvocationSpan:
 
 
 class ClientSpan:
-    """CLIENT span "call <alias>" of one context.invoke call, under current_inv() (ADR-0165);
-    outside an invocation traceparent is None, nothing emitted. With no channel the traceparent is still
-    minted and no span line is written. *member* is the calling pool member, stamped as ``funcd.member``;
-    the span line takes the record bound as the SERVER span's does (ADR-0168)."""
+    """CLIENT span "call <alias>" of one context.invoke or context.addon.fetch call, under current_inv()
+    (ADR-0165); outside an invocation traceparent is None, nothing emitted. With no channel the traceparent
+    is still minted and no span line is written. *member* is the calling pool member, stamped as
+    ``funcd.member``; the span line takes the record bound as the SERVER span's does (ADR-0168)."""
 
     def __init__(
         self,
@@ -222,6 +222,7 @@ class ClientSpan:
             )
         )
         self._http_status: int | None = None
+        self._failed = False
         self._start_ns = 0
         self._t0 = 0
 
@@ -236,17 +237,24 @@ class ClientSpan:
         sets no status (invoke.py raises on non-2xx)."""
         self._http_status = status
 
+    def failed(self) -> None:
+        """Set ERROR on an answer that settles the call with no exception, as an add-on engine's 5xx does."""
+        self._failed = True
+
     def __enter__(self) -> ClientSpan:
         self._start_ns = time.time_ns()
         self._t0 = time.monotonic_ns()
         return self
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
-        """Emit the span once; any exception sets ERROR with str(exc)."""
+        """Emit the span once; any exception sets ERROR with str(exc), and failed() with no message."""
         if self._ids is None or self._channel is None:
             return
         end_ns = self._start_ns + (time.monotonic_ns() - self._t0)
-        status, status_msg = ("OK", "") if exc is None else ("ERROR", str(exc))
+        if exc is not None:
+            status, status_msg = "ERROR", str(exc)
+        else:
+            status, status_msg = ("ERROR", "") if self._failed else ("OK", "")
         attrs = {} if self._http_status is None else {"http.status_code": str(self._http_status)}
         _emit_span(
             self._channel,

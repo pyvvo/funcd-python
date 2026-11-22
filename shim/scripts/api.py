@@ -14,7 +14,7 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
-from funcd_shim import blob, config, kv, lake, secret, sql, types
+from funcd_shim import addon, blob, config, kv, lake, secret, sql, types
 
 API = Path(__file__).resolve().parent.parent / "api.json"
 
@@ -22,7 +22,7 @@ API = Path(__file__).resolve().parent.parent / "api.json"
 # resolved here.
 CLIENTS = {
     name: cls
-    for module in (blob, config, kv, lake, secret, sql)
+    for module in (addon, blob, config, kv, lake, secret, sql)
     for name, cls in vars(module).items()
     if inspect.isclass(cls) and name.endswith("Client")
 }

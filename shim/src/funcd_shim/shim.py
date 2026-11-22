@@ -36,6 +36,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
 
 from . import invcontext, jsonwire, runtime
+from .addon import AddonClient
 from .blob import BlobClient
 from .config import ConfigClient
 from .deadline import deadline_from, stuck
@@ -90,6 +91,10 @@ class _Context:
     @property
     def lake(self) -> LakeClient:
         return LakeClient()
+
+    @property
+    def addon(self) -> AddonClient:
+        return AddonClient(channel=self._channel)
 
     def remaining_ms(self) -> int | None:
         return invcontext.remaining_ms()

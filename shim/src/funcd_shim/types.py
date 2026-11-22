@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, NotRequired, Protocol, TypedDict, runtime_checkable
 
 if TYPE_CHECKING:
+    from .addon import AddonClient
     from .blob import BlobClient
     from .config import ConfigClient
     from .kv import KVClient
@@ -111,6 +112,13 @@ class FunctionContext(Protocol):
     def lake(self) -> LakeClient:
         """The Lakes that the function binds, by alias: the address of each Lake's gateway, and the token
         that the gateway accepts from the function."""
+        ...
+
+    @property
+    def addon(self) -> AddonClient:
+        """The add-on objects that the function binds, by alias: ``fetch`` sends an HTTP request to an
+        object's engine through funcd, which checks the binding and the path as the object's edge entry does,
+        and returns the engine's answer whatever its status."""
         ...
 
     def remaining_ms(self) -> int | None:
