@@ -47,8 +47,11 @@ PATCHED_ENTRY = (
 
 
 @contextmanager
-def serve(handler: Any) -> Iterator[str]:
-    server = ThreadingHTTPServer(("127.0.0.1", 0), shim.make_request_handler(handler))
+def serve(handler: Any, socket_timeout: float | None = None) -> Iterator[str]:
+    request_handler = shim.make_request_handler(handler)
+    if socket_timeout is not None:
+        request_handler.timeout = socket_timeout
+    server = ThreadingHTTPServer(("127.0.0.1", 0), request_handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -981,3 +984,19 @@ def test_a_function_worker_context_has_no_run(monkeypatch: pytest.MonkeyPatch) -
         status, body = post(base, json.dumps({"type": "t", "data": None}))
         assert status == 200
         assert json.loads(body) == {"has_run": False}
+
+
+def test_a_job_call_keeps_its_longest_deadline_and_outlasts_the_socket_timeout() -> None:
+    """funcd ADR-0347: a Job's call may last up to its timeout, 168 hours at most. The shim keeps that
+    deadline, and its server answers a call that runs past the connection's socket timeout, which bounds only
+    reads and writes."""
+    week_ms = 168 * 3_600_000
+
+    def handle(context: FunctionContext, event: CloudEvent[Any]) -> dict[str, Any]:
+        time.sleep(0.3)
+        return {"ms": context.remaining_ms()}
+
+    with serve(handle, socket_timeout=0.1) as base:
+        status, body = post(base, "{}", {TIMEOUT: str(week_ms)})
+    assert status == 200
+    assert week_ms - 5000 < json.loads(body)["ms"] <= week_ms
