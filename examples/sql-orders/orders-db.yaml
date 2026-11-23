@@ -7,4 +7,6 @@ metadata:
   namespace: default
   resourceGroup: rg1
 spec:
-  owner: orders
+  owner:
+    kind: Function
+    name: orders
