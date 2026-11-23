@@ -31,7 +31,7 @@ import signal
 import sys
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
 
@@ -49,7 +49,7 @@ from .principal import principal_from
 from .secret import SecretClient
 from .sql import SQLClient
 from .tracespan import InvocationSpan, parse_links
-from .types import CloudEvent, FunctionContext, Handler
+from .types import CloudEvent, FunctionContext, Handler, RunInfo
 
 if TYPE_CHECKING:
     from .funclog import _Channel
@@ -244,6 +244,44 @@ class _RequestHeaders(http.client.HTTPMessage):
         return "text/plain"
 
 
+class _JobContext(_Context):
+    """A Job worker's context (funcd ADR-0347): the FunctionContext plus the call's run."""
+
+    def __init__(self, channel: _Channel | None, run: RunInfo) -> None:
+        super().__init__(channel)
+        self._run = run
+
+    @property
+    def run(self) -> RunInfo:
+        return self._run
+
+
+def job_run_from(env: Mapping[str, str]) -> dict[str, str] | None:
+    """A Job worker's run from its env (funcd ADR-0347), without the call's phase; ``None`` for a Function's
+    worker."""
+    name = env.get("FUNCD_JOB_RUN")
+    if not name:
+        return None
+    return {
+        "name": name,
+        "job": env.get("FUNCD_JOB", ""),
+        "revision": env.get("FUNCD_JOB_REVISION", ""),
+        "started_by": env.get("FUNCD_JOB_STARTED_BY", ""),
+    }
+
+
+def with_phase(job: Mapping[str, str], event: CloudEvent[Any]) -> RunInfo:
+    """The run of one call: the phase is ``preview`` for an event of type ``funcd.job.preview`` (funcd
+    ADR-0348), else ``run``."""
+    return RunInfo(
+        name=job["name"],
+        job=job["job"],
+        revision=job["revision"],
+        phase="preview" if event.get("type") == "funcd.job.preview" else "run",
+        started_by=job["started_by"],
+    )
+
+
 def make_request_handler(
     handler: Handler,
     channel: _Channel | None = None,
@@ -255,6 +293,7 @@ def make_request_handler(
     incoming ``traceparent`` or minting a root); *fn_name* names the span.
     """
     context: FunctionContext = _Context(channel)
+    job = job_run_from(os.environ)
 
     class ShimHandler(BaseHTTPRequestHandler):
         # HTTP/1.1 → keep-alive: reuse the TCP connection across requests instead of closing after
@@ -345,8 +384,9 @@ def make_request_handler(
                 deadline=deadline_from(self.headers, received),
                 principal=principal_from(self.headers),
             ) as span:
+                call_context = context if job is None else _JobContext(channel, with_phase(job, event))
                 try:
-                    result = runtime.call_handler(handler, context, event)
+                    result = runtime.call_handler(handler, call_context, event)
                 except BaseException as err:  # noqa: BLE001 - user handler errors, SystemExit too, become 500
                     span.fail(str(err))
                     self._send_json(500, {"error": str(err)})

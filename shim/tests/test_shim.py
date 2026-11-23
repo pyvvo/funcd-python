@@ -31,7 +31,7 @@ from loopback import exchange, statuses, warm_calls
 from request_heads import CONTENT_TYPE_LINES, post_with_line
 
 from funcd_shim import shim
-from funcd_shim.types import CloudEvent, FunctionContext
+from funcd_shim.types import CloudEvent, FunctionContext, JobContext
 
 ECHO = (
     "def handle(context, event):\n"
@@ -937,3 +937,47 @@ def test_shim_as_pid_1_exits_143_on_sigterm_with_a_call_in_flight(tmp_path: Path
         conn.close()
         proc.kill()
         proc.wait(timeout=5)
+
+
+def test_a_job_worker_hands_the_handler_its_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """scenario: job-context — a Job's worker (funcd ADR-0347) hands the handler its run, the phase from the
+    event type (funcd ADR-0348)."""
+    env = {
+        "FUNCD_JOB_RUN": "hello-abc",
+        "FUNCD_JOB": "hello",
+        "FUNCD_JOB_REVISION": "hello-v1",
+        "FUNCD_JOB_STARTED_BY": "alice",
+    }
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    def handle(context: JobContext, event: CloudEvent[Any]) -> dict[str, Any]:
+        return {"run": dict(context.run), "remaining": context.remaining_ms()}
+
+    with serve(handle) as base:
+        for event_type, phase in (("funcd.job.run", "run"), ("funcd.job.preview", "preview")):
+            status, body = post(base, json.dumps({"type": event_type, "data": None}))
+            assert status == 200
+            assert json.loads(body) == {
+                "run": {
+                    "name": "hello-abc",
+                    "job": "hello",
+                    "revision": "hello-v1",
+                    "phase": phase,
+                    "started_by": "alice",
+                },
+                "remaining": None,
+            }
+
+
+def test_a_function_worker_context_has_no_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """scenario: function-context-has-no-run — a Function's worker gets no run."""
+    monkeypatch.delenv("FUNCD_JOB_RUN", raising=False)
+
+    def handle(context: FunctionContext, event: CloudEvent[Any]) -> dict[str, Any]:
+        return {"has_run": hasattr(context, "run")}
+
+    with serve(handle) as base:
+        status, body = post(base, json.dumps({"type": "t", "data": None}))
+        assert status == 200
+        assert json.loads(body) == {"has_run": False}
