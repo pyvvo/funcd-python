@@ -8,7 +8,7 @@ handler signature checked by ``mypy --strict`` — the same contract the shim en
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, NotRequired, Protocol, TypedDict, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict, runtime_checkable
 
 if TYPE_CHECKING:
     from .addon import AddonClient
@@ -133,6 +133,28 @@ class FunctionContext(Protocol):
         ``"name"`` the first of the claims ``name``, ``preferred_username`` and ``email`` that is not empty,
         and ``"claims"`` the payload of the token that signed the user in, the ID token of a browser session
         or the Bearer token of an API call. ``None`` when nobody signed in."""
+        ...
+
+
+class RunInfo(TypedDict):
+    """A Job run's facts (funcd ADR-0347): the run, its Job and the revision it pinned, the call's phase and
+    who started the run."""
+
+    name: str
+    job: str
+    revision: str
+    phase: Literal["run", "preview"]
+    """``"run"``, or ``"preview"`` in a run's preview call (funcd ADR-0348)."""
+    started_by: str
+
+
+@runtime_checkable
+class JobContext(FunctionContext, Protocol):
+    """The context a Job's handler gets (funcd ADR-0347): the FunctionContext plus its run."""
+
+    @property
+    def run(self) -> RunInfo:
+        """The run this call belongs to."""
         ...
 
 
