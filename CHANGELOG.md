@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.28.0](https://github.com/pyvvo/funcd-python/compare/v0.27.0...v0.28.0) (2026-11-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* **examples:** every owner names its kind (funcd ADR-0351) ([#137](https://github.com/pyvvo/funcd-python/issues/137))
+
+### Features
+
+* **examples:** every owner names its kind (funcd ADR-0351) ([#137](https://github.com/pyvvo/funcd-python/issues/137)) ([92c995a](https://github.com/pyvvo/funcd-python/commit/92c995a6df3526a3f794bcd8cdc49d7d6ad72b93))
+
 ## [0.27.0](https://github.com/pyvvo/funcd-python/compare/v0.26.0...v0.27.0) (2026-11-23)
 
 
