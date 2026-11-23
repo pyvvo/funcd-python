@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.0](https://github.com/pyvvo/funcd-python/compare/v0.26.0...v0.27.0) (2026-11-23)
+
+
+### Features
+
+* **shim:** a Job's handler gets its run in context.run (funcd ADR-0347) ([#135](https://github.com/pyvvo/funcd-python/issues/135)) ([4f4d2a5](https://github.com/pyvvo/funcd-python/commit/4f4d2a522b6330f8334b5fcbc231f7bcb85721ea))
+
 ## [0.26.0](https://github.com/pyvvo/funcd-python/compare/v0.25.0...v0.26.0) (2026-11-22)
 
 
