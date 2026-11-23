@@ -10,7 +10,9 @@ metadata:
 spec:
   sql:
     - name: readings-db
-      owner: ingest
+      owner:
+        kind: Function
+        name: ingest
   steps:
     - name: ingest
       function:
