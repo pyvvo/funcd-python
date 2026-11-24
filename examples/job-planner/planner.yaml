@@ -1,0 +1,17 @@
+# region function
+# pyplanner: a Function that starts a run of the Job pyreport and reads it back, through its job binding.
+apiVersion: funcd.io/v1alpha1
+kind: Function
+metadata:
+  name: pyplanner
+  namespace: default
+  resourceGroup: rg1
+spec:
+  runtime: python314
+  handler: handle
+  image: oci-layout:///mnt/funcd-deps/registry:pyplanner   # funcdctl push of src/main.py, staged as pyplanner.py
+  bindings:
+    job:
+      - alias: report   # the name that the handler passes to context.job
+        job: pyreport   # the Job of the namespace that it may start and read
+# endregion function
