@@ -48,7 +48,9 @@ def _request(
 
 
 def _refusal(call: str, status: int, data: bytes) -> JobError:
-    """funcd's problem as a JobError; a body that is no problem keeps its text as the detail."""
+    """funcd's problem as a JobError. A body that is no problem, as the 422 of an input off the Job's
+    contract, which answers as a Function's call does, keeps its text as the detail, as context.invoke's
+    error does."""
     text = data.decode("utf-8", "replace")
     try:
         problem = json.loads(text)
@@ -56,6 +58,8 @@ def _refusal(call: str, status: int, data: bytes) -> JobError:
         problem = None
     if not isinstance(problem, dict):
         problem = {"detail": text}
+    elif "detail" not in problem:
+        problem = {**problem, "detail": text}
     return JobError(call, status, problem)
 
 

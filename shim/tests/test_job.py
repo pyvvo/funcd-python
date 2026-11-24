@@ -80,3 +80,16 @@ def test_a_refusal_raises_a_job_error_with_its_problem(api: DependencyAPI) -> No
         JobClient().start("other", {})
     assert err.value.problem == {"detail": "denied"}
     assert isinstance(err.value, RuntimeError), "a JobError is the shim's error, as context.addon's"
+
+
+def test_an_input_off_the_contract_raises_422_with_the_body_as_its_detail(api: DependencyAPI) -> None:
+    violation = (
+        b'{"error": "run input does not match the input schema of Job report",'
+        b' "details": [{"path": "/month", "message": "required"}]}'
+    )
+    api.routes["/job/stack"] = (422, violation)
+    with pytest.raises(JobError, match=r"failed: 422 \{\"error\": \"run input does not match") as err:
+        JobClient().start("stack", {})
+    assert err.value.status == 422
+    assert err.value.problem["detail"] == violation.decode()
+    assert err.value.problem["details"] == [{"path": "/month", "message": "required"}]
