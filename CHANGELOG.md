@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.0](https://github.com/pyvvo/funcd-python/compare/v0.30.0...v0.31.0) (2026-11-24)
+
+
+### Features
+
+* **shim:** a worker in a container reaches the local API at FUNCD_INVOKE_URL with its token, and FUNCD_LOG_STDOUT prints its records ([#144](https://github.com/pyvvo/funcd-python/issues/144)) ([1a35d2f](https://github.com/pyvvo/funcd-python/commit/1a35d2f7f27e0411fe06c013500689060b994b93))
+
 ## [0.30.0](https://github.com/pyvvo/funcd-python/compare/v0.29.0...v0.30.0) (2026-11-24)
 
 
