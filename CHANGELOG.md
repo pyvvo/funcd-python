@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.0](https://github.com/pyvvo/funcd-python/compare/v0.29.0...v0.30.0) (2026-11-24)
+
+
+### Features
+
+* **shim:** a Job's preview call, context.approval and context.job (funcd ADR-0348, ADR-0349) ([#142](https://github.com/pyvvo/funcd-python/issues/142)) ([04977f9](https://github.com/pyvvo/funcd-python/commit/04977f92319a4372121225aa0821659994cbdd08))
+
 ## [0.29.0](https://github.com/pyvvo/funcd-python/compare/v0.28.0...v0.29.0) (2026-11-24)
 
 
