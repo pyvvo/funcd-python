@@ -52,6 +52,7 @@ def dependency_api(sock_dir: Path) -> Iterator[DependencyAPI]:
 
         do_PUT = do_GET  # noqa: N815 - stdlib signature
         do_DELETE = do_GET  # noqa: N815 - stdlib signature
+        do_POST = do_GET  # noqa: N815 - stdlib signature
 
     server = UnixHTTPServer(api.path, Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

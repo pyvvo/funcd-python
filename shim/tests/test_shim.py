@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+import types
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -30,7 +31,7 @@ from fakeapi import CLOSE, HOLD, DependencyAPI
 from loopback import exchange, statuses, warm_calls
 from request_heads import CONTENT_TYPE_LINES, post_with_line
 
-from funcd_shim import shim
+from funcd_shim import runtime, shim
 from funcd_shim.types import CloudEvent, FunctionContext, JobContext
 
 ECHO = (
@@ -942,35 +943,128 @@ def test_shim_as_pid_1_exits_143_on_sigterm_with_a_call_in_flight(tmp_path: Path
         proc.wait(timeout=5)
 
 
-def test_a_job_worker_hands_the_handler_its_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    """scenario: job-context — a Job's worker (funcd ADR-0347) hands the handler its run, the phase from the
-    event type (funcd ADR-0348)."""
-    env = {
-        "FUNCD_JOB_RUN": "hello-abc",
-        "FUNCD_JOB": "hello",
-        "FUNCD_JOB_REVISION": "hello-v1",
-        "FUNCD_JOB_STARTED_BY": "alice",
+JOB_ENV = {
+    "FUNCD_JOB_RUN": "hello-abc",
+    "FUNCD_JOB": "hello",
+    "FUNCD_JOB_REVISION": "hello-v1",
+    "FUNCD_JOB_STARTED_BY": "alice",
+}
+APPROVAL = {"approvedBy": "bob", "digest": "sha256:" + "1" * 64, "preview": {"summary": "2 to add"}}
+
+
+def _run_of(phase: str) -> dict[str, str]:
+    return {
+        "name": "hello-abc",
+        "job": "hello",
+        "revision": "hello-v1",
+        "phase": phase,
+        "started_by": "alice",
     }
-    for key, value in env.items():
+
+
+@pytest.fixture
+def job_worker(dependency_api: DependencyAPI, monkeypatch: pytest.MonkeyPatch) -> DependencyAPI:
+    """A Job worker's env, its local API socket answering ``GET /job/run`` with APPROVAL."""
+    for key, value in JOB_ENV.items():
         monkeypatch.setenv(key, value)
+    monkeypatch.setenv("FUNCD_INVOKE_SOCKET", dependency_api.path)
+    dependency_api.routes["/job/run"] = (
+        200,
+        json.dumps({"name": "hello-abc", "approval": APPROVAL}).encode(),
+    )
+    return dependency_api
+
+
+def test_a_job_worker_hands_the_handler_its_run_and_its_approval(job_worker: DependencyAPI) -> None:
+    """scenario: job-context — a Job's worker (funcd ADR-0347) hands the handler its run and, in the run's
+    call, the approval funcd recorded, read from ``GET /job/run`` (funcd ADR-0348)."""
 
     def handle(context: JobContext, event: CloudEvent[Any]) -> dict[str, Any]:
-        return {"run": dict(context.run), "remaining": context.remaining_ms()}
+        return {"run": dict(context.run), "approval": context.approval, "remaining": context.remaining_ms()}
 
     with serve(handle) as base:
-        for event_type, phase in (("funcd.job.run", "run"), ("funcd.job.preview", "preview")):
-            status, body = post(base, json.dumps({"type": event_type, "data": None}))
-            assert status == 200
-            assert json.loads(body) == {
-                "run": {
-                    "name": "hello-abc",
-                    "job": "hello",
-                    "revision": "hello-v1",
-                    "phase": phase,
-                    "started_by": "alice",
-                },
-                "remaining": None,
-            }
+        status, body = post(base, json.dumps({"type": "funcd.job.run", "data": None}))
+    assert status == 200
+    assert json.loads(body) == {
+        "run": _run_of("run"),
+        "approval": {"approved_by": "bob", "digest": APPROVAL["digest"], "preview": {"summary": "2 to add"}},
+        "remaining": None,
+    }
+    assert job_worker.calls == ["GET /job/run -"]
+
+
+def test_a_job_run_with_no_approval_has_none(job_worker: DependencyAPI) -> None:
+    """scenario: job-bypass-runs-at-once — a run with no approval, as one of a Job with approval.bypass, has
+    ``None``."""
+    job_worker.routes["/job/run"] = (200, b'{"name": "hello-abc", "approval": null}')
+    with serve(lambda context, event: {"approval": context.approval}) as base:
+        status, body = post(base, json.dumps({"type": "funcd.job.run", "data": None}))
+    assert (status, json.loads(body)) == (200, {"approval": None})
+
+
+def test_a_job_run_whose_approval_cannot_be_read_fails_before_the_handler(job_worker: DependencyAPI) -> None:
+    """funcd ADR-0348: a handler never runs with an approval the shim could not read."""
+    job_worker.routes["/job/run"] = (403, b'{"title":"Forbidden","status":403,"detail":"no Job\'s worker"}')
+    called: list[bool] = []
+
+    def handle(context: JobContext, event: CloudEvent[Any]) -> dict[str, Any]:
+        called.append(True)
+        return {}
+
+    with serve(handle) as base:
+        status, body = post(base, json.dumps({"type": "funcd.job.run", "data": None}))
+    assert status == 500
+    assert "context.approval failed: 403" in json.loads(body)["error"]
+    assert called == []
+
+
+def test_a_job_preview_call_calls_the_preview_export(job_worker: DependencyAPI) -> None:
+    """scenario: job-run-waits-for-approval — a preview call (``funcd.job.preview``) calls the module's
+    preview with the run in phase ``preview`` and no approval, and never the handler."""
+    handled: list[bool] = []
+
+    def handle(context: FunctionContext, event: CloudEvent[Any]) -> dict[str, Any]:
+        handled.append(True)
+        return {}
+
+    def preview(context: JobContext, event: CloudEvent[Any]) -> dict[str, Any]:
+        return {"run": dict(context.run), "approval": context.approval, "plan": event.get("data")}
+
+    request_handler = shim.make_request_handler(handle, preview=preview)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), request_handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        status, body = post(base, json.dumps({"type": "funcd.job.preview", "data": {"op": "plan"}}))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+    assert status == 200
+    assert json.loads(body) == {"run": _run_of("preview"), "approval": None, "plan": {"op": "plan"}}
+    assert handled == []
+    assert job_worker.calls == [], "a preview reads no approval"
+
+
+def test_a_job_module_with_no_preview_previews_its_input(job_worker: DependencyAPI) -> None:
+    """scenario: job-without-preview-export — a module with no preview export previews its run's input."""
+    with serve(lambda context, event: {"ran": True}) as base:
+        status, body = post(base, json.dumps({"type": "funcd.job.preview", "data": {"op": "plan"}}))
+        assert (status, json.loads(body)) == (200, {"op": "plan"})
+        status, _ = post(base, json.dumps({"type": "funcd.job.preview"}))
+        assert status == 204, "a run with no input previews null"
+
+
+def test_resolve_preview_finds_the_export_or_none() -> None:
+    """funcd ADR-0348: the preview export is optional, and one that is not callable fails the shape-gate."""
+    module = types.ModuleType("m")
+    assert runtime.resolve_preview(module) is None
+    module.preview = lambda context, event: {}  # type: ignore[attr-defined]
+    assert runtime.resolve_preview(module) is module.preview
+    module.preview = "plan"  # type: ignore[attr-defined]
+    with pytest.raises(runtime.ShapeError, match='export "preview" is not callable'):
+        runtime.resolve_preview(module)
 
 
 def test_a_function_worker_context_has_no_run(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -43,6 +43,7 @@ from .deadline import deadline_from, stuck
 from .funclog import install_log_capture, open_channel
 from .invoke import MEMBER_HEADER, _UnixHTTPConnection
 from .invoke import invoke as _invoke
+from .job import JobClient, read_approval
 from .kv import KVClient
 from .lake import LakeClient
 from .principal import principal_from
@@ -53,7 +54,7 @@ from .types import CloudEvent, FunctionContext, Handler, RunInfo
 
 if TYPE_CHECKING:
     from .funclog import _Channel
-    from .types import Principal
+    from .types import Approval, Preview, Principal
 
 
 class _Context:
@@ -95,6 +96,10 @@ class _Context:
     @property
     def addon(self) -> AddonClient:
         return AddonClient(channel=self._channel)
+
+    @property
+    def job(self) -> JobClient:
+        return JobClient()
 
     def remaining_ms(self) -> int | None:
         return invcontext.remaining_ms()
@@ -245,15 +250,25 @@ class _RequestHeaders(http.client.HTTPMessage):
 
 
 class _JobContext(_Context):
-    """A Job worker's context (funcd ADR-0347): the FunctionContext plus the call's run."""
+    """A Job worker's context (funcd ADR-0347, ADR-0348): the FunctionContext plus the call's run and, in the
+    run's call, the approval it runs under."""
 
-    def __init__(self, channel: _Channel | None, run: RunInfo) -> None:
+    def __init__(self, channel: _Channel | None, run: RunInfo, approval: Approval | None) -> None:
         super().__init__(channel)
         self._run = run
+        self._approval = approval
 
     @property
     def run(self) -> RunInfo:
         return self._run
+
+    @property
+    def approval(self) -> Approval | None:
+        return self._approval
+
+
+PREVIEW_EVENT = "funcd.job.preview"
+"""The event type of a run's preview call (funcd ADR-0348)."""
 
 
 def job_run_from(env: Mapping[str, str]) -> dict[str, str] | None:
@@ -277,7 +292,7 @@ def with_phase(job: Mapping[str, str], event: CloudEvent[Any]) -> RunInfo:
         name=job["name"],
         job=job["job"],
         revision=job["revision"],
-        phase="preview" if event.get("type") == "funcd.job.preview" else "run",
+        phase="preview" if event.get("type") == PREVIEW_EVENT else "run",
         started_by=job["started_by"],
     )
 
@@ -286,14 +301,30 @@ def make_request_handler(
     handler: Handler,
     channel: _Channel | None = None,
     fn_name: str = "invoke",
+    preview: Preview | None = None,
 ) -> type[BaseHTTPRequestHandler]:
-    """Build the ``BaseHTTPRequestHandler`` class that serves the contract around *handler*.
+    """Build the ``BaseHTTPRequestHandler`` class that serves the contract around *handler*, and a Job
+    module's *preview*.
 
     ADR-0101: when *channel* is set, each invocation emits an auto SERVER span on it (adopting the
     incoming ``traceparent`` or minting a root); *fn_name* names the span.
     """
     context: FunctionContext = _Context(channel)
     job = job_run_from(os.environ)
+
+    def call(event: CloudEvent[Any]) -> Any:
+        """How a call reaches the module (funcd ADR-0347, ADR-0348): a Function's call and a Job's run call
+        the handler, the run with the approval funcd recorded; a Job's preview call calls the module's
+        preview, or answers the run's input when the module has none."""
+        if job is None:
+            return runtime.call_handler(handler, context, event)
+        if event.get("type") == PREVIEW_EVENT:
+            if preview is None:
+                return event.get("data")
+            return runtime.call_handler(preview, _JobContext(channel, with_phase(job, event), None), event)
+        return runtime.call_handler(
+            handler, _JobContext(channel, with_phase(job, event), read_approval()), event
+        )
 
     class ShimHandler(BaseHTTPRequestHandler):
         # HTTP/1.1 → keep-alive: reuse the TCP connection across requests instead of closing after
@@ -384,9 +415,8 @@ def make_request_handler(
                 deadline=deadline_from(self.headers, received),
                 principal=principal_from(self.headers),
             ) as span:
-                call_context = context if job is None else _JobContext(channel, with_phase(job, event))
                 try:
-                    result = runtime.call_handler(handler, call_context, event)
+                    result = call(event)
                 except BaseException as err:  # noqa: BLE001 - user handler errors, SystemExit too, become 500
                     span.fail(str(err))
                     self._send_json(500, {"error": str(err)})
@@ -440,13 +470,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         module = runtime.load_module(artifact)
         handler = runtime.resolve_handler(module, handler_name)
+        preview = runtime.resolve_preview(module)
     except runtime.ShapeError as err:
         print(f"funcd-shim: shape error: {err}", file=sys.stderr)
         return 3  # materialization shape-gate failure (ADR-0030 §3)
 
     hostname = "0.0.0.0" if fixed_port > 0 else "127.0.0.1"  # noqa: S104 - container bind is intentional
     fn_name = os.environ.get("FUNCD_FUNCTION", "invoke")
-    server = ThreadingHTTPServer((hostname, fixed_port), make_request_handler(handler, channel, fn_name))
+    server = ThreadingHTTPServer(
+        (hostname, fixed_port), make_request_handler(handler, channel, fn_name, preview)
+    )
     bound_port = server.server_address[1]
     if port_file:
         with open(port_file, "w", encoding="utf-8") as fh:

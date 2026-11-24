@@ -25,6 +25,7 @@ from .blob import BlobClient
 from .config import ConfigClient
 from .funclog import install_log_capture, open_channel
 from .invoke import invoke as _invoke
+from .job import JobClient
 from .kv import KVClient
 from .lake import LakeClient
 from .runtime import call_handler
@@ -209,6 +210,10 @@ class _Ctx:
     @property
     def addon(self) -> AddonClient:
         return AddonClient(_member, _channel)
+
+    @property
+    def job(self) -> JobClient:
+        return JobClient(_member)
 
     def remaining_ms(self) -> int | None:
         return invcontext.remaining_ms()

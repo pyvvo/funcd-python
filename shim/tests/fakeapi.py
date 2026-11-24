@@ -12,8 +12,8 @@ class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer)
 
 
 class DependencyAPI:
-    """A fake worker-node local API serving funcd's ``GET /health/dependencies`` (funcd ADR-0215) or its
-    secret routes (funcd ADR-0249).
+    """A fake worker-node local API serving funcd's ``GET /health/dependencies`` (funcd ADR-0215), its
+    secret routes (funcd ADR-0249) or its job routes (funcd ADR-0348, ADR-0349).
 
     ``routes`` maps a request path to a ``(status, body)``, answered first. ``replies`` maps the
     ``X-Funcd-Member`` value (``"-"`` for none) to a ``(status, body)``, to ``HOLD`` (no answer until the test

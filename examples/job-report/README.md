@@ -9,9 +9,9 @@ cancel can stop the run while it runs, and returns one row for each day of the m
 ```
 
 ```
-src/main.py              # the handler, with its input and output types JobInput and JobOutput
+src/main.py              # the handler, with its input and output types JobInput and JobOutput, and the run's preview
 tests/test_handler.py    # the author's unit tests, with no platform
-report.yaml              # the Job resource (runtime: python314, handler: handle, timeout, concurrency)
+report.yaml              # the Job resource (runtime: python314, handler: handle, timeout, concurrency, approval.bypass)
 pyreport.contract.yaml   # the artifact's runtime and I/O contract (funcd ADR-0247): month alone, required
 pyproject.toml           # uv project; depends on funcd-shim for the types
 ```

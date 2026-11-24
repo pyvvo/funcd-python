@@ -1,0 +1,22 @@
+# region contract
+runtime: python314
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    month:
+      type: string
+  required:
+    - month
+output:
+  type: object
+  additionalProperties: false
+  properties:
+    run:
+      type: string
+    phase:
+      type: string
+  required:
+    - run
+    - phase
+# endregion contract

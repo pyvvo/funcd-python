@@ -1,0 +1,47 @@
+[project]
+name = "funcd-example-job-planner"
+version = "0.1.0"
+description = "A funcd Function example in Python: pyplanner, which starts a run of the Job pyreport for the month of its event, named after the month, and reads the run back with context.job."
+authors = [{ name = "The funcd Authors" }]
+requires-python = ">=3.12"
+# funcd-shim is the typed authoring contract (FunctionContext, CloudEvent). At deploy time the artifact is just
+# src/main.py, which the platform's curated Python image runs with its shim; this dependency is for local
+# typechecking and tests only.
+dependencies = ["funcd-shim"]
+
+[dependency-groups]
+dev = ["mypy>=1.13", "pytest>=8.3", "ruff>=0.8"]
+
+[tool.uv.sources]
+funcd-shim = { path = "../../shim" }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = ["src", "tests"]
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+# The Function is pyplanner: funcdctl dev and funcd-bundle find its entry and its contract, pyplanner.contract.yaml, by
+# it.
+[tool.funcd-bundle.functions]
+pyplanner = "src/main.py"
