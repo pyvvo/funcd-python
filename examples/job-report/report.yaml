@@ -1,0 +1,15 @@
+# region job
+# pyreport: a Job whose runs each report on the month of their input.
+apiVersion: funcd.io/v1alpha1
+kind: Job
+metadata:
+  name: pyreport
+  namespace: default
+  resourceGroup: rg1
+spec:
+  runtime: python314
+  handler: handle
+  image: oci-layout:///mnt/funcd-deps/registry:pyreport   # funcdctl push of src/main.py, staged as pyreport.py
+  timeout: 10m
+  concurrency: 2
+# endregion job
