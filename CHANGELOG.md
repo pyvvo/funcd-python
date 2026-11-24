@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.0](https://github.com/pyvvo/funcd-python/compare/v0.28.0...v0.29.0) (2026-11-24)
+
+
+### Features
+
+* **examples:** job-report, a Job whose runs each report on one month (funcd ADR-0347) ([#140](https://github.com/pyvvo/funcd-python/issues/140)) ([17edccb](https://github.com/pyvvo/funcd-python/commit/17edccb5927985dda6c64849cd8c864bc4faf5fb))
+
 ## [0.28.0](https://github.com/pyvvo/funcd-python/compare/v0.27.0...v0.28.0) (2026-11-23)
 
 
