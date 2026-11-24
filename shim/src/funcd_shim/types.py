@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .addon import AddonClient
     from .blob import BlobClient
     from .config import ConfigClient
+    from .job import JobClient
     from .kv import KVClient
     from .lake import LakeClient
     from .secret import SecretClient
@@ -121,6 +122,12 @@ class FunctionContext(Protocol):
         and returns the engine's answer whatever its status."""
         ...
 
+    @property
+    def job(self) -> JobClient:
+        """The Jobs that the function binds, by alias: ``start`` starts a run of one with an input, and
+        ``get`` reads a run back."""
+        ...
+
     def remaining_ms(self) -> int | None:
         """The whole milliseconds left before the call's deadline, 0 once it has passed, or ``None`` when
         the call has none."""
@@ -148,14 +155,55 @@ class RunInfo(TypedDict):
     started_by: str
 
 
+class Approval(TypedDict):
+    """An approval of a run's preview (funcd ADR-0348): who approved it, the digest the approval names, and
+    the document of that preview."""
+
+    approved_by: str
+    digest: str
+    preview: Json
+
+
+class JobRunState(TypedDict):
+    """A run of a Job, as ``context.job.get`` reads it (funcd ADR-0349)."""
+
+    name: str
+    phase: str
+    """``Pending``, ``Previewing``, ``AwaitingApproval``, ``Running``, ``Succeeded``, ``Failed``,
+    ``Cancelled`` or ``Rejected``."""
+    reason: str
+    """Why the run is in its phase, empty while it runs."""
+    started_at: str | None
+    """When the run started running, an RFC 3339 time; ``None`` before."""
+    ended_at: str | None
+    """When the run ended, an RFC 3339 time; ``None`` before."""
+    result: Json
+    """The handler's answer once the run Succeeded, else ``None``."""
+
+
 @runtime_checkable
 class JobContext(FunctionContext, Protocol):
-    """The context a Job's handler gets (funcd ADR-0347): the FunctionContext plus its run."""
+    """The context a Job's handler and its preview get (funcd ADR-0347, ADR-0348): the FunctionContext plus
+    its run and, in the run's call, the approval it runs under."""
 
     @property
     def run(self) -> RunInfo:
         """The run this call belongs to."""
         ...
+
+    @property
+    def approval(self) -> Approval | None:
+        """The person's approval of the preview that this run runs: who approved it, the preview's digest and
+        its document. ``None`` in the preview call, and for a run of a Job with ``approval.bypass``."""
+        ...
+
+
+class Preview(Protocol):
+    """A Job module's optional ``preview`` export (funcd ADR-0348): called in a run's preview call, before a
+    person approves the run, it returns what the run would change, as JSON. A module with none previews its
+    run's input."""
+
+    def __call__(self, context: JobContext, event: CloudEvent[Any]) -> Json: ...
 
 
 class DeadlineExceeded(BaseException):

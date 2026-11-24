@@ -15,7 +15,7 @@ from typing import Any, cast
 
 from .deadline import Call
 from .invcontext import current_inv
-from .types import CloudEvent, DeadlineExceeded, FunctionContext, Handler
+from .types import CloudEvent, DeadlineExceeded, FunctionContext, Handler, Preview
 
 
 class ShapeError(Exception):
@@ -46,7 +46,18 @@ def resolve_handler(module: ModuleType, name: str) -> Handler:
     return cast(Handler, candidate)
 
 
-def call_handler(handler: Handler, context: FunctionContext, event: CloudEvent[Any]) -> Any:
+def resolve_preview(module: ModuleType) -> Preview | None:
+    """Pick a Job module's optional ``preview`` export (funcd ADR-0348): ``None`` when the module has none;
+    one that is not callable is a shape-gate failure, as a handler's is."""
+    candidate = getattr(module, "preview", None)
+    if candidate is None:
+        return None
+    if not callable(candidate):
+        raise ShapeError('export "preview" is not callable')
+    return cast(Preview, candidate)
+
+
+def call_handler(handler: Handler | Preview, context: FunctionContext, event: CloudEvent[Any]) -> Any:
     """Call *handler* and return its result, running a coroutine (an ``async def`` handler) to
     completion first: the Node shim awaits its handler, and ADR-0049 keeps the same contract. A call
     whose context carries a deadline runs under its watchdog, and not at all once its stop has passed
@@ -67,8 +78,10 @@ def call_handler(handler: Handler, context: FunctionContext, event: CloudEvent[A
             call.end()
 
 
-def _run(handler: Handler, context: FunctionContext, event: CloudEvent[Any], call: Call | None) -> Any:
-    result = handler(context, event)
+def _run(
+    handler: Handler | Preview, context: FunctionContext, event: CloudEvent[Any], call: Call | None
+) -> Any:
+    result = handler(context, event)  # type: ignore[arg-type]  # a preview gets the JobContext the shim builds
     if not inspect.iscoroutine(result):
         return result
     with asyncio.Runner() as runner:
@@ -80,4 +93,5 @@ __all__ = [
     "call_handler",
     "load_module",
     "resolve_handler",
+    "resolve_preview",
 ]

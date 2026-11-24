@@ -200,6 +200,23 @@
           "doc": "Sends an HTTP request to the engine of the add-on object that the function binds under ``alias``, through funcd, and returns the engine's answer whatever its status; funcd follows no redirect. ``path`` starts with ``/`` and may carry a query, and ``method``, ``headers`` and ``body`` make the rest of the request. Raises ``RuntimeError`` with funcd's problem when funcd refuses the call: 403 for an alias the function does not bind or a call a Policy forbids, 404 for a path the object's edge entry does not serve, 413 for a request or an answer body over ``addons.callPayloadLimit``, 1 MiB by default, and 503 while the object is not Ready, while its namespace is held (with its ``Retry-After``), or when the engine does not answer within ``addons.callTimeout``, 10 seconds by default."
         }
       ]
+    },
+    {
+      "name": "job",
+      "type": "JobClient",
+      "doc": "The Jobs that the function binds, by alias: ``start`` starts a run of one with an input, and ``get`` reads a run back.",
+      "methods": [
+        {
+          "name": "start",
+          "signature": "start(alias: str, input: Any = None, name: str | None = None) -> str",
+          "doc": "Starts a run of the Job that the function binds under ``alias``, with ``input`` as the run's input, and returns the run's name at once, without waiting for the run. Without ``name``, funcd names the run ``<job>-<id>``, and a start sent again starts a second run; with ``name``, a start sent again with the same input returns that run, so a function called more than once for one event, as at-least-once delivery does, names the run from the event's id. A run of a Job without ``approval.bypass`` waits for a person's approval. Raises ``JobError``: 403 when the function binds no Job under ``alias`` or a Policy forbids it, 404 when the Job does not exist, 409 when another run holds the name, 413 when the input passes ``job.payloadLimit``, and 422 when it does not match the Job's input schema."
+        },
+        {
+          "name": "get",
+          "signature": "get(alias: str, run: str) -> JobRunState",
+          "doc": "Reads ``run``, a run of the Job that the function binds under ``alias``: its phase, its reason, its times and, once it Succeeded, its result. Raises ``JobError``: 403 when the function binds no Job under ``alias`` or a Policy forbids it, and 404 when the run is not one of that Job's, or funcd removed it after ``job.retention``."
+        }
+      ]
     }
   ]
 }
