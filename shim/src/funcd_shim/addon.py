@@ -8,12 +8,11 @@ and raises. Stdlib-only, synchronous.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
-from .invoke import MEMBER_HEADER, _UnixHTTPConnection
+from .invoke import MEMBER_HEADER, local_api
 from .tracespan import ClientSpan
 
 if TYPE_CHECKING:
@@ -59,8 +58,8 @@ class AddonClient:
         namespace is held (with its ``Retry-After``), or when the engine does not answer within
         ``addons.callTimeout``, 10 seconds by default."""
         with ClientSpan(self._channel, alias, self._member) as span:
-            socket_path = os.environ.get("FUNCD_INVOKE_SOCKET")
-            if not socket_path:
+            conn = local_api()
+            if conn is None:
                 raise RuntimeError(
                     "context.addon: worker-node local API socket unavailable (FUNCD_INVOKE_SOCKET unset)"
                 )
@@ -73,7 +72,6 @@ class AddonClient:
                 own["traceparent"] = span.traceparent
             names = {name.lower() for name in own}
             sent = {k: v for k, v in (headers or {}).items() if k.lower() not in names} | own
-            conn = _UnixHTTPConnection(socket_path)
             try:
                 conn.request(method, f"/addon/{quote(alias, safe='')}{path}", body=body, headers=sent)
                 resp = conn.getresponse()

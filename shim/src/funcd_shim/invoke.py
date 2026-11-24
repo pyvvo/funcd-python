@@ -12,6 +12,7 @@ import json
 import os
 import socket
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from .tracespan import ClientSpan
 
@@ -37,6 +38,37 @@ class _UnixHTTPConnection(http.client.HTTPConnection):
 MEMBER_HEADER = "X-Funcd-Member"
 """The local API request header naming the calling pool member; the solo shim sends none."""
 
+TOKEN_HEADER = "X-Funcd-Invoke-Token"  # noqa: S105 - a header's name, not a secret
+"""The header that carries a container worker's token to its own listener (funcd ADR-0346 Decision 6)."""
+
+
+class _TokenHTTPConnection(http.client.HTTPConnection):
+    """A TCP HTTPConnection to a container worker's own local API listener, which sends the worker's token in
+    ``TOKEN_HEADER`` on every request (funcd ADR-0346 Decision 6)."""
+
+    def __init__(self, host: str, port: int, token: str, timeout: float | None = None) -> None:
+        super().__init__(host, port, timeout=timeout)
+        self._token = token
+
+    def putrequest(self, method: str, url: str, *args: Any, **kwargs: Any) -> None:
+        super().putrequest(method, url, *args, **kwargs)
+        if self._token:
+            self.putheader(TOKEN_HEADER, self._token)
+
+
+def local_api(timeout: float | None = None) -> http.client.HTTPConnection | None:
+    """A connection to funcd's worker-node local API: ``FUNCD_INVOKE_URL``, the listener of a worker in a
+    container, with ``FUNCD_INVOKE_TOKEN`` on every request (funcd ADR-0346 Decision 6), else the socket
+    ``FUNCD_INVOKE_SOCKET`` (funcd ADR-0064); None when neither is set."""
+    url = os.environ.get("FUNCD_INVOKE_URL")
+    if url:
+        u = urlsplit(url)
+        return _TokenHTTPConnection(
+            u.hostname or "127.0.0.1", u.port or 80, os.environ.get("FUNCD_INVOKE_TOKEN", ""), timeout
+        )
+    socket_path = os.environ.get("FUNCD_INVOKE_SOCKET")
+    return _UnixHTTPConnection(socket_path, timeout) if socket_path else None
+
 
 def invoke(alias: str, payload: Any, *, member: str | None = None, channel: Channel | None = None) -> Any:
     """POST *payload* to ``/invoke/<alias>`` over the worker-node UDS; return the target's JSON output.
@@ -54,12 +86,11 @@ def invoke(alias: str, payload: Any, *, member: str | None = None, channel: Chan
     """
     # The CLIENT span brackets the whole call, so it opens before any check that can fail.
     with ClientSpan(channel, alias, member) as span:
-        socket_path = os.environ.get("FUNCD_INVOKE_SOCKET")
-        if not socket_path:
+        conn = local_api()
+        if conn is None:
             raise RuntimeError(
                 "context.invoke: worker-node local API socket unavailable (FUNCD_INVOKE_SOCKET unset)"
             )
-        conn = _UnixHTTPConnection(socket_path)
         try:
             body = json.dumps(payload).encode("utf-8")
             headers = {"content-type": "application/json"}

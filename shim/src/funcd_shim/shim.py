@@ -41,7 +41,7 @@ from .blob import BlobClient
 from .config import ConfigClient
 from .deadline import deadline_from, stuck
 from .funclog import install_log_capture, open_channel
-from .invoke import MEMBER_HEADER, _UnixHTTPConnection
+from .invoke import MEMBER_HEADER, local_api
 from .invoke import invoke as _invoke
 from .job import JobClient, read_approval
 from .kv import KVClient
@@ -129,8 +129,10 @@ def socket_report(reason: str, message: str) -> dict[str, str]:
     return {"kind": "socket", "binding": "", "reason": reason, "message": message}
 
 
-def _ask_dependencies(socket_path: str, member: str | None, timeout: float) -> bytes | None:
-    conn = _UnixHTTPConnection(socket_path, timeout)
+def _ask_dependencies(member: str | None, timeout: float) -> bytes | None:
+    conn = local_api(timeout)
+    if conn is None:
+        return None
     try:
         conn.request("GET", "/health/dependencies", headers={MEMBER_HEADER: member} if member else {})
         resp = conn.getresponse()
@@ -159,20 +161,19 @@ def _ask_dependencies(socket_path: str, member: str | None, timeout: float) -> b
 def check_dependencies(
     members: Sequence[str | None], budget: float = DEPENDENCY_CHECK_BUDGET
 ) -> dict[str | None, bytes]:
-    """Ask funcd's ``GET /health/dependencies`` over ``FUNCD_INVOKE_SOCKET`` for each of *members* at once,
+    """Ask funcd's ``GET /health/dependencies`` over the local API for each of *members* at once,
     under one overall *budget* (funcd ADR-0215 Decision 4); None is the solo shim, a name a pool member.
 
     Returns the JSON report readiness answers with 503 for each member whose check fails. 200 passes, and so
     do 404 and no socket: a funcd without the endpoint. A 503 report is relayed as funcd wrote it; any other
     answer, a socket error or no answer within *budget* is kind ``socket``."""
-    socket_path = os.environ.get("FUNCD_INVOKE_SOCKET")
-    if not socket_path:
+    if local_api() is None:
         return {}
     deadline = time.monotonic() + budget
     answers: dict[str | None, bytes | None] = {}
 
     def ask(member: str | None) -> None:
-        answers[member] = _ask_dependencies(socket_path, member, budget)
+        answers[member] = _ask_dependencies(member, budget)
 
     threads = [threading.Thread(target=ask, args=(member,), daemon=True) for member in members]
     for thread in threads:

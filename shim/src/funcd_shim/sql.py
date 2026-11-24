@@ -9,12 +9,11 @@ Stdlib-only, synchronous.
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 from urllib.parse import quote
 
-from .invoke import MEMBER_HEADER, _UnixHTTPConnection
+from .invoke import MEMBER_HEADER, local_api
 
 type SQLParam = str | int | float | bool | None
 """A SQL parameter: rqlite takes JSON scalars."""
@@ -51,12 +50,11 @@ class SQLClient:
             self._headers[MEMBER_HEADER] = member
 
     def _call(self, verb: str, alias: str, statements: list[list[Any]]) -> list[dict[str, Any]]:
-        socket_path = os.environ.get("FUNCD_INVOKE_SOCKET")
-        if not socket_path:
+        conn = local_api()
+        if conn is None:
             raise RuntimeError(
                 "context.sql: worker-node local API socket unavailable (FUNCD_INVOKE_SOCKET unset)"
             )
-        conn = _UnixHTTPConnection(socket_path)
         try:
             body = json.dumps({"statements": statements}).encode("utf-8")
             conn.request("POST", f"/sql/{quote(alias, safe='')}/{verb}", body=body, headers=self._headers)

@@ -7,11 +7,10 @@ synchronous."""
 from __future__ import annotations
 
 import json
-import os
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote
 
-from .invoke import MEMBER_HEADER, _UnixHTTPConnection
+from .invoke import MEMBER_HEADER, local_api
 
 if TYPE_CHECKING:
     from .types import Approval, JobRunState
@@ -31,13 +30,12 @@ def _request(
     client: str, method: str, path: str, member: str | None, body: bytes | None = None
 ) -> tuple[int, bytes]:
     """One request on the local API socket: its status and body."""
-    socket_path = os.environ.get("FUNCD_INVOKE_SOCKET")
-    if not socket_path:
+    conn = local_api()
+    if conn is None:
         raise RuntimeError(f"{client}: worker-node local API socket unavailable (FUNCD_INVOKE_SOCKET unset)")
     headers = {MEMBER_HEADER: member} if member else {}
     if body is not None:
         headers["Content-Type"] = "application/json"
-    conn = _UnixHTTPConnection(socket_path)
     try:
         conn.request(method, path, body=body, headers=headers)
         resp = conn.getresponse()

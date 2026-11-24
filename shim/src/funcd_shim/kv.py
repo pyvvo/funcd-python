@@ -8,32 +8,17 @@ from __future__ import annotations
 
 import http.client
 import json
-import os
-import socket
 from dataclasses import dataclass
 from urllib.parse import quote
 
-from .invoke import MEMBER_HEADER
+from .invoke import MEMBER_HEADER, local_api
 
 
-class _UnixHTTPConnection(http.client.HTTPConnection):
-    """An HTTPConnection that dials a Unix domain socket instead of TCP."""
-
-    def __init__(self, socket_path: str) -> None:
-        super().__init__("localhost")
-        self._socket_path = socket_path
-
-    def connect(self) -> None:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.connect(self._socket_path)
-        self.sock = sock
-
-
-def _conn() -> _UnixHTTPConnection:
-    socket_path = os.environ.get("FUNCD_INVOKE_SOCKET")
-    if not socket_path:
+def _conn() -> http.client.HTTPConnection:
+    conn = local_api()
+    if conn is None:
         raise RuntimeError("context.kv: worker-node local API socket unavailable (FUNCD_INVOKE_SOCKET unset)")
-    return _UnixHTTPConnection(socket_path)
+    return conn
 
 
 def _key_path(binding: str, key: str) -> str:

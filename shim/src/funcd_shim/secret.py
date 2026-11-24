@@ -7,11 +7,10 @@ ADR-0327)."""
 from __future__ import annotations
 
 import json
-import os
 from typing import cast
 from urllib.parse import quote
 
-from .invoke import MEMBER_HEADER, _UnixHTTPConnection
+from .invoke import MEMBER_HEADER, local_api
 
 
 class SecretClient:
@@ -25,15 +24,14 @@ class SecretClient:
 
     def _request(self, method: str, path: str, body: bytes | None = None) -> tuple[int, bytes]:
         """One request on the local API socket: its status and body."""
-        socket_path = os.environ.get("FUNCD_INVOKE_SOCKET")
-        if not socket_path:
+        conn = local_api()
+        if conn is None:
             raise RuntimeError(
                 "context.secret: worker-node local API socket unavailable (FUNCD_INVOKE_SOCKET unset)"
             )
         headers = dict(self._headers)
         if body is not None:
             headers["Content-Type"] = "application/json"
-        conn = _UnixHTTPConnection(socket_path)
         try:
             conn.request(method, path, body=body, headers=headers)
             resp = conn.getresponse()
