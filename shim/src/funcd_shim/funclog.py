@@ -10,7 +10,10 @@ The channel is selected once at startup from the environment (set by the funcd l
   - ``FUNCD_LOG_FD``   — a numeric fd (e.g. ``"3"``) funcd passed in (crun ``--preserve-fds``);
                          lines are written with a synchronous ``os.write`` (the crash-tail trade, ADR-0081).
   - ``FUNCD_LOG_SOCK`` — a Unix-domain socket path (containerd bind-mount); a connected ``AF_UNIX`` stream.
-  - neither set       — no capture: ``install_log_capture()`` is a no-op and ``logging`` behaves normally.
+  - ``FUNCD_LOG_STDOUT`` — set, with neither above: every record prints its message as a line to stdout,
+                         which funcd keeps as lines, without the records' fields (funcd ADR-0346 Decision 4:
+                         a worker in a container has no channel).
+  - none set          — no capture: ``install_log_capture()`` is a no-op and ``logging`` behaves normally.
 
 The host ``Reader`` is language-agnostic: this emits the **same NDJSON wire** as the Node shim, only with
 ``"funcd.source": "logging"`` (vs Node's ``"console"``). One JSON object + ``"\n"`` per record. Stdlib only.
@@ -547,6 +550,8 @@ def install_log_capture(
     if channel is None:
         channel = _open_channel()
     if channel is None:
+        if os.environ.get("FUNCD_LOG_STDOUT"):
+            _print_to_stdout()
         return None
     handler = FuncLogHandler(channel, member, _record_bound())
     root = logging.getLogger()
@@ -556,3 +561,23 @@ def install_log_capture(
         root.setLevel(logging.INFO)
     root.addHandler(handler)
     return handler
+
+
+class _StdoutHandler(logging.Handler):
+    """Prints each record's message as one line to stdout, synchronously (funcd ADR-0346 Decision 4)."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            os.write(1, (record.getMessage() + "\n").encode("utf-8", "replace"))
+        except Exception:  # noqa: BLE001 - a closed stdout must never crash the handler
+            self.handleError(record)
+
+
+def _print_to_stdout() -> None:
+    """Print every record of INFO and above to stdout, where funcd keeps it as a line, when
+    ``FUNCD_LOG_STDOUT`` is set and no channel is: a worker in a container under funcdctl dev has none
+    (funcd ADR-0346 Decision 4)."""
+    root = logging.getLogger()
+    if root.level == logging.NOTSET or root.level > logging.INFO:
+        root.setLevel(logging.INFO)
+    root.addHandler(_StdoutHandler())
