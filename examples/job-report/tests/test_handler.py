@@ -7,7 +7,7 @@ import pytest
 from funcd_shim import CloudEvent, JobContext, RunInfo
 
 import main
-from main import JobInput, handle
+from main import JobInput, handle, preview
 
 
 class _Ctx:
@@ -51,3 +51,13 @@ def test_a_report_logs_its_month_with_the_name_of_its_run() -> None:
 def test_a_month_that_is_not_yyyy_mm_fails_the_run(month: str) -> None:
     with pytest.raises(ValueError, match=f'month "{month}" is not YYYY-MM'):
         handle(cast(JobContext, _Ctx()), _event(month))
+
+
+def test_a_runs_preview_answers_what_the_report_would_hold_with_no_work() -> None:
+    ctx = _Ctx()
+    event = _event("2026-10")
+    event["type"] = "funcd.job.preview"
+    assert preview(cast(JobContext, ctx), event) == {"month": "2026-10", "rows": 31}
+    assert ctx.lines == [], "a preview builds nothing"
+    with pytest.raises(ValueError, match='month "October" is not YYYY-MM'):
+        preview(cast(JobContext, ctx), _event("October"))

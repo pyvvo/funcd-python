@@ -12,4 +12,6 @@ spec:
   image: oci-layout:///mnt/funcd-deps/registry:pyreport   # funcdctl push of src/main.py, staged as pyreport.py
   timeout: 10m
   concurrency: 2
+  approval:
+    bypass: true   # its runs run at once, with no preview to approve
 # endregion job
